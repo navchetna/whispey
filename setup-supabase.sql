@@ -860,3 +860,149 @@ CREATE POLICY "Allow all operations on call logs with context" ON public.pype_vo
 
 -- Refresh the materialized view
 REFRESH MATERIALIZED VIEW CONCURRENTLY call_summary_materialized;
+
+-- ==============================================
+-- EVALUATION SYSTEM TABLES
+-- ==============================================
+
+-- Table for storing evaluation prompts
+CREATE TABLE public.pype_voice_evaluation_prompts (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id uuid NOT NULL,
+    name varchar(255) NOT NULL,
+    description text,
+    evaluation_type varchar(100) DEFAULT 'custom',
+    prompt_template text NOT NULL,
+    llm_provider varchar(50) NOT NULL DEFAULT 'openai',
+    model varchar(100) NOT NULL,
+    api_url text,
+    api_key text, -- Note: In production, this should be encrypted
+    scoring_output_type varchar(20) DEFAULT 'float' CHECK (scoring_output_type IN ('bool', 'int', 'percentage', 'float')),
+    temperature decimal(3,2) DEFAULT 0.0 CHECK (temperature >= 0 AND temperature <= 2),
+    max_tokens integer DEFAULT 1000 CHECK (max_tokens > 0),
+    expected_output_format jsonb DEFAULT '{}',
+    scoring_criteria jsonb DEFAULT '{}',
+    is_active boolean DEFAULT true,
+    created_by varchar(255),
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now()
+);
+
+-- Table for storing evaluation jobs
+CREATE TABLE public.pype_voice_evaluation_jobs (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id uuid NOT NULL,
+    agent_id uuid,
+    name varchar(255) NOT NULL,
+    description text,
+    prompt_ids jsonb NOT NULL, -- Array of prompt UUIDs
+    selected_traces jsonb, -- Array of trace IDs if manually selected, null for all traces
+    filter_criteria jsonb DEFAULT '{}',
+    status varchar(20) DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
+    total_traces integer DEFAULT 0,
+    completed_traces integer DEFAULT 0,
+    failed_traces integer DEFAULT 0,
+    created_by varchar(255),
+    created_at timestamp with time zone DEFAULT now(),
+    started_at timestamp with time zone,
+    completed_at timestamp with time zone,
+    error_message text
+);
+
+-- Table for storing individual evaluation results
+CREATE TABLE public.pype_voice_evaluation_results (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id uuid NOT NULL REFERENCES public.pype_voice_evaluation_jobs(id) ON DELETE CASCADE,
+    prompt_id uuid NOT NULL REFERENCES public.pype_voice_evaluation_prompts(id) ON DELETE CASCADE,
+    trace_id varchar(255) NOT NULL, -- References the original trace/call ID
+    call_id varchar(255), -- For easier querying
+    agent_id uuid,
+    evaluation_score jsonb NOT NULL, -- Stores the actual score based on output type
+    evaluation_reasoning text,
+    raw_llm_response text,
+    execution_time_ms integer,
+    llm_cost_usd decimal(10,6),
+    status varchar(20) DEFAULT 'completed' CHECK (status IN ('completed', 'failed', 'skipped')),
+    error_message text,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+-- ==============================================
+-- EVALUATION SYSTEM INDEXES
+-- ==============================================
+
+-- Indexes for evaluation prompts
+CREATE INDEX idx_evaluation_prompts_project_id ON public.pype_voice_evaluation_prompts(project_id);
+CREATE INDEX idx_evaluation_prompts_active ON public.pype_voice_evaluation_prompts(is_active) WHERE is_active = true;
+CREATE INDEX idx_evaluation_prompts_provider ON public.pype_voice_evaluation_prompts(llm_provider);
+
+-- Indexes for evaluation jobs
+CREATE INDEX idx_evaluation_jobs_project_id ON public.pype_voice_evaluation_jobs(project_id);
+CREATE INDEX idx_evaluation_jobs_agent_id ON public.pype_voice_evaluation_jobs(agent_id);
+CREATE INDEX idx_evaluation_jobs_status ON public.pype_voice_evaluation_jobs(status);
+CREATE INDEX idx_evaluation_jobs_created_at ON public.pype_voice_evaluation_jobs(created_at DESC);
+
+-- Indexes for evaluation results
+CREATE INDEX idx_evaluation_results_job_id ON public.pype_voice_evaluation_results(job_id);
+CREATE INDEX idx_evaluation_results_prompt_id ON public.pype_voice_evaluation_results(prompt_id);
+CREATE INDEX idx_evaluation_results_trace_id ON public.pype_voice_evaluation_results(trace_id);
+CREATE INDEX idx_evaluation_results_call_id ON public.pype_voice_evaluation_results(call_id);
+CREATE INDEX idx_evaluation_results_agent_id ON public.pype_voice_evaluation_results(agent_id);
+CREATE INDEX idx_evaluation_results_status ON public.pype_voice_evaluation_results(status);
+
+-- ==============================================
+-- EVALUATION SYSTEM RLS POLICIES
+-- ==============================================
+
+-- Enable RLS on evaluation tables
+ALTER TABLE public.pype_voice_evaluation_prompts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.pype_voice_evaluation_jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.pype_voice_evaluation_results ENABLE ROW LEVEL SECURITY;
+
+-- Create RLS policies for evaluation prompts
+CREATE POLICY "Allow all operations on evaluation prompts" ON public.pype_voice_evaluation_prompts
+    FOR ALL USING (true) WITH CHECK (true);
+
+-- Create RLS policies for evaluation jobs
+CREATE POLICY "Allow all operations on evaluation jobs" ON public.pype_voice_evaluation_jobs
+    FOR ALL USING (true) WITH CHECK (true);
+
+-- Create RLS policies for evaluation results
+CREATE POLICY "Allow all operations on evaluation results" ON public.pype_voice_evaluation_results
+    FOR ALL USING (true) WITH CHECK (true);
+
+-- ==============================================
+-- EVALUATION SYSTEM FUNCTIONS
+-- ==============================================
+
+-- Function to update the updated_at timestamp for prompts
+CREATE OR REPLACE FUNCTION update_evaluation_prompt_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger to automatically update updated_at on prompt changes
+CREATE TRIGGER trigger_update_evaluation_prompt_updated_at
+    BEFORE UPDATE ON public.pype_voice_evaluation_prompts
+    FOR EACH ROW
+    EXECUTE FUNCTION update_evaluation_prompt_updated_at();
+
+-- Function to automatically update job completion timestamp
+CREATE OR REPLACE FUNCTION update_evaluation_job_completion()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status IN ('completed', 'failed', 'cancelled') AND OLD.status NOT IN ('completed', 'failed', 'cancelled') THEN
+        NEW.completed_at = now();
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger to automatically update completion timestamp
+CREATE TRIGGER trigger_update_evaluation_job_completion
+    BEFORE UPDATE ON public.pype_voice_evaluation_jobs
+    FOR EACH ROW
+    EXECUTE FUNCTION update_evaluation_job_completion();

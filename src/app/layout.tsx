@@ -27,8 +27,8 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'Whispey - OSS LiveKit observability platform',
-  description: 'An observability platform for all your agents built on LiveKit.',
+  title: 'Voice Evals Observability - Professional Voice Agent Analytics',
+  description: 'A comprehensive observability platform for voice agent evaluation and analytics.',
   icons: {
     icon: '/favicon.ico',
   },
@@ -44,7 +44,8 @@ export default function RootLayout({
       signInUrl='/sign-in'
       appearance={{
         variables: {
-          colorPrimary: "#2563eb", // Blue-600
+          colorPrimary: "oklch(0.5 0.15 210)", // Custom blue to match our theme
+          colorTextSecondary: "oklch(0.5 0.02 240)",
         }
       }}
     >
@@ -75,7 +76,7 @@ export default function RootLayout({
                       <div className="min-h-screen">
                         {children}
                       </div>
-                    </SignedOut>
+                    </SignedOut>n
                     <SignedIn>
                       <SignOutHandler>
                         <SidebarWrapper>

@@ -120,6 +120,7 @@ const sidebarRoutes: SidebarRoute[] = [
     patterns: [
       { pattern: '/:projectId/agents' },
       { pattern: '/:projectId/agents/api-keys' },
+      { pattern: '/:projectId/webpages' },
     ],
     getSidebarConfig: (params, context) => {
       const { projectId } = params
@@ -132,6 +133,13 @@ const sidebarRoutes: SidebarRoute[] = [
           icon: 'Activity', 
           path: `/${projectId}/agents`, 
           group: 'Agents' 
+        },
+        {
+          id: 'webpages', 
+          name: 'Webpages', 
+          icon: 'Globe', 
+          path: `/${projectId}/webpages`, 
+          group: 'Content' 
         }
       ]
 
@@ -163,12 +171,14 @@ const sidebarRoutes: SidebarRoute[] = [
       { pattern: '/:projectId/agents/:agentId/config' },
       { pattern: '/:projectId/agents/:agentId/observability' },
       { pattern: '/:projectId/agents/:agentId/phone-call-config' },
+      { pattern: '/:projectId/agents/:agentId/evaluations' },
+      { pattern: '/:projectId/agents/:agentId/evaluations/:jobId' },
     ],
     getSidebarConfig: (params, context) => {
       const { projectId, agentId } = params
       const { isEnhancedProject, agentType } = context
 
-      const reservedPaths = ['api-keys', 'settings', 'config', 'observability'];
+      const reservedPaths = ['api-keys', 'settings', 'config', 'observability', 'evaluations'];
       if (reservedPaths.includes(agentId)) {
         return null;
       }
@@ -226,12 +236,31 @@ const sidebarRoutes: SidebarRoute[] = [
         })
       }
 
+      // Evaluation items
+      const evaluationItems = [
+        { 
+          id: 'evaluations', 
+          name: 'LLM Evaluations', 
+          icon: 'Brain', 
+          path: `/${projectId}/agents/${agentId}/evaluations`, 
+          group: 'AI Analysis' 
+        },
+        { 
+          id: 'evaluation-analytics', 
+          name: 'Evaluation', 
+          icon: 'BarChart3', 
+          path: `/${projectId}/agents/${agentId}/evaluation`, 
+          group: 'AI Analysis' 
+        }
+      ]
+
       // Combine all navigation items
       const navigation = [
         ...baseNavigation,
         ...configItems,
         // ...callItems,
-        ...enhancedItems
+        ...enhancedItems,
+        ...evaluationItems
       ]
 
       return {
@@ -334,7 +363,7 @@ export default function SidebarWrapper({ children }: SidebarWrapperProps) {
   // Load collapse preference
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const savedState = localStorage.getItem('whispey-sidebar-collapsed')
+      const savedState = localStorage.getItem('voice-evals-sidebar-collapsed')
       if (savedState !== null) {
         setIsDesktopCollapsed(JSON.parse(savedState))
       }
@@ -345,7 +374,7 @@ export default function SidebarWrapper({ children }: SidebarWrapperProps) {
     const newState = !isDesktopCollapsed
     setIsDesktopCollapsed(newState)
     if (typeof window !== 'undefined') {
-      localStorage.setItem('whispey-sidebar-collapsed', JSON.stringify(newState))
+      localStorage.setItem('voice-evals-sidebar-collapsed', JSON.stringify(newState))
     }
   }
 
@@ -395,8 +424,8 @@ export default function SidebarWrapper({ children }: SidebarWrapperProps) {
           {/* Mobile Header */}
           <div className="fixed top-0 left-0 right-0 h-14 bg-white dark:bg-gray-800 border-b flex items-center justify-between px-4 z-50 md:hidden">
             <div className="flex items-center gap-2">
-              <img src="/logo.png" alt="Whispey" className="w-6 h-6" />
-              <span className="font-semibold text-sm">Whispey</span>
+              <img src="/logo.png" alt="Voice Evals Observability" className="w-6 h-6" />
+              <span className="font-semibold text-sm">Voice Evals Observability</span>
             </div>
             
             <Sheet>

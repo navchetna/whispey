@@ -38,7 +38,8 @@ import {
   History,
   ChevronLeft,
   ChevronRight,
-  X
+  X,
+  Brain
 } from 'lucide-react'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -67,7 +68,8 @@ const ICONS = {
   TrendingUp,
   BarChart,
   CreditCard,
-  History
+  History,
+  Brain
 } as const
 
 interface NavigationItem {
@@ -428,7 +430,7 @@ export default function Sidebar({
           }}>
             <Image 
               src="/logo.png" 
-              alt="Whispey Logo" 
+              alt="Voice Evals Observability Logo" 
               width={32} 
               height={32} 
               className="flex-shrink-0 group-hover:scale-105 transition-transform duration-200" 
@@ -436,7 +438,7 @@ export default function Sidebar({
             {(!isCollapsed || isMobile) && (
               <div className="min-w-0">
                 <h1 className="text-sm font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate">
-                  Whispey
+                  Voice Evals Observability
                 </h1>
                 <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
                   LiveKit Platform

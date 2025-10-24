@@ -114,54 +114,27 @@ const modelProviders: Record<string, Provider> = {
         name: 'Meta Llama',
         models: [
           { value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B Versatile' },
-          { value: 'llama-3.1-70b-versatile', label: 'Llama 3.1 70B Versatile' },
           { value: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B Instant' },
-          { value: 'llama3-70b-8192', label: 'Llama 3 70B' },
-          { value: 'llama3-8b-8192', label: 'Llama 3 8B' },
-          { value: 'llama-3-groq-70b-tool-use', label: 'Llama 3 Groq 70B Tool Use' },
-          { value: 'llama-3-groq-8b-tool-use', label: 'Llama 3 Groq 8B Tool Use' },
           { value: 'llama-guard-3-8b', label: 'Llama Guard 3 8B' },
         ]
       },
       {
         name: 'OpenAI',
         models: [
-          { value: 'openai/gpt-oss-120b', label: 'GPT OSS 120B' },
-          { value: 'openai/gpt-oss-20b', label: 'GPT OSS 20B' },
-          { value: 'whisper-large-v3', label: 'Whisper Large V3' },
-          { value: 'whisper-large-v3-turbo', label: 'Whisper Large V3 Turbo' },
+          { value: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B' },
         ]
       },
       {
         name: 'Mixtral',
         models: [
           { value: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B' },
-          { value: 'mixtral-8x22b-instruct-v0.1', label: 'Mixtral 8x22B Instruct' },
         ]
       },
       {
         name: 'Google',
         models: [
-          { value: 'gemma2-9b-it', label: 'Gemma 2 9B IT' },
-          { value: 'gemma-7b-it', label: 'Gemma 7B IT' },
-        ]
-      },
-      {
-        name: 'Qwen',
-        models: [
-          { value: 'qwen/qwen3-32b', label: 'Qwen3 32B' },
-          { value: 'qwen/qwen2.5-coder-32b-instruct', label: 'Qwen2.5 Coder 32B' },
-        ]
-      },
-      {
-        name: 'Other Models',
-        models: [
-          { value: 'deepseek-r1-distill-llama-70b', label: 'DeepSeek R1 Distill Llama 70B' },
-          { value: 'allam-2-7b', label: 'ALLaM 2 7B' },
-          { value: 'moonshotai/kimi-k2-instruct', label: 'Kimi K2 Instruct' },
-          { value: 'moonshotai/kimi-k2-instruct-0905', label: 'Kimi K2 0905' },
-          { value: 'playai-tts', label: 'PlayAI TTS' },
-          { value: 'playai-tts-arabic', label: 'PlayAI TTS Arabic' },
+          { value: 'gemma2-9b-it', label: 'Gemma 2 9B' },
+          { value: 'gemma-7b-it', label: 'Gemma 7B' },
         ]
       }
     ]

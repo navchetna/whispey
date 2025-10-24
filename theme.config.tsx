@@ -1,13 +1,13 @@
 import React from 'react'
 
 const config = {
-  logo: <span>My App Docs</span>,
+  logo: <span>Voice Evals Observability Docs</span>,
   project: {
-    link: 'https://github.com/yourusername/your-repo',
+    link: 'https://github.com/yourusername/voice-evals-observability',
   },
-  docsRepositoryBase: 'https://github.com/yourusername/your-repo',
+  docsRepositoryBase: 'https://github.com/yourusername/voice-evals-observability',
   footer: {
-    text: 'Documentation powered by Nextra',
+    text: 'Voice Evals Observability Documentation',
   },
 }
 
