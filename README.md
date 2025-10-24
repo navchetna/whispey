@@ -273,3 +273,17 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 [⬆ Back to top](#-whispey--voice-ai-observability-platform)
 
 </div>
+
+
+
+
+## Setup
+
+1. Setup the repository
+2. Setup the database
+    - ```psql -h aws-1-us-east-2.pooler.supabase.com -p 6543 -d postgres -U postgres.owbyyfcrjxdekcvwgkbf -f evaluation-schema.sql```
+    - ```psql -h aws-1-us-east-2.pooler.supabase.com -p 6543 -d postgres -U postgres.owbyyfcrjxdekcvwgkbf -f setup-supabase.sql```
+    
+3. Configure the environment
+4. Run the development server
+  - ```npm run dev```

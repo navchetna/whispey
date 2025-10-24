@@ -1,6 +1,6 @@
 # 🔌 API Reference
 
-Complete API documentation for Whispey's REST endpoints and webhooks.
+Complete API documentation for Voice Evals Observability's REST endpoints and webhooks.
 
 ## 🔑 Authentication
 
@@ -8,12 +8,12 @@ All API requests require authentication using your API key:
 
 ```bash
 curl -H "Authorization: Bearer YOUR_API_KEY" \
-  https://api.whispey.xyz/v1/agents
+  https://api.voice-evals-observability.com/v1/agents
 ```
 
 ### API Key Management
 
-Get your API key from the [Whispey Dashboard](https://whispey.xyz/):
+Get your API key from the [Voice Evals Observability Dashboard](https://voice-evals-observability.com/):
 
 1. **Sign in** to your account
 2. **Navigate** to Settings → API Keys
