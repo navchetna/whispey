@@ -13,7 +13,6 @@ import { FeatureAccessProvider } from './providers/FeatureAccessProvider'
 import { QueryProvider } from './providers/QueryProvider'
 import './globals.css'
 import SidebarWrapper from '@/components/shared/SidebarWrapper'
-import FeedbackWidget from '@/components/feedback/FeedbackWidget'
 import SignOutHandler from '@/components/auth'
 
 const geistSans = Geist({
@@ -82,7 +81,6 @@ export default function RootLayout({
                         <SidebarWrapper>
                           {children}
                         </SidebarWrapper>
-                        <FeedbackWidget />
                       </SignOutHandler>
                     </SignedIn>
                   </main>
