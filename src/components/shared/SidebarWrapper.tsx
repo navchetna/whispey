@@ -171,14 +171,15 @@ const sidebarRoutes: SidebarRoute[] = [
       { pattern: '/:projectId/agents/:agentId/config' },
       { pattern: '/:projectId/agents/:agentId/observability' },
       { pattern: '/:projectId/agents/:agentId/phone-call-config' },
-      { pattern: '/:projectId/agents/:agentId/evaluations' },
       { pattern: '/:projectId/agents/:agentId/evaluations/:jobId' },
+      { pattern: '/:projectId/agents/:agentId/evals-metrics' },
+      { pattern: '/:projectId/agents/:agentId/evals-results' },
     ],
     getSidebarConfig: (params, context) => {
       const { projectId, agentId } = params
       const { isEnhancedProject, agentType } = context
 
-      const reservedPaths = ['api-keys', 'settings', 'config', 'observability', 'evaluations'];
+      const reservedPaths = ['api-keys', 'settings', 'config', 'observability', 'evaluations', 'evals-metrics', 'evals-results'];
       if (reservedPaths.includes(agentId)) {
         return null;
       }
@@ -239,18 +240,18 @@ const sidebarRoutes: SidebarRoute[] = [
       // Evaluation items
       const evaluationItems = [
         { 
-          id: 'evaluations', 
-          name: 'LLM Evaluations', 
-          icon: 'Brain', 
-          path: `/${projectId}/agents/${agentId}/evaluations`, 
-          group: 'AI Analysis' 
+          id: 'evals-metrics', 
+          name: 'Evals Metrics', 
+          icon: 'TrendingUp', 
+          path: `/${projectId}/agents/${agentId}/evals-metrics`, 
+          group: 'Evaluation Suite' 
         },
         { 
-          id: 'evaluation-analytics', 
-          name: 'Evaluation', 
+          id: 'evals-results', 
+          name: 'Evals Results', 
           icon: 'BarChart3', 
-          path: `/${projectId}/agents/${agentId}/evaluation`, 
-          group: 'AI Analysis' 
+          path: `/${projectId}/agents/${agentId}/evals-results`, 
+          group: 'Evaluation Suite' 
         }
       ]
 
