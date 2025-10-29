@@ -17,7 +17,7 @@ interface ObservabilityPageProps {
   searchParams?: Promise<{ session_id?: string }>
 }
 
-export default function ObservabilityPage({ params, searchParams }: ObservabilityPageProps) {
+export default function EnhancedObservabilityPage({ params, searchParams }: ObservabilityPageProps) {
   const router = useRouter()
   const resolvedParams = use(params)
   const resolvedSearchParams = use(searchParams || Promise.resolve({} as { session_id?: string }))
@@ -33,7 +33,6 @@ export default function ObservabilityPage({ params, searchParams }: Observabilit
   const [currentAudioTime, setCurrentAudioTime] = useState(0)
   const [isAudioPlaying, setIsAudioPlaying] = useState(false)
   const [showTranscript, setShowTranscript] = useState(true)
-  const [seekToTime, setSeekToTime] = useState<number | undefined>(undefined)
 
   // Build query filters based on whether we have sessionId or agentId
   const queryFilters = sessionId 
@@ -84,9 +83,8 @@ export default function ObservabilityPage({ params, searchParams }: Observabilit
   const handleTranscriptTurnClick = useCallback((turn: any) => {
     // When a turn is clicked, seek audio to that timestamp if available
     if (turn.startTime !== undefined) {
-      setSeekToTime(turn.startTime)
-      // Reset seekToTime after a brief delay to allow for multiple seeks
-      setTimeout(() => setSeekToTime(undefined), 100)
+      // This would require additional AudioPlayer API to seek to specific time
+      console.log(`Seeking to time: ${turn.startTime}s for turn ${turn.turn_id}`)
     }
   }, [])
 
@@ -111,7 +109,6 @@ export default function ObservabilityPage({ params, searchParams }: Observabilit
             callId={callInfo?.id}
             onTimeUpdate={handleAudioTimeUpdate}
             onPlayStateChange={handleAudioPlayStateChange}
-            seekToTime={seekToTime}
           />
         </div>
       )}
