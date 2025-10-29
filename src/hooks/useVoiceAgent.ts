@@ -211,11 +211,11 @@ export function useVoiceAgent({
       token: apiData.user_token,
       participant_identity: userIdentity, // Use the same secure identity we generated
       
-      // CRITICAL: Add the LiveKit server URL
-      // or replace this with your actual LiveKit server URL
+      // CRITICAL: Add the Voice Agent server URL
+      // or replace this with your actual Voice Agent server URL
       url: process.env.NEXT_PUBLIC_LIVEKIT_URL || 
            `ws://${apiBaseUrl?.split('://')[1]?.split('/')[0]?.replace(':8000', ':7880')}` ||
-           'ws://15.206.157.27:7880' // Fallback - adjust this to your actual LiveKit server
+           'ws://15.206.157.27:7880' // Fallback - adjust this to your actual Voice Agent server
     }
 
     console.log('🔄 Transformed session data:', transformedSession)
@@ -235,19 +235,19 @@ export function useVoiceAgent({
     audioElementsRef.current.clear()
   }, [])
 
-  const setupRoomListeners = useCallback((liveKitRoom: Room) => {
-    console.log('🎯 Setting up LiveKit room listeners')
+  const setupRoomListeners = useCallback((voiceRoom: Room) => {
+    console.log('🎯 Setting up voice agent room listeners')
 
     // Connection events
-    liveKitRoom.on(RoomEvent.Connected, () => {
-      console.log('✅ Connected to LiveKit room')
+    voiceRoom.on(RoomEvent.Connected, () => {
+      console.log('✅ Connected to voice agent room')
       setIsConnected(true)
       setIsConnecting(false)
       setConnectionError(null)
     })
 
-    liveKitRoom.on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
-      console.log('❌ Disconnected from LiveKit room:', reason)
+    voiceRoom.on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
+      console.log('❌ Disconnected from voice agent room:', reason)
       setIsConnected(false)
       setIsConnecting(false)
       setAgentParticipant(null)
@@ -255,18 +255,18 @@ export function useVoiceAgent({
       cleanupAudioElements()
     })
 
-    liveKitRoom.on(RoomEvent.Reconnecting, () => {
-      console.log('🔄 Reconnecting to LiveKit room...')
+    voiceRoom.on(RoomEvent.Reconnecting, () => {
+      console.log('🔄 Reconnecting to voice agent room...')
       setConnectionError('Reconnecting...')
     })
 
-    liveKitRoom.on(RoomEvent.Reconnected, () => {
-      console.log('✅ Reconnected to LiveKit room')
+    voiceRoom.on(RoomEvent.Reconnected, () => {
+      console.log('✅ Reconnected to voice agent room')
       setConnectionError(null)
     })
 
     // Participant events
-    liveKitRoom.on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
+    voiceRoom.on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
       console.log('👤 Participant connected:', participant.identity, 'metadata:', participant.metadata)
       
       // Detect agent participant - check various indicators
@@ -282,7 +282,7 @@ export function useVoiceAgent({
       }
     })
 
-    liveKitRoom.on(RoomEvent.ParticipantDisconnected, (participant: RemoteParticipant) => {
+    voiceRoom.on(RoomEvent.ParticipantDisconnected, (participant: RemoteParticipant) => {
       console.log('👤 Participant disconnected:', participant.identity)
       if (participant === agentParticipant) {
         setAgentParticipant(null)
@@ -291,7 +291,7 @@ export function useVoiceAgent({
     })
 
     // Track events
-    liveKitRoom.on(RoomEvent.TrackSubscribed, (
+    voiceRoom.on(RoomEvent.TrackSubscribed, (
       track: RemoteTrack, 
       publication: RemoteTrackPublication, 
       participant: RemoteParticipant

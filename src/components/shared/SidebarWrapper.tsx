@@ -425,7 +425,7 @@ export default function SidebarWrapper({ children }: SidebarWrapperProps) {
           {/* Mobile Header */}
           <div className="fixed top-0 left-0 right-0 h-14 bg-white dark:bg-gray-800 border-b flex items-center justify-between px-4 z-50 md:hidden">
             <div className="flex items-center gap-2">
-              <img src="/logo.png" alt="Voice Evals Observability" className="w-6 h-6" />
+              <img src="https://cdn.brandfetch.io/idTGhLyv09/theme/dark/idShZPpM6F.svg?c=1bxid64Mup7aczewSAYMX&t=1676261444243" alt="Voice Evals Observability" className="w-6 h-6" />
               <span className="font-semibold text-sm">Voice Evals Observability</span>
             </div>
             

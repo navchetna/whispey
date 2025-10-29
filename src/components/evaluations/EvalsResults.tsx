@@ -797,6 +797,14 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                       </CardHeader>
                       <CardContent>
                         <div className="space-y-4">
+                          {/* Completed Runs Count */}
+                          <div>
+                            <div className="text-2xl font-bold text-blue-600">
+                              {results ? results.filter(r => r.status === 'completed' && r.evaluation_score?.evaluation_type === summary.evaluation_type).length : 0}/{results ? results.filter(r => r.evaluation_score?.evaluation_type === summary.evaluation_type).length : summary.total_evaluations}
+                            </div>
+                            <div className="text-sm text-gray-500">Completed Runs</div>
+                          </div>
+                          
                           <div>
                             <div className="text-2xl font-bold flex items-center gap-2">
                               {formatScore(summary.avg_score, prompt?.scoring_output_type)}
@@ -963,8 +971,16 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
       >
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
           <DialogHeader>
-            <DialogTitle>
-              Call Transcript - {selectedTranscript?.callId}
+            <DialogTitle className="flex items-center justify-between">
+              <span>Call Transcript - {selectedTranscript?.callId}</span>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => setSelectedTranscript(null)}
+                className="h-6 w-6 p-0 hover:bg-gray-100"
+              >
+                <XCircle className="h-4 w-4" />
+              </Button>
             </DialogTitle>
           </DialogHeader>
           <div className="mt-4 overflow-y-auto max-h-[60vh]">
@@ -981,8 +997,16 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
       <Dialog open={!!selectedRawResponse} onOpenChange={() => setSelectedRawResponse(null)}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
           <DialogHeader>
-            <DialogTitle>
-              Raw LLM Response - {selectedRawResponse?.callId}
+            <DialogTitle className="flex items-center justify-between">
+              <span>Raw LLM Response - {selectedRawResponse?.callId}</span>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => setSelectedRawResponse(null)}
+                className="h-6 w-6 p-0 hover:bg-gray-100"
+              >
+                <XCircle className="h-4 w-4" />
+              </Button>
             </DialogTitle>
           </DialogHeader>
           <div className="mt-4 overflow-y-auto max-h-[60vh]">
@@ -999,8 +1023,16 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
       <Dialog open={!!selectedDetails} onOpenChange={() => setSelectedDetails(null)}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
           <DialogHeader>
-            <DialogTitle>
-              Evaluation Details - {selectedDetails?.callId}
+            <DialogTitle className="flex items-center justify-between">
+              <span>Evaluation Details - {selectedDetails?.callId}</span>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => setSelectedDetails(null)}
+                className="h-6 w-6 p-0 hover:bg-gray-100"
+              >
+                <XCircle className="h-4 w-4" />
+              </Button>
             </DialogTitle>
           </DialogHeader>
           <div className="mt-4 overflow-y-auto max-h-[60vh] space-y-6">

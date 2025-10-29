@@ -55,7 +55,7 @@ interface AgentListItemProps {
 
 const getAgentTypeIcon = (type: string) => {
   switch (type.toLowerCase()) {
-    case 'livekit':
+    case 'voice':
     case 'pype_agent':
       return <Activity className="w-4 h-4" />
     case 'vapi':
@@ -217,7 +217,7 @@ const AgentListItem: React.FC<AgentListItemProps> = ({
                 )}
               </div>
               <p className="text-sm text-gray-500 dark:text-gray-400 capitalize">
-                {agent.agent_type === 'livekit' ? 'LiveKit Agent' : 
+                {agent.agent_type === 'voice' ? 'Voice Agent' : 
                  agent.agent_type === 'pype_agent' ? 'Pype Agent' :
                  agent.agent_type === 'vapi' ? 'Vapi Agent' : `${agent.agent_type} Agent`}
               </p>
@@ -537,7 +537,7 @@ const AgentListItem: React.FC<AgentListItemProps> = ({
                   )}
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {agent.agent_type === 'livekit' ? 'LiveKit Agent' : 
+                  {agent.agent_type === 'voice' ? 'Voice Agent' : 
                    agent.agent_type === 'pype_agent' ? 'Pype Agent' :
                    agent.agent_type === 'vapi' ? 'Vapi Agent' : `${agent.agent_type} Agent`}
                 </p>

@@ -15,23 +15,21 @@ const COMPLETE_AGENT_CODE = `
 import os
 import logging
 from dotenv import load_dotenv
-from livekit.agents import (
+from voice_agents.agents import (
     Agent,
     AgentSession,
     JobContext,
-    JobProcess,
-    WorkerOptions,
-    cli,
+    JobRequest
 )
-from livekit.plugins import openai, elevenlabs, silero
-from whispey import LivekitObserve
+from voice_agents.plugins import openai, elevenlabs, silero
+from whispey import VoiceObserve
 
 load_dotenv()
 
 logger = logging.getLogger("simple-agent")
 
 # Initialize Whispey
-whispey = LivekitObserve(
+whispey = VoiceObserve(
     agent_id="agent_id_here",  # Replace with your actual agent ID
     apikey=os.getenv("WHISPEY_API_KEY") # Put this in .env file
 )
@@ -150,7 +148,7 @@ const AdaptiveTutorialEmptyState: React.FC<AdaptiveTutorialEmptyStateProps> = ({
               <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center mx-auto mb-3">
                 <Terminal className="h-4 w-4 text-blue-600 dark:text-blue-400" />
               </div>
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">New to LiveKit?</h3>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">New to Voice Agents?</h3>
               <p className="text-gray-600 dark:text-gray-400 mb-3 text-xs leading-relaxed">
                 Complete walkthrough from installation to your first monitored voice agent
               </p>
@@ -190,7 +188,7 @@ const AdaptiveTutorialEmptyState: React.FC<AdaptiveTutorialEmptyStateProps> = ({
           <div className={`flex items-center justify-between mb-4 ${isMobile ? 'flex-col gap-3' : ''}`}>
             <div className={isMobile ? 'text-center' : ''}>
               <h2 className={`font-semibold text-gray-900 dark:text-gray-100 mb-1 ${isMobile ? 'text-base' : 'text-lg'}`}>
-                Complete LiveKit Agent Tutorial
+                Complete Voice Agent Tutorial
               </h2>
               <p className="text-gray-600 dark:text-gray-400 text-sm">Build your first voice AI agent with monitoring</p>
             </div>
@@ -269,26 +267,26 @@ const AdaptiveTutorialEmptyState: React.FC<AdaptiveTutorialEmptyStateProps> = ({
                 )}
               </div>
 
-              {/* Step 2 - Install LiveKit */}
+              {/* Step 2 - Install Voice Agent Framework */}
               <div className={`border-l-2 border-gray-200 dark:border-gray-700 pl-3 ${isMobile ? '' : 'pl-4'} relative`}>
                 <div className="absolute -ml-5 mt-0.5 w-2.5 h-2.5 bg-blue-500 dark:bg-blue-400 rounded-full"></div>
-                <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">2. Install LiveKit</h3>
+                <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">2. Install Voice Agent Framework</h3>
                 <div className="relative">
                   <div className="bg-gray-900 dark:bg-gray-950 rounded-lg p-2.5">
                     <pre className={`text-gray-100 font-mono ${isMobile ? 'text-xs' : 'text-sm'}`}>
 {isMobile ? 
-`pip install livekit-agents livekit-plugins-openai
-livekit-plugins-elevenlabs livekit-plugins-silero` :
-`pip install livekit-agents
-pip install livekit-plugins-openai
-pip install livekit-plugins-elevenlabs
-pip install livekit-plugins-silero`}
+`pip install voice-agents voice-agents-plugins-openai
+voice-agents-plugins-elevenlabs voice-agents-plugins-silero` :
+`pip install voice-agents
+pip install voice-agents-plugins-openai
+pip install voice-agents-plugins-elevenlabs
+pip install voice-agents-plugins-silero`}
                     </pre>
                     <button
-                      onClick={() => copyToClipboard(`pip install livekit-agents livekit-plugins-openai livekit-plugins-elevenlabs livekit-plugins-silero`, 'install-livekit')}
+                      onClick={() => copyToClipboard(`pip install voice-agents voice-agents-plugins-openai voice-agents-plugins-elevenlabs voice-agents-plugins-silero`, 'install-voice-agents')}
                       className="absolute top-2 right-2 p-1 bg-gray-800 hover:bg-gray-700 rounded"
                     >
-                      {copiedCode === 'install-livekit' ? (
+                      {copiedCode === 'install-voice-agents' ? (
                         <div className="w-3 h-3 text-green-400">✓</div>
                       ) : (
                         <Copy className="w-2.5 h-2.5 text-gray-300" />
@@ -444,15 +442,15 @@ pip install livekit-plugins-silero`}
             <div className="relative">
               <div className="bg-gray-900 dark:bg-gray-950 rounded-lg p-2">
                 <pre className="text-gray-100 text-xs font-mono">
-{`from whispey import LivekitObserve
+{`from whispey import VoiceObserve
 
-whispey = LivekitObserve(
+whispey = VoiceObserve(
     agent_id="YOUR_AGENT_ID",
     apikey=os.getenv("WHISPEY_API_KEY")
 )`}
                 </pre>
                 <button
-                  onClick={() => copyToClipboard(`from whispey import LivekitObserve\n\nwhispey = LivekitObserve(\n    agent_id="YOUR_AGENT_ID",\n    apikey=os.getenv("WHISPEY_API_KEY")\n)`, 'quick-init')}
+                  onClick={() => copyToClipboard(`from whispey import VoiceObserve\n\nwhispey = VoiceObserve(\n    agent_id="YOUR_AGENT_ID",\n    apikey=os.getenv("WHISPEY_API_KEY")\n)`, 'quick-init')}
                   className="absolute top-1.5 right-1.5 p-0.5 bg-gray-800 hover:bg-gray-700 rounded"
                 >
                   {copiedCode === 'quick-init' ? (
