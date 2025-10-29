@@ -240,7 +240,7 @@ const ObservabilityStats: React.FC<ObservabilityStatsProps> = ({ sessionId, agen
                 )}></div>
                 <div className="flex items-baseline gap-1">
                   <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">
-                    {isVapiAgent ? "Vapi" : "LiveKit"}
+                    {isVapiAgent ? "Vapi" : "Voice Agent"}
                   </span>
                 </div>
               </div>

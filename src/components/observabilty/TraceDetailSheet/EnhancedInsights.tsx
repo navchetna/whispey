@@ -98,7 +98,7 @@ function EnhancedInsights({
             "text-xs",
             isVapiAgent ? "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700" : "bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 border-orange-300 dark:border-orange-700"
           )}>
-            {isVapiAgent ? "Vapi Pipeline" : "LiveKit Pipeline"}
+            {isVapiAgent ? "Vapi Pipeline" : "Voice Agent Pipeline"}
           </Badge>
         </div>
         
@@ -111,7 +111,7 @@ function EnhancedInsights({
         )}>
           {isVapiAgent 
             ? "Vapi: STT processing is sequential and included in total pipeline duration"
-            : "LiveKit: STT processing runs in parallel with audio streaming, excluded from pipeline duration"}
+            : "Voice Agent: STT processing runs in parallel with audio streaming, excluded from pipeline duration"}
         </div>
         
         <div className="space-y-2">

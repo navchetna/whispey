@@ -19,14 +19,14 @@ export default function AuthPage() {
             {/* Logo */}
             <div className="flex items-center space-x-3 mb-12">
               <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center">
-                <Image src="/logo.png" alt="Pype AI Logo" width={100} height={100} />
+                <Image src="https://cdn.brandfetch.io/idTGhLyv09/theme/dark/idShZPpM6F.svg?c=1bxid64Mup7aczewSAYMX&t=1676261444243" alt="Pype AI Logo" width={100} height={100} />
               </div>
               <span className="text-2xl font-bold text-white">Whispey</span>
             </div>
 
             {/* Value Proposition */}
             <h1 className="text-4xl font-bold text-white mb-6 leading-tight">
-              Monitor your LiveKit Voice AI agents.
+              Monitor your Voice AI agents.
             </h1>
             
             <p className="text-slate-300 text-lg mb-12 leading-relaxed">
@@ -76,7 +76,7 @@ export default function AuthPage() {
           <div className="lg:hidden text-center">
             <div className="inline-flex items-center space-x-3">
               <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center">
-                <Image src="/logo.png" alt="Pype AI Logo" width={100} height={100} />
+                <Image src="https://cdn.brandfetch.io/idTGhLyv09/theme/dark/idShZPpM6F.svg?c=1bxid64Mup7aczewSAYMX&t=1676261444243" alt="Pype AI Logo" width={100} height={100} />
               </div>
               <span className="text-2xl font-bold text-slate-900">Whispey</span>
             </div>

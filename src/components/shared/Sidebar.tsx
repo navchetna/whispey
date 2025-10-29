@@ -43,7 +43,6 @@ import {
 } from 'lucide-react'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { GitHubStarsButton } from '../GithubLink'
 import SupportSheet from './SupportPanel'
 import { SidebarConfig } from './SidebarWrapper'
 
@@ -429,7 +428,7 @@ export default function Sidebar({
             }
           }}>
             <Image 
-              src="/logo.png" 
+              src="https://cdn.brandfetch.io/idTGhLyv09/theme/dark/idShZPpM6F.svg?c=1bxid64Mup7aczewSAYMX&t=1676261444243" 
               alt="Voice Evals Observability Logo" 
               width={32} 
               height={32} 
@@ -441,7 +440,7 @@ export default function Sidebar({
                   Voice Evals Observability
                 </h1>
                 <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                  LiveKit Platform
+                  Voice AI Platform
                 </p>
               </div>
             )}
@@ -503,13 +502,6 @@ export default function Sidebar({
             </div>
           ))}
         </nav>
-
-        {/* GitHub Stars */}
-        {(!isCollapsed || isMobile) && (
-          <div className="px-3 mb-3">
-            <GitHubStarsButton />
-          </div>
-        )}
 
         {/* Conditional Pricing Box */}
         {pricingConfig?.showPricingBox && (!isCollapsed || isMobile) && (

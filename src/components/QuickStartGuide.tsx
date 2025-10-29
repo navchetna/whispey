@@ -24,14 +24,14 @@ function QuickStartGuide({ agentId }: { agentId: string }) {
       setCompletedSteps(newCompleted)
     }
 
-    const fullExampleCode = `from whispey import LivekitObserve
-from livekit import agents
-from livekit.agents import Agent, AgentSession, JobContext
-from livekit.plugins import openai, elevenlabs, silero
+    const fullExampleCode = `from whispey import VoiceObserve
+from voice_agents import agents
+from voice_agents.agents import Agent, AgentSession, JobContext
+from voice_agents.plugins import openai, elevenlabs, silero
 import os
 
 # Initialize Whispey
-whispey = LivekitObserve(
+whispey = VoiceObserve(
     agent_id="${agentId}",
     apikey=os.getenv("WHISPEY_API_KEY")
 )
@@ -43,7 +43,7 @@ class MyAgent(Agent):
 async def entrypoint(ctx: JobContext):
     await ctx.connect()
     
-    # Create your LiveKit session
+    # Create your voice agent session
     session = AgentSession(
         llm=openai.LLM(model="gpt-4o-mini"),
         tts=elevenlabs.TTS(),
@@ -97,25 +97,25 @@ if __name__ == "__main__":
       },
       {
         id: 'integration',
-        title: 'Integrate with LiveKit',
+        title: 'Integrate with Voice Agents',
         subtitle: 'Add monitoring in just 3 simple steps',
         icon: '🚀',
         integrationSteps: [
           {
             title: '1. Import Whispey',
-            code: `from whispey import LivekitObserve
+            code: `from whispey import VoiceObserve
 import os`
           },
           {
             title: '2. Initialize Whispey',
-            code: `whispey = LivekitObserve(
+            code: `whispey = VoiceObserve(
     agent_id="${agentId}",
     apikey=os.getenv("WHISPEY_API_KEY")
 )`
           },
           {
             title: '3. Start Session Monitoring',
-            code: `# After creating your LiveKit session
+            code: `# After creating your voice agent session
 session_id = whispey.start_session(session=session)
 
 # Add shutdown callback
@@ -140,7 +140,7 @@ ctx.add_shutdown_callback(whispey_shutdown)`
               Get Your Agent Live
             </h1>
             <p className="text-sm text-gray-600">
-              Transform your LiveKit sessions with intelligent voice monitoring in just 4 simple steps.
+              Transform your voice agent sessions with intelligent voice monitoring in just 4 simple steps.
             </p>
           </div>
   

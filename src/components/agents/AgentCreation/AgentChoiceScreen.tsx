@@ -79,8 +79,8 @@ const AgentChoiceScreen: React.FC<AgentChoiceScreenProps> = ({
                 </h3>
                 <p className={`${isMobile ? 'text-xs' : 'text-sm'} text-gray-600 dark:text-gray-400 leading-relaxed`}>
                   {isMobile
-                    ? 'Add monitoring to your existing LiveKit or Vapi voice agent.'
-                    : 'Add monitoring to your existing LiveKit or Vapi voice agent. Connect and start observing immediately.'
+                    ? 'Add monitoring to your existing Voice Agent or Vapi voice agent.'
+                    : 'Add monitoring to your existing Voice Agent or Vapi voice agent. Connect and start observing immediately.'
                   }
                 </p>
               </div>

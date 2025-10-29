@@ -81,7 +81,7 @@ export default function TermsOfService() {
               <p>
                 These Terms of Service ("Terms") govern your use of Whispey's hosted voice AI agents 
                 observability platform ("Service"). Whispey helps you monitor, analyze, and optimize 
-                your voice AI agents built with LiveKit, providing detailed analytics on performance, 
+                your voice AI agents, providing detailed analytics on performance, 
                 costs, and latency metrics. By accessing or using our Service, you agree to be bound 
                 by these Terms and our Privacy Policy.
               </p>

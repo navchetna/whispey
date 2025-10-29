@@ -1,4 +1,4 @@
-export const getAgentPlatform = (agent: any): 'vapi' | 'livekit' | 'unknown' => {
+export const getAgentPlatform = (agent: any): 'vapi' | 'voice' | 'unknown' => {
     console.log({agent})
     if (agent?.agent_type === 'vapi' || 
         agent?.configuration?.vapi?.assistantId || 
@@ -6,6 +6,6 @@ export const getAgentPlatform = (agent: any): 'vapi' | 'livekit' | 'unknown' => 
       return 'vapi'
     }
     else {
-      return 'livekit'
+      return 'voice'
     }
 }

@@ -17,9 +17,22 @@ interface AudioPlayerProps {
   url: string | null
   segmentStartTime?: number
   segmentDuration?: number
+  onTimeUpdate?: (currentTime: number) => void
+  onPlayStateChange?: (isPlaying: boolean) => void
+  seekToTime?: number // External time to seek to
 }
 
-const AudioPlayer: React.FC<AudioPlayerProps> = ({ s3Key, url, callId, className, segmentStartTime, segmentDuration }) => {
+const AudioPlayer: React.FC<AudioPlayerProps> = ({ 
+  s3Key, 
+  url, 
+  callId, 
+  className, 
+  segmentStartTime, 
+  segmentDuration,
+  onTimeUpdate,
+  onPlayStateChange,
+  seekToTime
+}) => {
 
   const [isPlaying, setIsPlaying] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -34,6 +47,8 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ s3Key, url, callId, className
   const [downloadFileName, setDownloadFileName] = useState("")
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
   const [segmentStarted, setSegmentStarted] = useState(false)
+  const [hoverTime, setHoverTime] = useState<number | null>(null)
+  const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null)
 
   const audioRef = useRef<HTMLAudioElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -140,6 +155,9 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ s3Key, url, callId, className
     if (isPlaying) {
       audioRef.current.pause()
       setIsPlaying(false)
+      if (onPlayStateChange) {
+        onPlayStateChange(false)
+      }
     } else {
       const url = await getAudioUrl()
       if (url && audioRef.current) {
@@ -171,9 +189,15 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ s3Key, url, callId, className
         try {
           await audioRef.current.play()
           setIsPlaying(true)
+          if (onPlayStateChange) {
+            onPlayStateChange(true)
+          }
         } catch (err) {
           setError("Playback failed")
           setIsPlaying(false)
+          if (onPlayStateChange) {
+            onPlayStateChange(false)
+          }
         }
       }
     }
@@ -393,14 +417,21 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ s3Key, url, callId, className
     const handleTimeUpdate = () => {
       setCurrentTime(audio.currentTime)
       
-      // Check if we've reached the end of the segment
-      if (segmentStartTime !== undefined && segmentDuration !== undefined) {
+      // Call the onTimeUpdate callback if provided
+      if (onTimeUpdate) {
+        onTimeUpdate(audio.currentTime)
+      }
+
+      // Stop playback if we've reached the segment end time
+      if (segmentDuration !== undefined && segmentStartTime !== undefined) {
         const segmentEndTime = segmentStartTime + segmentDuration
-        // Add a small buffer (0.1s) to ensure we don't miss the end
         if (audio.currentTime >= segmentEndTime - 0.1) {
           audio.pause()
           setIsPlaying(false)
           setCurrentTime(segmentEndTime)
+          if (onPlayStateChange) {
+            onPlayStateChange(false)
+          }
         }
       }
     }
@@ -410,7 +441,12 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ s3Key, url, callId, className
       setIsReady(true)
     }
     
-    const handleEnded = () => setIsPlaying(false)
+    const handleEnded = () => {
+      setIsPlaying(false)
+      if (onPlayStateChange) {
+        onPlayStateChange(false)
+      }
+    }
     
     const handleError = () => {
       setError("Playback failed")
@@ -452,7 +488,33 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ s3Key, url, callId, className
     }
   }, [drawWaveform])
 
-  // Handle waveform click for seeking
+  // Handle external seek requests
+  useEffect(() => {
+    if (seekToTime !== undefined && audioRef.current && isReady && seekToTime >= 0) {
+      const seekTime = Math.min(seekToTime, duration || 0)
+      audioRef.current.currentTime = seekTime
+      setCurrentTime(seekTime)
+    }
+  }, [seekToTime, isReady, duration])
+
+  // Handle waveform mouse interactions
+  const handleWaveformMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current
+    if (!canvas || duration <= 0) return
+
+    const rect = canvas.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const clickProgress = x / rect.width
+    const timeAtPosition = clickProgress * duration
+
+    setHoverTime(timeAtPosition)
+    setHoverPosition({ x: e.clientX, y: e.clientY })
+  }
+
+  const handleWaveformMouseLeave = () => {
+    setHoverTime(null)
+    setHoverPosition(null)
+  }
   const handleWaveformClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!audioRef.current || !isReady || duration === 0) return
 
@@ -487,10 +549,38 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ s3Key, url, callId, className
   }
 
   return (
-    <Card className={cn("p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700", className)}>
+    <Card className={cn("border border-gray-200 dark:border-gray-700", className)}>
       <audio ref={audioRef} preload="metadata" />
 
-      <div className="flex items-center gap-3">
+      {/* Time Tick Marks */}
+      {duration > 0 && isReady && (
+        <div className="relative mb-2 h-4 mx-4 mt-4">
+          <div className="absolute inset-0 flex justify-between items-end">
+            {Array.from({ length: Math.floor(duration / 15) + 1 }, (_, i) => {
+              const timePosition = (i * 15) / duration
+              const leftPercentage = timePosition * 100
+              const timeInSeconds = i * 15
+              const minutes = Math.floor(timeInSeconds / 60)
+              const seconds = timeInSeconds % 60
+              
+              return (
+                <div
+                  key={i}
+                  className="flex flex-col items-center"
+                  style={{ position: 'absolute', left: `${leftPercentage}%`, transform: 'translateX(-50%)' }}
+                >
+                  <div className="text-xs text-gray-500 dark:text-gray-400 font-mono mb-1">
+                    {minutes}:{String(seconds).padStart(2, '0')}
+                  </div>
+                  <div className="w-px h-2 bg-gray-300 dark:bg-gray-600"></div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center gap-3 px-4 pb-4">
         {/* Play Button */}
         <Button
           onClick={togglePlay}
@@ -620,7 +710,22 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ s3Key, url, callId, className
             height={40}
             className="w-full h-10 cursor-pointer rounded bg-gray-50 dark:bg-gray-700"
             onClick={handleWaveformClick}
+            onMouseMove={handleWaveformMouseMove}
+            onMouseLeave={handleWaveformMouseLeave}
           />
+
+          {/* Hover tooltip */}
+          {hoverTime !== null && hoverPosition && (
+            <div 
+              className="fixed z-50 bg-black text-white text-xs px-2 py-1 rounded pointer-events-none"
+              style={{
+                left: hoverPosition.x + 10,
+                top: hoverPosition.y - 30,
+              }}
+            >
+              {formatTime(hoverTime)}
+            </div>
+          )}
 
           {isLoading && (
             <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-800/80 rounded">

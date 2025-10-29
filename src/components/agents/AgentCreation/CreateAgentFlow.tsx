@@ -27,7 +27,7 @@ const CreateAgentFlow: React.FC<CreateAgentFlowProps> = ({
   isPypeAgent
 }) => {
   const [currentStep, setCurrentStep] = useState<'form' | 'creating' | 'success'>('form')
-  const [selectedPlatform, setSelectedPlatform] = useState('livekit')
+  const [selectedPlatform, setSelectedPlatform] = useState('voice')
   const [formData, setFormData] = useState({
     name: '',
     description: ''
@@ -293,7 +293,7 @@ const CreateAgentFlow: React.FC<CreateAgentFlowProps> = ({
                       ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 border-teal-200 dark:border-teal-800' 
                       : 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800'
                   }`}>
-                    {selectedPlatform === 'vapi' ? 'Vapi Agent' : 'LiveKit Agent'}
+                    {selectedPlatform === 'vapi' ? 'Vapi Agent' : 'Voice Agent'}
                   </Badge>
                   <Badge variant="outline" className="text-xs bg-gray-50 dark:bg-gray-900/30 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700">
                     Ready

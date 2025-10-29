@@ -41,9 +41,9 @@ interface VapiAssistant {
 
 const PLATFORM_OPTIONS = [
   { 
-    value: 'livekit', 
-    label: 'LiveKit Agent',
-    description: 'Monitor your LiveKit voice agent',
+    value: 'voice', 
+    label: 'Voice Agent',
+    description: 'Monitor your voice agent',
     icon: Activity,
     color: 'blue'
   },
@@ -64,7 +64,7 @@ const ConnectAgentFlow: React.FC<ConnectAgentFlowProps> = ({
   onLoadingChange
 }) => {
   const [currentStep, setCurrentStep] = useState<'form' | 'creating' | 'connecting' | 'success'>('form')
-  const [selectedPlatform, setSelectedPlatform] = useState('livekit')
+  const [selectedPlatform, setSelectedPlatform] = useState('voice')
   const assistantSectionRef = useRef<HTMLDivElement>(null)
   
   const [formData, setFormData] = useState({
@@ -190,7 +190,7 @@ const ConnectAgentFlow: React.FC<ConnectAgentFlowProps> = ({
     e.preventDefault()
     setError(null)
 
-    if (selectedPlatform === 'livekit') {
+    if (selectedPlatform === 'voice') {
       if (!formData.name.trim()) {
         setError('Monitoring label is required')
         return
@@ -216,16 +216,16 @@ const ConnectAgentFlow: React.FC<ConnectAgentFlowProps> = ({
     try {
       let payload
 
-      if (selectedPlatform === 'livekit') {
+      if (selectedPlatform === 'voice') {
         payload = {
           name: formData.name.trim(),
-          agent_type: 'livekit',
+          agent_type: 'voice',
           configuration: {
             description: formData.description.trim() || null,
           },
           project_id: projectId,
           environment: 'dev',
-          platform: 'livekit'
+          platform: 'voice'
         }
       } else {
         const selectedAssistant = vapiData.availableAssistants.find((a: VapiAssistant) => a.id === vapiData.selectedAssistantId)
@@ -395,7 +395,7 @@ const ConnectAgentFlow: React.FC<ConnectAgentFlowProps> = ({
                       ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 border-teal-200 dark:border-teal-800' 
                       : 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800'
                   }`}>
-                    {selectedPlatform === 'vapi' ? 'Vapi Monitoring' : 'LiveKit Monitoring'}
+                    {selectedPlatform === 'vapi' ? 'Vapi Monitoring' : 'Voice Agent Monitoring'}
                   </Badge>
                   <Badge variant="outline" className="text-xs bg-gray-50 dark:bg-gray-900/30 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700">
                     Development
@@ -572,8 +572,8 @@ const ConnectAgentFlow: React.FC<ConnectAgentFlowProps> = ({
               />
             </div>
 
-            {/* LiveKit Fields */}
-            {selectedPlatform === 'livekit' && (
+            {/* Voice Agent Fields */}
+            {selectedPlatform === 'voice' && (
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-900 dark:text-gray-100">
                   Notes <span className="text-gray-500 dark:text-gray-400 font-normal">(optional)</span>
@@ -749,7 +749,7 @@ const ConnectAgentFlow: React.FC<ConnectAgentFlowProps> = ({
             onClick={handleSubmit}
             disabled={
               vapiData.connectLoading ||
-              (selectedPlatform === 'livekit' && !formData.name.trim()) ||
+              (selectedPlatform === 'voice' && !formData.name.trim()) ||
               (selectedPlatform === 'vapi' && (!formData.name.trim() || !vapiData.selectedAssistantId || !vapiData.projectApiKey.trim()))
             }
             className={`flex-1 h-10 font-medium text-white ${
