@@ -203,15 +203,14 @@ const sidebarRoutes: SidebarRoute[] = [
 
       // Configuration items
       const configItems = []
-      if (agentType === 'pype_agent') {
-        configItems.push({ 
-          id: 'agent-config', 
-          name: 'Agent Config', 
-          icon: 'Settings', 
-          path: `/${projectId}/agents/${agentId}/config`, 
-          group: 'configuration' 
-        })
-      }
+      // Show Agent Config for all agents, not just pype_agent
+      configItems.push({ 
+        id: 'agent-config', 
+        name: 'Agent Config', 
+        icon: 'Brain', 
+        path: `/${projectId}/agents/${agentId}/config`, 
+        group: 'agent config' 
+      })
 
       // Call items
       const callItems = []
@@ -263,6 +262,11 @@ const sidebarRoutes: SidebarRoute[] = [
         ...enhancedItems,
         ...evaluationItems
       ]
+
+      // Debug: Log the final navigation to see if Agent Config is included
+      console.log('🔍 SidebarWrapper navigation for agent:', agentId, navigation)
+      console.log('🔍 Agent type:', agentType)
+      console.log('🔍 Config items:', configItems)
 
       return {
         type: 'agent-detail',
