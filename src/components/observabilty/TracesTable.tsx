@@ -13,6 +13,28 @@ import SessionTraceView from "./SessionTraceView"
 import WaterfallView from "./WaterFallView";
 import { getAgentPlatform } from "@/utils/agentDetection";
 
+// Custom Sarvam icon component
+const SarvamIcon = ({ className }: { className?: string }) => (
+  <svg 
+    className={className}
+    viewBox="0 0 100 100" 
+    fill="currentColor"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    {/* Microphone body */}
+    <rect x="42" y="15" width="16" height="35" rx="8" ry="8" />
+    {/* Microphone stand */}
+    <rect x="48" y="50" width="4" height="20" />
+    {/* Base */}
+    <rect x="35" y="70" width="30" height="4" rx="2" />
+    {/* Sound waves */}
+    <path d="M25 35 Q20 40 25 45" stroke="currentColor" strokeWidth="2" fill="none" />
+    <path d="M75 35 Q80 40 75 45" stroke="currentColor" strokeWidth="2" fill="none" />
+    <path d="M20 30 Q12 40 20 50" stroke="currentColor" strokeWidth="2" fill="none" />
+    <path d="M80 30 Q88 40 80 50" stroke="currentColor" strokeWidth="2" fill="none" />
+  </svg>
+)
+
 interface TracesTableProps {
   agentId: string
   sessionId?: string
@@ -203,7 +225,9 @@ const TracesTable: React.FC<TracesTableProps> = ({ agentId, agent, sessionId, fi
   }
 
   const formatDuration = (ms: number) => {
-    return `${(ms / 1000).toFixed(3)}s`
+    if (ms < 1) return `${(ms * 1000).toFixed(0)}μs`;
+    if (ms < 1000) return `${ms.toFixed(0)}ms`;
+    return `${(ms / 1000).toFixed(1)}s`;
   }
   const formatCost = (cost: number) => {
     if (cost < 0.000001) return "~$0"
@@ -474,14 +498,14 @@ const handleRowClick = (trace: TraceLog) => {
                               hasBugReport && "text-red-700 dark:text-red-300 font-medium"
                             )}>
                               <div className="flex items-center gap-2 mb-1">
-                                <Bot className={cn(
+                                <SarvamIcon className={cn(
                                   "w-3 h-3",
-                                  hasBugReport ? "text-red-600 dark:text-red-400" : "text-gray-500 dark:text-gray-400"
+                                  hasBugReport ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"
                                 )} />
                                 <span className={cn(
                                   "font-medium text-xs",
-                                  hasBugReport ? "text-red-600 dark:text-red-400" : "text-gray-500 dark:text-gray-400"
-                                )}>SUT</span>
+                                  hasBugReport ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"
+                                )}>Sarvam</span>
                                 {hasBugReport && (
                                   <Badge variant="destructive" className="text-[10px] px-1 py-0">
                                     REPORTED

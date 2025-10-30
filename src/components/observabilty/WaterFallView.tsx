@@ -1,4 +1,25 @@
 import { BarChart3, MessageCircle, Clock, Activity, ChevronDown, ChevronRight, Zap, Brain, Volume2, Mic, User, Bot, Database } from "lucide-react";
+
+const SarvamIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 100 100"
+    fill="currentColor"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+  >
+    {/* Microphone body */}
+    <rect x="42" y="15" width="16" height="35" rx="8" ry="8" />
+    {/* Microphone stand */}
+    <rect x="48" y="50" width="4" height="20" />
+    {/* Base */}
+    <rect x="35" y="70" width="30" height="4" rx="2" />
+    {/* Sound waves */}
+    <path d="M25 35 Q20 40 25 45" stroke="currentColor" strokeWidth="2" fill="none" />
+    <path d="M75 35 Q80 40 75 45" stroke="currentColor" strokeWidth="2" fill="none" />
+    <path d="M20 30 Q12 40 20 50" stroke="currentColor" strokeWidth="2" fill="none" />
+    <path d="M80 30 Q88 40 80 50" stroke="currentColor" strokeWidth="2" fill="none" />
+  </svg>
+);
 import { useState, useMemo } from "react";
 import SpanDetailSheet from './SpanDetailSheet';
 
@@ -194,7 +215,7 @@ const WaterfallView = ({ trace, loading }: WaterfallViewProps) => {
       case 'tts': return <Volume2 className="w-4 h-4 text-green-600" />;
       case 'stt': return <Mic className="w-4 h-4 text-blue-600" />;
       case 'user_interaction': return <User className="w-4 h-4 text-blue-500" />;
-      case 'assistant_interaction': return <Bot className="w-4 h-4 text-indigo-500" />;
+      case 'assistant_interaction': return <SarvamIcon className="w-4 h-4 text-indigo-500" />;
       case 'tool': return <Zap className="w-4 h-4 text-orange-600" />;
       default: return <Activity className="w-4 h-4 text-gray-500" />;
     }

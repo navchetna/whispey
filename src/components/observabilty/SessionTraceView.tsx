@@ -1,4 +1,25 @@
 import { Activity, MessageCircle, ChevronDown, ChevronRight, User, Bot, Settings, ChevronsUpDown } from "lucide-react";
+
+const SarvamIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 100 100"
+    fill="currentColor"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+  >
+    {/* Microphone body */}
+    <rect x="42" y="15" width="16" height="35" rx="8" ry="8" />
+    {/* Microphone stand */}
+    <rect x="48" y="50" width="4" height="20" />
+    {/* Base */}
+    <rect x="35" y="70" width="30" height="4" rx="2" />
+    {/* Sound waves */}
+    <path d="M25 35 Q20 40 25 45" stroke="currentColor" strokeWidth="2" fill="none" />
+    <path d="M75 35 Q80 40 75 45" stroke="currentColor" strokeWidth="2" fill="none" />
+    <path d="M20 30 Q12 40 20 50" stroke="currentColor" strokeWidth="2" fill="none" />
+    <path d="M80 30 Q88 40 80 50" stroke="currentColor" strokeWidth="2" fill="none" />
+  </svg>
+);
 import { useState, useMemo } from "react";
 import SpanDetailSheet from './SpanDetailSheet';
 import { useSessionSpans } from "@/hooks/useSessionTrace";
@@ -219,7 +240,7 @@ const SessionTraceView = ({ trace, loading }: SessionTraceViewProps) => {
   const getTurnIcon = (type: ConversationTurn['type']) => {
     switch (type) {
       case 'user_turn': return <User className="w-3 h-3 text-blue-600" />;
-      case 'assistant_turn': return <Bot className="w-3 h-3 text-green-600" />;
+      case 'assistant_turn': return <SarvamIcon className="w-3 h-3 text-green-600" />;
       case 'session_management': return <Settings className="w-3 h-3 text-gray-600" />;
       default: return <Activity className="w-3 h-3 text-gray-600" />;
     }
