@@ -15,24 +15,11 @@ import { getAgentPlatform } from "@/utils/agentDetection";
 
 // Custom Sarvam icon component
 const SarvamIcon = ({ className }: { className?: string }) => (
-  <svg 
+  <img 
+    src="https://img.icons8.com/?size=100&id=cSTZGiTsAgJX&format=png&color=000000"
+    alt="Sarvam"
     className={className}
-    viewBox="0 0 100 100" 
-    fill="currentColor"
-    xmlns="http://www.w3.org/2000/svg"
-  >
-    {/* Microphone body */}
-    <rect x="42" y="15" width="16" height="35" rx="8" ry="8" />
-    {/* Microphone stand */}
-    <rect x="48" y="50" width="4" height="20" />
-    {/* Base */}
-    <rect x="35" y="70" width="30" height="4" rx="2" />
-    {/* Sound waves */}
-    <path d="M25 35 Q20 40 25 45" stroke="currentColor" strokeWidth="2" fill="none" />
-    <path d="M75 35 Q80 40 75 45" stroke="currentColor" strokeWidth="2" fill="none" />
-    <path d="M20 30 Q12 40 20 50" stroke="currentColor" strokeWidth="2" fill="none" />
-    <path d="M80 30 Q88 40 80 50" stroke="currentColor" strokeWidth="2" fill="none" />
-  </svg>
+  />
 )
 
 interface TracesTableProps {
