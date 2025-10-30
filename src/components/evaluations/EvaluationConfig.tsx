@@ -1391,12 +1391,14 @@ function CreateJobDialog({ open, onOpenChange, prompts, selectedPrompts, onSelec
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    traceSelection: 'all', // 'all' or 'manual'
+    traceSelection: 'all', // 'all', 'manual', or 'date_filtered'
     selectedTraces: [] as string[],
     filter_criteria: {
       date_range: 'last_30_days',  // Expanded from 7 days to 30 days
       min_duration: 10,            // Reduced from 30 seconds to 10 seconds  
-      call_status: 'completed'
+      call_status: 'completed',
+      start_date: '',              // Custom date range start
+      end_date: ''                 // Custom date range end
     }
   })
 
@@ -1404,21 +1406,42 @@ function CreateJobDialog({ open, onOpenChange, prompts, selectedPrompts, onSelec
   const [tracesLoading, setTracesLoading] = useState(false)
   const [tracesError, setTracesError] = useState<string | null>(null)
 
-  // Fetch available traces when dialog opens or trace selection changes to manual
+  // Fetch available traces when dialog opens or trace selection changes to manual/date_filtered
   React.useEffect(() => {
-    if (open && formData.traceSelection === 'manual') {
+    if (open && (formData.traceSelection === 'manual' || formData.traceSelection === 'date_filtered')) {
       fetchTraces()
     }
-  }, [open, formData.traceSelection, params])
+  }, [open, formData.traceSelection, formData.filter_criteria.date_range, formData.filter_criteria.start_date, formData.filter_criteria.end_date, params])
 
   const fetchTraces = async () => {
     setTracesLoading(true)
     setTracesError(null)
     
     try {
-      const response = await fetch(
-        `/api/evaluations/traces?project_id=${params.projectid}&agent_id=${params.agentid}&limit=100`
-      )
+      // Build URL with filter parameters for date_filtered mode
+      let url = `/api/evaluations/traces?project_id=${params.projectid}&agent_id=${params.agentid}&limit=100`
+      
+      if (formData.traceSelection === 'date_filtered') {
+        const { date_range, start_date, end_date, min_duration, call_status } = formData.filter_criteria
+        
+        if (date_range) {
+          url += `&date_range=${date_range}`
+        }
+        if (date_range === 'custom' && start_date) {
+          url += `&start_date=${start_date}`
+        }
+        if (date_range === 'custom' && end_date) {
+          url += `&end_date=${end_date}`
+        }
+        if (min_duration) {
+          url += `&min_duration=${min_duration}`
+        }
+        if (call_status) {
+          url += `&call_status=${call_status}`
+        }
+      }
+      
+      const response = await fetch(url)
       
       const result = await response.json()
       
@@ -1441,7 +1464,9 @@ function CreateJobDialog({ open, onOpenChange, prompts, selectedPrompts, onSelec
     const jobData = {
       ...formData,
       prompt_ids: selectedPrompts,
-      selected_traces: formData.traceSelection === 'manual' ? formData.selectedTraces : null
+      selected_traces: formData.traceSelection === 'manual' ? formData.selectedTraces : null,
+      // Include filter criteria for date_filtered option
+      filter_criteria: formData.traceSelection === 'date_filtered' ? formData.filter_criteria : null
     }
     
     onSubmit(jobData)
@@ -1542,7 +1567,7 @@ function CreateJobDialog({ open, onOpenChange, prompts, selectedPrompts, onSelec
           <div>
             <Label>Trace Selection</Label>
             <div className="mt-2 space-y-4">
-              <div className="flex gap-4">
+              <div className="flex flex-col gap-3">
                 <label className="flex items-center space-x-2 cursor-pointer">
                   <input
                     type="radio"
@@ -1558,6 +1583,17 @@ function CreateJobDialog({ open, onOpenChange, prompts, selectedPrompts, onSelec
                   <input
                     type="radio"
                     name="traceSelection"
+                    value="date_filtered"
+                    checked={formData.traceSelection === 'date_filtered'}
+                    onChange={(e) => setFormData({ ...formData, traceSelection: e.target.value })}
+                    className="text-blue-600"
+                  />
+                  <span>Filter traces by date range</span>
+                </label>
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="traceSelection"
                     value="manual"
                     checked={formData.traceSelection === 'manual'}
                     onChange={(e) => setFormData({ ...formData, traceSelection: e.target.value })}
@@ -1566,6 +1602,117 @@ function CreateJobDialog({ open, onOpenChange, prompts, selectedPrompts, onSelec
                   <span>Manually select specific traces</span>
                 </label>
               </div>
+
+              {/* Date Filtering Options */}
+              {formData.traceSelection === 'date_filtered' && (
+                <div className="border rounded-lg p-4 bg-gray-50">
+                  <Label className="text-sm font-medium mb-3 block">Date Range Filter</Label>
+                  
+                  <div className="space-y-4">
+                    {/* Predefined Date Ranges */}
+                    <div>
+                      <Label className="text-xs text-gray-600 mb-2 block">Quick Selection</Label>
+                      <Select
+                        value={formData.filter_criteria.date_range}
+                        onValueChange={(value) => setFormData({
+                          ...formData,
+                          filter_criteria: { ...formData.filter_criteria, date_range: value, start_date: '', end_date: '' }
+                        })}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select date range" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="last_7_days">Last 7 days</SelectItem>
+                          <SelectItem value="last_30_days">Last 30 days</SelectItem>
+                          <SelectItem value="last_90_days">Last 90 days</SelectItem>
+                          <SelectItem value="custom">Custom date range</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Custom Date Range */}
+                    {formData.filter_criteria.date_range === 'custom' && (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <Label className="text-xs text-gray-600 mb-1 block">Start Date</Label>
+                          <Input
+                            type="date"
+                            value={formData.filter_criteria.start_date}
+                            onChange={(e) => setFormData({
+                              ...formData,
+                              filter_criteria: { ...formData.filter_criteria, start_date: e.target.value }
+                            })}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs text-gray-600 mb-1 block">End Date</Label>
+                          <Input
+                            type="date"
+                            value={formData.filter_criteria.end_date}
+                            onChange={(e) => setFormData({
+                              ...formData,
+                              filter_criteria: { ...formData.filter_criteria, end_date: e.target.value }
+                            })}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Additional Filters */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label className="text-xs text-gray-600 mb-1 block">Min Duration (seconds)</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={formData.filter_criteria.min_duration}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            filter_criteria: { ...formData.filter_criteria, min_duration: parseInt(e.target.value) || 0 }
+                          })}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs text-gray-600 mb-1 block">Call Status</Label>
+                        <Select
+                          value={formData.filter_criteria.call_status}
+                          onValueChange={(value) => setFormData({
+                            ...formData,
+                            filter_criteria: { ...formData.filter_criteria, call_status: value }
+                          })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="completed">Completed</SelectItem>
+                            <SelectItem value="failed">Failed</SelectItem>
+                            <SelectItem value="all">All Status</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    {/* Preview of filtered traces */}
+                    {!tracesLoading && !tracesError && traces.length > 0 && (
+                      <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm">
+                        <span className="font-medium text-blue-800">
+                          Found: {traces.length} trace(s) matching date criteria
+                        </span>
+                      </div>
+                    )}
+
+                    {!tracesLoading && !tracesError && traces.length === 0 && formData.traceSelection === 'date_filtered' && (
+                      <div className="mt-3 p-2 bg-amber-50 border border-amber-200 rounded text-sm">
+                        <span className="font-medium text-amber-800">
+                          No traces found matching the selected date criteria
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {formData.traceSelection === 'manual' && (
                 <div className="border rounded-lg p-4 bg-gray-50">
@@ -1673,12 +1820,16 @@ function CreateJobDialog({ open, onOpenChange, prompts, selectedPrompts, onSelec
               type="submit" 
               disabled={
                 selectedPrompts.length === 0 || 
-                (formData.traceSelection === 'manual' && formData.selectedTraces.length === 0)
+                (formData.traceSelection === 'manual' && formData.selectedTraces.length === 0) ||
+                (formData.traceSelection === 'date_filtered' && formData.filter_criteria.date_range === 'custom' && 
+                 (!formData.filter_criteria.start_date || !formData.filter_criteria.end_date))
               }
             >
               Start Evaluation ({
                 formData.traceSelection === 'all' 
                   ? 'All Traces' 
+                  : formData.traceSelection === 'date_filtered'
+                  ? `Date Filtered (${traces.length} traces)`
                   : `${formData.selectedTraces.length} Trace(s)`
               })
             </Button>

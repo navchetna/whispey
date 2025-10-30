@@ -61,6 +61,13 @@ export async function GET(request: NextRequest) {
     const agentId = searchParams.get('agent_id')
     const limit = searchParams.get('limit') || '100'
     const offset = searchParams.get('offset') || '0'
+    
+    // Date filtering parameters
+    const dateRange = searchParams.get('date_range')
+    const startDate = searchParams.get('start_date')
+    const endDate = searchParams.get('end_date')
+    const minDuration = searchParams.get('min_duration')
+    const callStatus = searchParams.get('call_status')
 
     if (!projectId) {
       return NextResponse.json(
@@ -92,10 +99,52 @@ export async function GET(request: NextRequest) {
       query = query.eq('agent_id', agentId)
     }
 
-    // Only get completed calls with transcripts for evaluation
-    query = query
-      .eq('call_ended_reason', 'completed')
-      .not('transcript_json', 'is', null)
+    // Apply date filtering
+    if (dateRange && dateRange !== 'all') {
+      const now = new Date()
+      let filterDate: Date
+
+      switch (dateRange) {
+        case 'last_7_days':
+          filterDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+          query = query.gte('created_at', filterDate.toISOString())
+          break
+        case 'last_30_days':
+          filterDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+          query = query.gte('created_at', filterDate.toISOString())
+          break
+        case 'last_90_days':
+          filterDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+          query = query.gte('created_at', filterDate.toISOString())
+          break
+        case 'custom':
+          if (startDate) {
+            query = query.gte('created_at', new Date(startDate).toISOString())
+          }
+          if (endDate) {
+            // Add 1 day to end date to include the entire end date
+            const endDateTime = new Date(endDate)
+            endDateTime.setDate(endDateTime.getDate() + 1)
+            query = query.lt('created_at', endDateTime.toISOString())
+          }
+          break
+      }
+    }
+
+    // Apply minimum duration filter
+    if (minDuration && !isNaN(parseInt(minDuration))) {
+      query = query.gte('duration_seconds', parseInt(minDuration))
+    }
+
+    // Apply call status filter
+    if (callStatus && callStatus !== 'all') {
+      query = query.eq('call_ended_reason', callStatus)
+    } else {
+      // Only get completed calls with transcripts for evaluation (default behavior)
+      query = query
+        .eq('call_ended_reason', 'completed')
+        .not('transcript_json', 'is', null)
+    }
 
     const { data, error } = await query
 
@@ -107,13 +156,61 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get total count for pagination
-    const { count, error: countError } = await supabase
+    // Get total count for pagination with same filters
+    let countQuery = supabase
       .from('pype_voice_call_logs')
       .select('*, pype_voice_agents!inner(project_id)', { count: 'exact', head: true })
       .eq('pype_voice_agents.project_id', projectId)
-      .eq('call_ended_reason', 'completed')
-      .not('transcript_json', 'is', null)
+
+    // Apply same filters to count query
+    if (agentId) {
+      countQuery = countQuery.eq('agent_id', agentId)
+    }
+
+    // Apply date filtering to count query
+    if (dateRange && dateRange !== 'all') {
+      const now = new Date()
+      let filterDate: Date
+
+      switch (dateRange) {
+        case 'last_7_days':
+          filterDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+          countQuery = countQuery.gte('created_at', filterDate.toISOString())
+          break
+        case 'last_30_days':
+          filterDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+          countQuery = countQuery.gte('created_at', filterDate.toISOString())
+          break
+        case 'last_90_days':
+          filterDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+          countQuery = countQuery.gte('created_at', filterDate.toISOString())
+          break
+        case 'custom':
+          if (startDate) {
+            countQuery = countQuery.gte('created_at', new Date(startDate).toISOString())
+          }
+          if (endDate) {
+            const endDateTime = new Date(endDate)
+            endDateTime.setDate(endDateTime.getDate() + 1)
+            countQuery = countQuery.lt('created_at', endDateTime.toISOString())
+          }
+          break
+      }
+    }
+
+    if (minDuration && !isNaN(parseInt(minDuration))) {
+      countQuery = countQuery.gte('duration_seconds', parseInt(minDuration))
+    }
+
+    if (callStatus && callStatus !== 'all') {
+      countQuery = countQuery.eq('call_ended_reason', callStatus)
+    } else {
+      countQuery = countQuery
+        .eq('call_ended_reason', 'completed')
+        .not('transcript_json', 'is', null)
+    }
+
+    const { count, error: countError } = await countQuery
 
     if (countError) {
       console.error('Count error:', countError)

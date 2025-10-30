@@ -45,13 +45,58 @@ export async function POST(request: NextRequest) {
       total_traces = selected_traces.length
     } else {
       // Count traces based on filter criteria
-      const { count, error: countError } = await supabase
+      let countQuery = supabase
         .from('pype_voice_call_logs')
         .select('*, pype_voice_agents!inner(project_id)', { count: 'exact', head: true })
         .eq('pype_voice_agents.project_id', project_id)
         .eq('agent_id', agent_id)
-        .eq('call_ended_reason', 'completed')
-        .not('transcript_json', 'is', null)
+
+      // Apply date filtering if provided
+      if (filter_criteria?.date_range && filter_criteria.date_range !== 'all') {
+        const now = new Date()
+        let filterDate: Date
+
+        switch (filter_criteria.date_range) {
+          case 'last_7_days':
+            filterDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+            countQuery = countQuery.gte('created_at', filterDate.toISOString())
+            break
+          case 'last_30_days':
+            filterDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+            countQuery = countQuery.gte('created_at', filterDate.toISOString())
+            break
+          case 'last_90_days':
+            filterDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+            countQuery = countQuery.gte('created_at', filterDate.toISOString())
+            break
+          case 'custom':
+            if (filter_criteria.start_date) {
+              countQuery = countQuery.gte('created_at', new Date(filter_criteria.start_date).toISOString())
+            }
+            if (filter_criteria.end_date) {
+              const endDateTime = new Date(filter_criteria.end_date)
+              endDateTime.setDate(endDateTime.getDate() + 1)
+              countQuery = countQuery.lt('created_at', endDateTime.toISOString())
+            }
+            break
+        }
+      }
+
+      // Apply minimum duration filter
+      if (filter_criteria?.min_duration && !isNaN(parseInt(filter_criteria.min_duration))) {
+        countQuery = countQuery.gte('duration_seconds', parseInt(filter_criteria.min_duration))
+      }
+
+      // Apply call status filter
+      if (filter_criteria?.call_status && filter_criteria.call_status !== 'all') {
+        countQuery = countQuery.eq('call_ended_reason', filter_criteria.call_status)
+      } else {
+        countQuery = countQuery
+          .eq('call_ended_reason', 'completed')
+          .not('transcript_json', 'is', null)
+      }
+
+      const { count, error: countError } = await countQuery
 
       if (countError) {
         console.error('Count error:', countError)
