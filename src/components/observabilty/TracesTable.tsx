@@ -217,8 +217,8 @@ const TracesTable: React.FC<TracesTableProps> = ({ agentId, agent, sessionId, fi
     return `${(ms / 1000).toFixed(1)}s`;
   }
 
-  const formatLatencyValue = (ms: number) => {
-    return (ms / 1000).toFixed(6); // Show raw value in seconds without rounding
+  const formatLatencyValue = (seconds: number) => {
+    return (seconds * 1000).toFixed(6); // Convert seconds to milliseconds for display
   }
   const formatCost = (cost: number) => {
     if (cost < 0.000001) return "~$0"
@@ -287,7 +287,7 @@ const TracesTable: React.FC<TracesTableProps> = ({ agentId, agent, sessionId, fi
       total += trace.eou_metrics.end_of_utterance_delay // Already in ms
     }
   
-    return total
+    return total / 1000 // Convert from ms to seconds since latency is now expected in seconds
   }
 
 const handleRowClick = (trace: TraceLog) => {
@@ -552,8 +552,8 @@ const handleRowClick = (trace: TraceLog) => {
                               <span className={cn(
                                 "text-xs font-semibold font-mono",
                                 latency === 0 ? "text-gray-400 dark:text-gray-500" : 
-                                latency > 5000 ? "text-red-600 dark:text-red-400" :
-                                latency > 2000 ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"
+                                latency > 5 ? "text-red-600 dark:text-red-400" :
+                                latency > 2 ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"
                               )}>
                                 {latency > 0 ? formatLatencyValue(latency) : "N/A"}
                               </span>

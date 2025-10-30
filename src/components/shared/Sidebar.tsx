@@ -246,6 +246,9 @@ export default function Sidebar({
 
   // Group navigation items with better organization
   const groupedNavigation = (): NavigationGroup[] => {
+    // Debug: Log navigation items to see if Agent Config is included
+    console.log('🔍 Sidebar navigation items:', config.navigation)
+    
     const groups: Record<string, NavigationItem[]> = {}
     const ungrouped: NavigationItem[] = []
 
@@ -275,7 +278,7 @@ export default function Sidebar({
 
     // Define group order for consistency
     const groupOrder = [
-      'logs', 'agents', 'reports', 'analytics', 'integrations', 
+      'agent config', 'logs', 'agents', 'reports', 'analytics', 'integrations', 
       'team', 'settings', 'configuration', 'batch calls', 'resources'
     ]
 
@@ -285,6 +288,7 @@ export default function Sidebar({
         result.push({
           id: groupId,
           name: groupId === 'logs' ? 'LOGS' : 
+                groupId === 'agent config' ? 'Agent Config' :
                 groupId === 'batch calls' ? 'Batch Calls' :
                 groupId.charAt(0).toUpperCase() + groupId.slice(1),
           items: groups[groupId]
