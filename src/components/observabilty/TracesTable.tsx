@@ -216,6 +216,10 @@ const TracesTable: React.FC<TracesTableProps> = ({ agentId, agent, sessionId, fi
     if (ms < 1000) return `${ms.toFixed(0)}ms`;
     return `${(ms / 1000).toFixed(1)}s`;
   }
+
+  const formatLatencyValue = (ms: number) => {
+    return (ms / 1000).toFixed(6); // Show raw value in seconds without rounding
+  }
   const formatCost = (cost: number) => {
     if (cost < 0.000001) return "~$0"
     return `$${cost.toFixed(6)}`
@@ -385,9 +389,9 @@ const handleRowClick = (trace: TraceLog) => {
                 <div className="grid grid-cols-12 gap-3 text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wide flex-1">
                   <div className="col-span-1">Turn ID</div>
                   <div className="col-span-2">Trace Info</div>
-                  <div className="col-span-4">Conversation</div>
-                  <div className="col-span-2">Operations</div>
-                  <div className="col-span-1">Latency</div>
+                  <div className="col-span-5">Conversation</div>
+                  <div className="col-span-1">Operations</div>
+                  <div className="col-span-1">Latency (s)</div>
                   <div className="col-span-1">Cost</div>
                   <div className="col-span-1">Status</div>
                 </div>
@@ -469,19 +473,19 @@ const handleRowClick = (trace: TraceLog) => {
                         </div>
   
                         {/* Conversation */}
-                        <div className="col-span-4 space-y-2">
+                        <div className="col-span-5 space-y-2">
                           {trace.user_transcript && (
-                            <div className="text-xs">
+                            <div className="text-sm">
                               <div className="flex items-center gap-2 mb-1">
                                 <UserCheck className="w-3 h-3 text-blue-600 dark:text-blue-400" />
-                                <span className="text-blue-600 dark:text-blue-400 font-medium text-xs">Evaluator</span>
+                                <span className="text-blue-600 dark:text-blue-400 font-medium text-sm">Evaluator</span>
                               </div>
-                              <span className="ml-5 text-gray-800 dark:text-gray-200">{truncateText(trace.user_transcript, 60)}</span>
+                              <span className="ml-5 text-gray-800 dark:text-gray-200">{truncateText(trace.user_transcript, 120)}</span>
                             </div>
                           )}
                           {trace.agent_response && (
                             <div className={cn(
-                              "text-xs",
+                              "text-sm",
                               hasBugReport && "text-red-700 dark:text-red-300 font-medium"
                             )}>
                               <div className="flex items-center gap-2 mb-1">
@@ -490,7 +494,7 @@ const handleRowClick = (trace: TraceLog) => {
                                   hasBugReport ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"
                                 )} />
                                 <span className={cn(
-                                  "font-medium text-xs",
+                                  "font-medium text-sm",
                                   hasBugReport ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"
                                 )}>Sarvam</span>
                                 {hasBugReport && (
@@ -502,22 +506,22 @@ const handleRowClick = (trace: TraceLog) => {
                               <span className={cn(
                                 "ml-5",
                                 hasBugReport ? "text-red-800 dark:text-red-300" : "text-gray-600 dark:text-gray-300"
-                              )}>{truncateText(trace.agent_response, 60)}</span>
+                              )}>{truncateText(trace.agent_response, 120)}</span>
                             </div>
                           )}
                           {!trace.user_transcript && !trace.agent_response && (
-                            <div className="text-xs text-gray-400 dark:text-gray-500 italic">
+                            <div className="text-sm text-gray-400 dark:text-gray-500 italic">
                               {trace.lesson_day ? `Lesson Day ${trace.lesson_day}` : 'System operation'}
                             </div>
                           )}
                         </div>
   
                         {/* Operations */}
-                        <div className="col-span-2 space-y-1">
-                          <div className="flex items-center gap-2 flex-wrap">
+                        <div className="col-span-1">
+                          <div className="grid grid-cols-2 gap-1 text-[10px]">
                             {toolInfo.total > 0 && (
-                              <div className="flex items-center gap-1 text-xs">
-                                <Wrench className="w-3 h-3 text-orange-600 dark:text-orange-400" />
+                              <div className="flex items-center gap-1 col-span-2">
+                                <Wrench className="w-2 h-2 text-orange-600 dark:text-orange-400" />
                                 <span className="font-medium text-orange-700 dark:text-orange-300">{toolInfo.total}</span>
                                 <span className="text-gray-400 dark:text-gray-500">
                                   ({toolInfo.successful}✓)
@@ -525,31 +529,33 @@ const handleRowClick = (trace: TraceLog) => {
                               </div>
                             )}
                             {metrics.length > 0 && (
-                              <div className="flex gap-1">
+                              <>
                                 {metrics.map((metric, idx) => (
-                                  <Badge key={idx} variant="outline" className="text-[10px] px-1 py-0 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300">
+                                  <Badge key={idx} variant="outline" className="text-[8px] px-1 py-0 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300">
                                     {metric.type}
                                   </Badge>
                                 ))}
+                              </>
+                            )}
+                            {spansLength > 0 && (
+                              <div className="text-[10px] text-gray-500 dark:text-gray-400 col-span-2">
+                                {spansLength} spans
                               </div>
                             )}
                           </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">
-                            {spansLength > 0 ? `${spansLength} spans` : ""}
-                          </div>
                         </div>
   
-                        {/* Enhanced Latency with Timing Breakdown */}
+                        {/* Enhanced Latency with Raw Values */}
                         <div className="col-span-1">
                           <div className="space-y-1">
                             <div className="flex items-center gap-1">
                               <span className={cn(
-                                "text-xs font-semibold",
+                                "text-xs font-semibold font-mono",
                                 latency === 0 ? "text-gray-400 dark:text-gray-500" : 
                                 latency > 5000 ? "text-red-600 dark:text-red-400" :
                                 latency > 2000 ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"
                               )}>
-                                {latency > 0 ? formatDuration(latency) : "N/A"}
+                                {latency > 0 ? formatLatencyValue(latency) : "N/A"}
                               </span>
                             </div>
                           </div>

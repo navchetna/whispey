@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Loader2, CheckCircle, Bot, ArrowRight, Copy, AlertCircle, Zap, Link as LinkIcon, Eye, Activity, Info, ArrowLeft } from 'lucide-react'
+import { Loader2, CheckCircle, Bot, ArrowRight, Copy, AlertCircle, Zap, Link as LinkIcon, Eye, Activity, Info, ArrowLeft, Upload } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -41,9 +41,9 @@ interface VapiAssistant {
 
 const PLATFORM_OPTIONS = [
   { 
-    value: 'voice', 
-    label: 'Voice Agent',
-    description: 'Monitor your voice agent',
+    value: 'livekit', 
+    label: 'LiveKit Agent',
+    description: 'Monitor your LiveKit voice agent',
     icon: Activity,
     color: 'blue'
   },
@@ -53,6 +53,13 @@ const PLATFORM_OPTIONS = [
     description: 'Monitor your Vapi assistant calls',
     icon: Zap,
     color: 'green'
+  },
+  { 
+    value: 'audio_upload', 
+    label: 'Audio Upload',
+    description: 'Upload audio files for evaluation',
+    icon: Upload,
+    color: 'purple'
   }
 ]
 
@@ -64,12 +71,15 @@ const ConnectAgentFlow: React.FC<ConnectAgentFlowProps> = ({
   onLoadingChange
 }) => {
   const [currentStep, setCurrentStep] = useState<'form' | 'creating' | 'connecting' | 'success'>('form')
-  const [selectedPlatform, setSelectedPlatform] = useState('voice')
+  const [selectedPlatform, setSelectedPlatform] = useState('livekit')
   const assistantSectionRef = useRef<HTMLDivElement>(null)
   
   const [formData, setFormData] = useState({
     name: '',
-    description: ''
+    description: '',
+    audioUploadMethod: 'zip', // 'zip' or 'link'
+    audioFiles: null as File | null,
+    audioLink: ''
   })
 
   const [vapiData, setVapiData] = useState<{
@@ -105,6 +115,13 @@ const ConnectAgentFlow: React.FC<ConnectAgentFlowProps> = ({
       }, 100)
     }
   }, [vapiData.availableAssistants.length])
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setFormData({ ...formData, audioFiles: file })
+    }
+  }
 
   const handleVapiConnect = async () => {
     if (!vapiData.apiKey.trim()) {
@@ -190,7 +207,7 @@ const ConnectAgentFlow: React.FC<ConnectAgentFlowProps> = ({
     e.preventDefault()
     setError(null)
 
-    if (selectedPlatform === 'voice') {
+    if (selectedPlatform === 'livekit') {
       if (!formData.name.trim()) {
         setError('Monitoring label is required')
         return
@@ -208,6 +225,19 @@ const ConnectAgentFlow: React.FC<ConnectAgentFlowProps> = ({
         setError('Project API key is required')
         return
       }
+    } else if (selectedPlatform === 'audio_upload') {
+      if (!formData.name.trim()) {
+        setError('Agent name is required')
+        return
+      }
+      if (formData.audioUploadMethod === 'zip' && !formData.audioFiles) {
+        setError('Please upload a ZIP file containing audio files')
+        return
+      }
+      if (formData.audioUploadMethod === 'link' && !formData.audioLink.trim()) {
+        setError('Please provide a link to the audio files')
+        return
+      }
     }
 
     onLoadingChange(true)
@@ -216,18 +246,18 @@ const ConnectAgentFlow: React.FC<ConnectAgentFlowProps> = ({
     try {
       let payload
 
-      if (selectedPlatform === 'voice') {
+      if (selectedPlatform === 'livekit') {
         payload = {
           name: formData.name.trim(),
-          agent_type: 'voice',
+          agent_type: 'livekit',
           configuration: {
             description: formData.description.trim() || null,
           },
           project_id: projectId,
           environment: 'dev',
-          platform: 'voice'
+          platform: 'livekit'
         }
-      } else {
+      } else if (selectedPlatform === 'vapi') {
         const selectedAssistant = vapiData.availableAssistants.find((a: VapiAssistant) => a.id === vapiData.selectedAssistantId)
         payload = {
           name: formData.name.trim(),
@@ -245,6 +275,23 @@ const ConnectAgentFlow: React.FC<ConnectAgentFlowProps> = ({
           project_id: projectId,
           environment: 'dev',
           platform: 'vapi'
+        }
+      } else if (selectedPlatform === 'audio_upload') {
+        payload = {
+          name: formData.name.trim(),
+          agent_type: 'audio_upload',
+          configuration: {
+            description: formData.description.trim() || null,
+            audio_upload: {
+              upload_method: formData.audioUploadMethod,
+              audio_link: formData.audioUploadMethod === 'link' ? formData.audioLink.trim() : null,
+              audio_file_name: formData.audioUploadMethod === 'zip' ? formData.audioFiles?.name : null,
+              audio_file_size: formData.audioUploadMethod === 'zip' ? formData.audioFiles?.size : null
+            }
+          },
+          project_id: projectId,
+          environment: 'dev',
+          platform: 'audio_upload'
         }
       }
 
@@ -395,7 +442,7 @@ const ConnectAgentFlow: React.FC<ConnectAgentFlowProps> = ({
                       ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 border-teal-200 dark:border-teal-800' 
                       : 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800'
                   }`}>
-                    {selectedPlatform === 'vapi' ? 'Vapi Monitoring' : 'Voice Agent Monitoring'}
+                    {selectedPlatform === 'vapi' ? 'Vapi Monitoring' : 'LiveKit Monitoring'}
                   </Badge>
                   <Badge variant="outline" className="text-xs bg-gray-50 dark:bg-gray-900/30 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700">
                     Development
@@ -507,25 +554,39 @@ const ConnectAgentFlow: React.FC<ConnectAgentFlowProps> = ({
                 const Icon = platform.icon
                 const isSelected = selectedPlatform === platform.value
                 
+                const getSelectedStyles = () => {
+                  if (!isSelected) return 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
+                  
+                  switch (platform.color) {
+                    case 'green':
+                      return 'border-teal-500 dark:border-teal-600 bg-teal-50 dark:bg-teal-900/20'
+                    case 'purple':
+                      return 'border-purple-500 dark:border-purple-600 bg-purple-50 dark:bg-purple-900/20'
+                    default:
+                      return 'border-blue-500 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20'
+                  }
+                }
+
+                const getIconStyles = () => {
+                  if (!isSelected) return 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
+                  
+                  switch (platform.color) {
+                    case 'green':
+                      return 'bg-teal-600 dark:bg-teal-600 text-white'
+                    case 'purple':
+                      return 'bg-purple-600 dark:bg-purple-600 text-white'
+                    default:
+                      return 'bg-blue-600 dark:bg-blue-600 text-white'
+                  }
+                }
+                
                 return (
                   <div
                     key={platform.value}
-                    className={`relative flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all duration-200 flex-1 ${
-                      isSelected 
-                        ? platform.color === 'green'
-                          ? 'border-teal-500 dark:border-teal-600 bg-teal-50 dark:bg-teal-900/20'
-                          : 'border-blue-500 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20'
-                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
-                    }`}
+                    className={`relative flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all duration-200 flex-1 ${getSelectedStyles()}`}
                     onClick={() => setSelectedPlatform(platform.value)}
                   >
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                      isSelected 
-                        ? platform.color === 'green'
-                          ? 'bg-teal-600 dark:bg-teal-600 text-white'
-                          : 'bg-blue-600 dark:bg-blue-600 text-white'
-                        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
-                    }`}>
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${getIconStyles()}`}>
                       <Icon className="w-4 h-4" />
                     </div>
                     <div className="min-w-0">
@@ -540,7 +601,11 @@ const ConnectAgentFlow: React.FC<ConnectAgentFlowProps> = ({
 
           {/* Platform-specific Content */}
           <div className={`space-y-4 transition-all duration-300 ${
-            selectedPlatform === 'vapi' ? 'bg-teal-50/50 dark:bg-teal-900/10 px-4 py-4 rounded-lg border border-teal-100 dark:border-teal-800' : ''
+            selectedPlatform === 'vapi' 
+              ? 'bg-teal-50/50 dark:bg-teal-900/10 px-4 py-4 rounded-lg border border-teal-100 dark:border-teal-800' 
+              : selectedPlatform === 'audio_upload'
+              ? 'bg-purple-50/50 dark:bg-purple-900/10 px-4 py-4 rounded-lg border border-purple-100 dark:border-purple-800'
+              : ''
           }`}>
             
             {/* Monitoring Label - Always shown */}
@@ -572,8 +637,8 @@ const ConnectAgentFlow: React.FC<ConnectAgentFlowProps> = ({
               />
             </div>
 
-            {/* Voice Agent Fields */}
-            {selectedPlatform === 'voice' && (
+            {/* LiveKit Fields */}
+            {selectedPlatform === 'livekit' && (
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-900 dark:text-gray-100">
                   Notes <span className="text-gray-500 dark:text-gray-400 font-normal">(optional)</span>
@@ -721,6 +786,108 @@ const ConnectAgentFlow: React.FC<ConnectAgentFlowProps> = ({
                 )}
               </div>
             )}
+
+            {/* Audio Upload Fields */}
+            {selectedPlatform === 'audio_upload' && (
+              <div className="space-y-4">
+                {/* Audio Upload Method Selection */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-900 dark:text-gray-100">
+                    Audio Upload Method
+                  </label>
+                  <div className="flex gap-2">
+                    <div
+                      className={`relative flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all duration-200 flex-1 ${
+                        formData.audioUploadMethod === 'zip'
+                          ? 'border-purple-500 dark:border-purple-600 bg-purple-50 dark:bg-purple-900/20'
+                          : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
+                      }`}
+                      onClick={() => setFormData({ ...formData, audioUploadMethod: 'zip' })}
+                    >
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                        formData.audioUploadMethod === 'zip'
+                          ? 'bg-purple-600 dark:bg-purple-600 text-white'
+                          : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
+                      }`}>
+                        <Upload className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-medium text-gray-900 dark:text-gray-100 text-sm">ZIP File</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 leading-tight">Upload audio files as ZIP</div>
+                      </div>
+                    </div>
+                    
+                    <div
+                      className={`relative flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all duration-200 flex-1 ${
+                        formData.audioUploadMethod === 'link'
+                          ? 'border-purple-500 dark:border-purple-600 bg-purple-50 dark:bg-purple-900/20'
+                          : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
+                      }`}
+                      onClick={() => setFormData({ ...formData, audioUploadMethod: 'link' })}
+                    >
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                        formData.audioUploadMethod === 'link'
+                          ? 'bg-purple-600 dark:bg-purple-600 text-white'
+                          : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
+                      }`}>
+                        <LinkIcon className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-medium text-gray-900 dark:text-gray-100 text-sm">Link</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 leading-tight">Provide link to audio</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ZIP File Upload */}
+                {formData.audioUploadMethod === 'zip' && (
+                  <div className="space-y-2 bg-white/60 dark:bg-gray-900/30 rounded-lg p-4 border border-purple-200 dark:border-purple-800">
+                    <label className="block text-sm font-medium text-gray-900 dark:text-gray-100">
+                      Upload ZIP File
+                      <Badge variant="outline" className="ml-2 text-xs bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-800">
+                        Static Upload
+                      </Badge>
+                    </label>
+                    <input
+                      type="file"
+                      accept=".zip"
+                      onChange={handleFileChange}
+                      className="w-full px-3 py-2 text-sm border border-purple-200 dark:border-purple-800 bg-white dark:bg-gray-900 rounded-lg focus:border-purple-500 dark:focus:border-purple-400 focus:ring-2 focus:ring-purple-500/20 dark:focus:ring-purple-400/20 focus:outline-none transition-all"
+                    />
+                    {formData.audioFiles && (
+                      <p className="text-xs text-purple-600 dark:text-purple-400">
+                        Selected: {formData.audioFiles.name}
+                      </p>
+                    )}
+                    <p className="text-xs text-gray-600 dark:text-gray-400">
+                      Upload a ZIP file containing audio files for evaluation. Supported formats: MP3, WAV, M4A
+                    </p>
+                  </div>
+                )}
+
+                {/* Link Upload */}
+                {formData.audioUploadMethod === 'link' && (
+                  <div className="space-y-2 bg-white/60 dark:bg-gray-900/30 rounded-lg p-4 border border-purple-200 dark:border-purple-800">
+                    <label className="block text-sm font-medium text-gray-900 dark:text-gray-100">
+                      Audio Link
+                      <Badge variant="outline" className="ml-2 text-xs bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-800">
+                        External Link
+                      </Badge>
+                    </label>
+                    <Input
+                      placeholder="https://example.com/audio-files.zip"
+                      value={formData.audioLink}
+                      onChange={(e) => setFormData({ ...formData, audioLink: e.target.value })}
+                      className="h-10 px-3 text-sm border-purple-200 dark:border-purple-800 bg-white dark:bg-gray-900 rounded-lg focus:border-purple-500 dark:focus:border-purple-400 focus:ring-2 focus:ring-purple-500/20 dark:focus:ring-purple-400/20 focus:outline-none transition-all"
+                    />
+                    <p className="text-xs text-gray-600 dark:text-gray-400">
+                      Provide a direct link to audio files or ZIP archive for evaluation
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Error Message */}
@@ -749,12 +916,19 @@ const ConnectAgentFlow: React.FC<ConnectAgentFlowProps> = ({
             onClick={handleSubmit}
             disabled={
               vapiData.connectLoading ||
-              (selectedPlatform === 'voice' && !formData.name.trim()) ||
-              (selectedPlatform === 'vapi' && (!formData.name.trim() || !vapiData.selectedAssistantId || !vapiData.projectApiKey.trim()))
+              (selectedPlatform === 'livekit' && !formData.name.trim()) ||
+              (selectedPlatform === 'vapi' && (!formData.name.trim() || !vapiData.selectedAssistantId || !vapiData.projectApiKey.trim())) ||
+              (selectedPlatform === 'audio_upload' && (
+                !formData.name.trim() || 
+                (formData.audioUploadMethod === 'zip' && !formData.audioFiles) || 
+                (formData.audioUploadMethod === 'link' && !formData.audioLink.trim())
+              ))
             }
             className={`flex-1 h-10 font-medium text-white ${
               selectedPlatform === 'vapi' 
                 ? 'bg-teal-600 hover:bg-teal-700 dark:bg-teal-600 dark:hover:bg-teal-700' 
+                : selectedPlatform === 'audio_upload'
+                ? 'bg-purple-600 hover:bg-purple-700 dark:bg-purple-600 dark:hover:bg-purple-700'
                 : 'bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700'
             }`}
           >
