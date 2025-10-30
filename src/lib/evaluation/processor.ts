@@ -27,6 +27,9 @@ interface EvaluationJob {
   filter_criteria?: {
     date_range?: string
     min_duration?: number
+    call_status?: string
+    start_date?: string
+    end_date?: string
   }
 }
 
@@ -529,9 +532,15 @@ export class EvaluationProcessor {
       .select('id, call_id, agent_id, call_ended_reason, created_at, duration_seconds')
       .eq('agent_id', job.agent_id)
 
-    // Apply completion filter - be more flexible with call status
-    callLogsQuery = callLogsQuery.in('call_ended_reason', ['completed', 'ended', 'finished', 'success'])
-    console.log(`Applied call_ended_reason filter: ['completed', 'ended', 'finished', 'success']`)
+    // Apply call status filter
+    if (job.filter_criteria?.call_status && job.filter_criteria.call_status !== 'all') {
+      callLogsQuery = callLogsQuery.eq('call_ended_reason', job.filter_criteria.call_status)
+      console.log(`Applied specific call_ended_reason filter: ${job.filter_criteria.call_status}`)
+    } else {
+      // Apply completion filter - be more flexible with call status (default behavior)
+      callLogsQuery = callLogsQuery.in('call_ended_reason', ['completed', 'ended', 'finished', 'success'])
+      console.log(`Applied default call_ended_reason filter: ['completed', 'ended', 'finished', 'success']`)
+    }
 
     // Check what call logs exist before applying additional filters
     const { data: beforeFilters, error: beforeError } = await callLogsQuery.order('created_at', { ascending: false })
@@ -548,32 +557,54 @@ export class EvaluationProcessor {
     }
 
     // Apply filters with better error handling and logging
-    if (job.filter_criteria?.date_range) {
+    if (job.filter_criteria?.date_range && job.filter_criteria.date_range !== 'all') {
       const now = new Date()
-      let startDate = new Date()
+      let startDate: Date | null = null
+      let endDate: Date | null = null
       
       switch (job.filter_criteria.date_range) {
         case 'last_24_hours':
-          startDate.setHours(now.getHours() - 24)
+          startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000)
           break
         case 'last_7_days':
-          startDate.setDate(now.getDate() - 7)
+          startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
           break
         case 'last_30_days':
-          startDate.setDate(now.getDate() - 30)
+          startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+          break
+        case 'last_90_days':
+          startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+          break
+        case 'custom':
+          if (job.filter_criteria.start_date) {
+            startDate = new Date(job.filter_criteria.start_date)
+          }
+          if (job.filter_criteria.end_date) {
+            endDate = new Date(job.filter_criteria.end_date)
+            // Add 1 day to include the entire end date
+            endDate.setDate(endDate.getDate() + 1)
+          }
           break
         default:
           console.warn(`Unknown date range: ${job.filter_criteria.date_range}, skipping date filter`)
-          // Skip date filter for unknown ranges
       }
       
-      if (startDate && startDate !== new Date()) {
+      if (startDate) {
         try {
           callLogsQuery = callLogsQuery.gte('created_at', startDate.toISOString())
-          console.log(`Applied date filter: >= ${startDate.toISOString()}`)
+          console.log(`Applied start date filter: >= ${startDate.toISOString()}`)
           console.log(`Date filter explanation: Looking for calls newer than ${job.filter_criteria.date_range}`)
         } catch (dateError) {
-          console.warn(`Date filter failed, skipping:`, dateError)
+          console.warn(`Start date filter failed, skipping:`, dateError)
+        }
+      }
+
+      if (endDate) {
+        try {
+          callLogsQuery = callLogsQuery.lt('created_at', endDate.toISOString())
+          console.log(`Applied end date filter: < ${endDate.toISOString()}`)
+        } catch (dateError) {
+          console.warn(`End date filter failed, skipping:`, dateError)
         }
       }
     }

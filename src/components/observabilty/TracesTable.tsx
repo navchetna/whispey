@@ -203,8 +203,7 @@ const TracesTable: React.FC<TracesTableProps> = ({ agentId, agent, sessionId, fi
   }
 
   const formatDuration = (ms: number) => {
-    if (ms < 1000) return `${ms.toFixed(1)}ms`
-    return `${(ms / 1000).toFixed(2)}s`
+    return `${(ms / 1000).toFixed(3)}s`
   }
   const formatCost = (cost: number) => {
     if (cost < 0.000001) return "~$0"
