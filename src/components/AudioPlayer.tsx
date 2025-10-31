@@ -552,35 +552,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
     <Card className={cn("border border-gray-200 dark:border-gray-700", className)}>
       <audio ref={audioRef} preload="metadata" />
 
-      {/* Time Tick Marks */}
-      {duration > 0 && isReady && (
-        <div className="relative mb-2 h-4 mx-4 mt-4">
-          <div className="absolute inset-0 flex justify-between items-end">
-            {Array.from({ length: Math.floor(duration / 15) + 1 }, (_, i) => {
-              const timePosition = (i * 15) / duration
-              const leftPercentage = timePosition * 100
-              const timeInSeconds = i * 15
-              const minutes = Math.floor(timeInSeconds / 60)
-              const seconds = timeInSeconds % 60
-              
-              return (
-                <div
-                  key={i}
-                  className="flex flex-col items-center"
-                  style={{ position: 'absolute', left: `${leftPercentage}%`, transform: 'translateX(-50%)' }}
-                >
-                  <div className="text-xs text-gray-500 dark:text-gray-400 font-mono mb-1">
-                    {minutes}:{String(seconds).padStart(2, '0')}
-                  </div>
-                  <div className="w-px h-2 bg-gray-300 dark:bg-gray-600"></div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      <div className="flex items-center gap-3 px-4 pb-4">
+      <div className="flex items-center gap-3 px-4 py-3">
         {/* Play Button */}
         <Button
           onClick={togglePlay}
@@ -706,9 +678,9 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
         <div className="flex-1 relative">
           <canvas
             ref={canvasRef}
-            width={600}
-            height={40}
-            className="w-full h-10 cursor-pointer rounded bg-gray-50 dark:bg-gray-700"
+            width={400}
+            height={32}
+            className="w-full h-8 cursor-pointer rounded bg-gray-50 dark:bg-gray-700"
             onClick={handleWaveformClick}
             onMouseMove={handleWaveformMouseMove}
             onMouseLeave={handleWaveformMouseLeave}

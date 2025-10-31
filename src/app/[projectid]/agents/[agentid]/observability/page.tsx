@@ -137,6 +137,8 @@ export default function ObservabilityPage({ params, searchParams }: Observabilit
           sessionId={sessionId}
           agent={agent}
           filters={filters}
+          currentAudioTime={currentAudioTime}
+          isAudioPlaying={isAudioPlaying}
         />
       </div>
     </div>

@@ -31,6 +31,8 @@ interface TracesTableProps {
     status: string
     timeRange: string
   }
+  currentAudioTime?: number // Current audio playback time in seconds
+  isAudioPlaying?: boolean // Whether audio is currently playing
 }
 
 interface TraceLog {
@@ -44,6 +46,7 @@ interface TraceLog {
   tool_calls?: any[]
   trace_duration_ms?: number
   trace_cost_usd?: number
+  call_duration?: number // Add call_duration field
   stt_metrics?: any
   llm_metrics?: any
   tts_metrics?: any
@@ -59,7 +62,16 @@ interface TraceLog {
   metadata?: any
 }
 
-const TracesTable: React.FC<TracesTableProps> = ({ agentId, agent, sessionId, filters }) => {
+const TracesTable: React.FC<TracesTableProps> = ({ 
+  agentId, 
+  agent, 
+  sessionId, 
+  filters, 
+  currentAudioTime = 0, 
+  isAudioPlaying = false 
+}) => {
+
+  console.log('🎵 TracesTable props:', { currentAudioTime, isAudioPlaying })
 
   const [selectedTrace, setSelectedTrace] = useState<TraceLog | null>(null)
   const [isDetailSheetOpen, setIsDetailSheetOpen] = useState(false)
@@ -88,6 +100,10 @@ const TracesTable: React.FC<TracesTableProps> = ({ agentId, agent, sessionId, fi
     return hasVapiKeys || hasVapiConfig || isVapiType
   }, [agent])
 
+  // Audio sync state and refs
+  const tracesContainerRef = useRef<HTMLDivElement>(null)
+  const traceRefs = useRef<{ [key: string]: HTMLDivElement | null }>({})
+  const [activeTraceId, setActiveTraceId] = useState<string | null>(null)
 
   // trace data
   const {
@@ -162,6 +178,21 @@ const TracesTable: React.FC<TracesTableProps> = ({ agentId, agent, sessionId, fi
     return filtered
   }, [traceData, filters])
 
+  // Debug: Test highlighting by cycling through traces every 3 seconds
+  useEffect(() => {
+    if (!processedTraces?.length) return
+    
+    const interval = setInterval(() => {
+      const currentIndex = processedTraces.findIndex(trace => trace.id === activeTraceId)
+      const nextIndex = (currentIndex + 1) % processedTraces.length
+      const nextTrace = processedTraces[nextIndex]
+      
+      console.log('🎵 Debug: Auto-cycling to trace', nextTrace.id)
+      setActiveTraceId(nextTrace.id)
+    }, 3000)
+    
+    return () => clearInterval(interval)
+  }, [processedTraces, activeTraceId])
 
   const getTraceStatus = (trace: TraceLog) => {
     // Check if this turn is flagged for bug reports
@@ -218,7 +249,7 @@ const TracesTable: React.FC<TracesTableProps> = ({ agentId, agent, sessionId, fi
   }
 
   const formatLatencyValue = (seconds: number) => {
-    return (seconds * 1000).toFixed(6); // Convert seconds to milliseconds for display
+    return (seconds).toFixed(6); // Divide by 1000 for display
   }
   const formatCost = (cost: number) => {
     if (cost < 0.000001) return "~$0"
@@ -268,27 +299,276 @@ const TracesTable: React.FC<TracesTableProps> = ({ agentId, agent, sessionId, fi
   const getTotalLatency = (trace: TraceLog) => {
     let total = 0
     
-    if (isVapiAgent && trace.stt_metrics?.duration) {
-      total += trace.stt_metrics.duration // Already in ms
+    // Debug what we actually have
+    console.log('🔍 Latency Debug for trace:', trace.turn_id, {
+      stt_metrics: trace.stt_metrics,
+      llm_metrics: trace.llm_metrics,
+      tts_metrics: trace.tts_metrics,
+      eou_metrics: trace.eou_metrics
+    })
+    
+    // STT Duration - check for different possible property names
+    if (trace.stt_metrics) {
+      const sttDuration = trace.stt_metrics.duration || 
+                         trace.stt_metrics.latency || 
+                         trace.stt_metrics.processing_time || 
+                         0
+      if (sttDuration > 0) {
+        total += sttDuration
+        console.log('🎤 STT duration found:', sttDuration, 'ms')
+      }
     }
   
-    // LLM TTFT
-    if (trace.llm_metrics?.ttft) {
-      total += trace.llm_metrics.ttft // Already in ms
+    // LLM TTFT - check for different possible property names
+    if (trace.llm_metrics) {
+      const llmLatency = trace.llm_metrics.ttft || 
+                        trace.llm_metrics.latency || 
+                        trace.llm_metrics.response_time || 
+                        0
+      if (llmLatency > 0) {
+        total += llmLatency
+        console.log('🧠 LLM latency found:', llmLatency, 'ms')
+      }
     }
   
-    // TTS TTFB  
-    if (trace.tts_metrics?.ttfb) {
-      total += trace.tts_metrics.ttfb // Already in ms
+    // TTS TTFB - check for different possible property names
+    if (trace.tts_metrics) {
+      const ttsLatency = trace.tts_metrics.ttfb || 
+                        trace.tts_metrics.latency || 
+                        trace.tts_metrics.generation_time || 
+                        0
+      if (ttsLatency > 0) {
+        total += ttsLatency
+        console.log('🗣️ TTS latency found:', ttsLatency, 'ms')
+      }
     }
   
-    // EOU metrics
-    if (trace.eou_metrics?.end_of_utterance_delay) {
-      total += trace.eou_metrics.end_of_utterance_delay // Already in ms
+    // EOU metrics - check for different possible property names
+    if (trace.eou_metrics) {
+      const eouDelay = trace.eou_metrics.end_of_utterance_delay || 
+                      trace.eou_metrics.delay || 
+                      trace.eou_metrics.detection_time || 
+                      0
+      if (eouDelay > 0) {
+        total += eouDelay
+        console.log('⏱️ EOU delay found:', eouDelay, 'ms')
+      }
     }
-  
-    return total / 1000 // Convert from ms to seconds since latency is now expected in seconds
-  }
+
+    console.log('📊 Total latency calculated:', total, 'for trace:', trace.turn_id)
+    
+    // The values seem to already be in the correct format, don't convert
+    return total // Keep as-is, no unit conversion needed
+  }  // Calculate cumulative timestamps for audio sync
+  const calculateCumulativeTimestamps = useMemo(() => {
+    if (!processedTraces?.length) return []
+    
+    let cumulativeTime = 0
+    const timestamps = processedTraces.map((trace: TraceLog, index: number) => {
+      const latency = getTotalLatency(trace)
+      
+      // Debug: Check what data we have
+      console.log(`🎵 DEBUG Trace ${index} Raw Data:`, {
+        id: trace.id,
+        turn_id: trace.turn_id,
+        trace_duration_ms: trace.trace_duration_ms,
+        call_duration: trace.call_duration,
+        stt_metrics: trace.stt_metrics,
+        llm_metrics: trace.llm_metrics,
+        tts_metrics: trace.tts_metrics,
+        eou_metrics: trace.eou_metrics,
+        // Check all available fields for potential audio duration
+        allTraceFields: Object.keys(trace)
+      })
+      
+      // Get audio duration - check multiple possible sources
+      let audioDuration = 0
+      
+      // Try different sources for audio duration
+      if (trace.trace_duration_ms) {
+        audioDuration = trace.trace_duration_ms
+      } else if (trace.call_duration) {
+        audioDuration = trace.call_duration
+      } else if (trace.tts_metrics?.audio_duration) {
+        audioDuration = trace.tts_metrics.audio_duration
+      } else if (trace.tts_metrics?.duration) {
+        audioDuration = trace.tts_metrics.duration
+      } else if (trace.tts_metrics?.length) {
+        audioDuration = trace.tts_metrics.length
+      }
+      
+      console.log(`🎧 Audio duration for ${trace.turn_id}:`, {
+        raw_trace_duration_ms: trace.trace_duration_ms,
+        call_duration: trace.call_duration,
+        tts_metrics_audio_duration: trace.tts_metrics?.audio_duration,
+        tts_metrics_duration: trace.tts_metrics?.duration,
+        tts_metrics_length: trace.tts_metrics?.length,
+        final_audioDuration: audioDuration,
+        latency_seconds: latency,
+        dataType_raw: typeof trace.trace_duration_ms,
+        isNull: trace.trace_duration_ms === null,
+        isUndefined: trace.trace_duration_ms === undefined,
+        actualValue: trace.trace_duration_ms,
+        sourceUsed: audioDuration > 0 ? 'Found audio duration' : 'No audio duration found'
+      })
+      
+      // Calculate trace duration: latency + audio duration
+      // If both are 0, use reasonable fallbacks based on content length
+      let traceDuration = latency + audioDuration
+      
+      console.log(`📏 Trace duration calculation for ${trace.turn_id}:`, {
+        latency: latency,
+        audioDuration: audioDuration,
+        combined: traceDuration,
+        formula: 'latency + audioDuration'
+      })
+      
+      if (traceDuration === 0) {
+        // Fallback duration calculation based on content
+        const transcriptLength = (trace.user_transcript || '').length + (trace.agent_response || '').length
+        const estimatedDuration = Math.max(
+          2, // Minimum 2 seconds per trace
+          Math.min(10, transcriptLength * 0.05) // ~0.05 seconds per character, max 10 seconds
+        )
+        traceDuration = estimatedDuration
+        console.log(`⏰ Using fallback duration for ${trace.turn_id}: ${estimatedDuration}s (transcript length: ${transcriptLength})`)
+      }
+      
+      const startTime = cumulativeTime
+      const endTime = cumulativeTime + traceDuration
+      
+      console.log(`🎵 Trace ${index} (${trace.turn_id}):`, {
+        id: trace.id,
+        latency: `${latency.toFixed(3)}s`,
+        audioDuration: `${audioDuration.toFixed(3)}s`, 
+        traceDuration: `${traceDuration.toFixed(3)}s`,
+        startTime: `${startTime.toFixed(3)}s`,
+        endTime: `${endTime.toFixed(3)}s`,
+        raw_trace_duration_ms: trace.trace_duration_ms,
+        usingFallback: latency + audioDuration === 0 ? `YES (${traceDuration}s estimated)` : 'NO',
+        transcriptLengths: {
+          user: (trace.user_transcript || '').length,
+          agent: (trace.agent_response || '').length
+        },
+        calculationBreakdown: {
+          step1_latency: latency,
+          step2_audioDuration: audioDuration,
+          step3_sum: latency + audioDuration,
+          step4_final: traceDuration,
+          step5_timeRange: `${startTime.toFixed(3)}s to ${endTime.toFixed(3)}s`
+        }
+      })
+      
+      cumulativeTime = endTime
+      
+      return {
+        traceId: trace.id,
+        turnId: trace.turn_id,
+        startTime,
+        endTime,
+        latency,
+        audioDuration,
+        traceDuration,
+        index
+      }
+    })
+    
+    console.log('🎵 Audio Sync: Calculated cumulative timestamps', timestamps.map(t => ({
+      turn: t.turnId,
+      start: `${t.startTime.toFixed(3)}s`,
+      end: `${t.endTime.toFixed(3)}s`,
+      duration: `${t.traceDuration.toFixed(3)}s`
+    })))
+    
+    return timestamps
+  }, [processedTraces])
+
+  // Create a lookup object for easy access to timestamps by trace ID
+  const cumulativeTimestamps = useMemo(() => {
+    const lookup: Record<string, { startTime: number; endTime: number }> = {}
+    calculateCumulativeTimestamps.forEach(item => {
+      lookup[item.traceId] = {
+        startTime: item.startTime,
+        endTime: item.endTime
+      }
+    })
+    
+    console.log('🔑 Lookup object created:', {
+      totalItems: calculateCumulativeTimestamps.length,
+      lookupKeys: Object.keys(lookup),
+      lookupData: lookup
+    })
+    
+    return lookup
+  }, [calculateCumulativeTimestamps])
+
+  // Find active trace based on current audio time
+  const findActiveTrace = useMemo(() => {
+    if (!currentAudioTime || !calculateCumulativeTimestamps.length) {
+      console.log('🎵 Audio Sync: No active trace - currentAudioTime:', currentAudioTime, 'timestamps:', calculateCumulativeTimestamps.length)
+      return null
+    }
+    
+    const activeTrace = calculateCumulativeTimestamps.find((trace: any) => 
+      currentAudioTime >= trace.startTime && currentAudioTime <= trace.endTime
+    )
+    
+    // Debug: Show which traces the current time falls between
+    const relevantTraces = calculateCumulativeTimestamps.map(t => ({
+      turn: t.turnId,
+      start: t.startTime.toFixed(3),
+      end: t.endTime.toFixed(3),
+      isActive: currentAudioTime >= t.startTime && currentAudioTime <= t.endTime,
+      beforeStart: currentAudioTime < t.startTime,
+      afterEnd: currentAudioTime > t.endTime
+    }))
+    
+    console.log('🎵 Audio Sync: Current time', currentAudioTime.toFixed(3) + 's', 'Active trace:', activeTrace?.turnId || 'none')
+    console.log('🎵 Audio Sync: All traces vs current time:', relevantTraces)
+    
+    return activeTrace
+  }, [currentAudioTime, calculateCumulativeTimestamps])
+
+  // Auto-scroll to active trace and manage highlighting
+  useEffect(() => {
+    console.log('🎵 Audio Sync: Effect triggered', { 
+      isAudioPlaying, 
+      findActiveTrace, 
+      activeTraceId,
+      currentAudioTime 
+    })
+    
+    // Clear highlighting when audio stops
+    if (!isAudioPlaying) {
+      console.log('🎵 Audio Sync: Audio stopped, clearing active trace')
+      setActiveTraceId(null)
+      return
+    }
+    
+    // Only highlight when audio is playing and we have an active trace
+    if (!findActiveTrace) {
+      console.log('🎵 Audio Sync: No active trace found for current time')
+      return
+    }
+    
+    const activeTrace = findActiveTrace
+    if (activeTrace.traceId !== activeTraceId) {
+      console.log('🎵 Audio Sync: Setting active trace', activeTrace.traceId)
+      setActiveTraceId(activeTrace.traceId)
+      
+      // Scroll to the active trace
+      const traceElement = traceRefs.current[activeTrace.traceId]
+      console.log('🎵 Audio Sync: Trace element found', !!traceElement, !!tracesContainerRef.current)
+      
+      if (traceElement && tracesContainerRef.current) {
+        console.log('🎵 Audio Sync: Scrolling to trace')
+        traceElement.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center'
+        })
+      }
+    }
+  }, [findActiveTrace, isAudioPlaying, activeTraceId, currentAudioTime])
 
 const handleRowClick = (trace: TraceLog) => {
   const hasBugReport = checkBugReportFlags.has(trace.turn_id.toString())
@@ -395,11 +675,40 @@ const handleRowClick = (trace: TraceLog) => {
                   <div className="col-span-1">Cost</div>
                   <div className="col-span-1">Status</div>
                 </div>
+                {/* Audio Sync Status - Only show when audio is playing */}
+                {isAudioPlaying && (
+                  <div className="flex items-center gap-3 text-xs">
+                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                    <span className="text-gray-600 dark:text-gray-400">
+                      Audio: {currentAudioTime.toFixed(1)}s
+                    </span>
+                    {findActiveTrace ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-blue-600 dark:text-blue-400">
+                          Turn {findActiveTrace.turnId.replace('turn_', '')}
+                        </span>
+                        <span className="text-gray-500 dark:text-gray-400">
+                          ({findActiveTrace.startTime.toFixed(1)}s - {findActiveTrace.endTime.toFixed(1)}s)
+                        </span>
+                        <span className="text-purple-600 dark:text-purple-400">
+                          Duration: {findActiveTrace.traceDuration.toFixed(1)}s
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-red-500 dark:text-red-400">
+                        No matching trace
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Table Body */}
-            <div className="flex-1 overflow-y-auto overflow-x-hidden bg-white dark:bg-gray-900 h-full">
+            <div 
+              ref={tracesContainerRef}
+              className="flex-1 overflow-y-auto overflow-x-hidden bg-white dark:bg-gray-900 h-full"
+            >
               {processedTraces.length === 0 ? (
                 <div className="flex items-center justify-center h-full">
                   <div className="text-center text-sm text-gray-500 dark:text-gray-400">
@@ -422,21 +731,28 @@ const handleRowClick = (trace: TraceLog) => {
                     const latency = getTotalLatency(trace)
                     const hasBugReport = checkBugReportFlags.has(trace.turn_id.toString())
                     const spansLength = trace.otel_spans?.length || 0
+                    const isActiveTrace = isAudioPlaying && activeTraceId === trace.id
                     
                     return (
                       <div
                         key={trace.id}
+                        ref={(el) => { traceRefs.current[trace.id] = el }}
                         onClick={() => handleRowClick(trace)}
                         className={cn(
                           "grid grid-cols-12 gap-3 px-4 py-2.5 cursor-pointer border-l-2 transition-all text-sm relative hover:shadow-sm",
                           hasBugReport
                             ? "border-l-red-500 bg-red-50 dark:bg-red-900/10 hover:bg-red-50 dark:hover:bg-red-900/20"
+                            : isActiveTrace
+                            ? "border-l-green-500 bg-green-100 dark:bg-green-900/20 shadow-lg ring-2 ring-green-200 dark:ring-green-800"
                             : "border-l-transparent hover:border-l-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/10"
                         )}
                       >
                         {/* Turn ID */}
                         <div className="col-span-1 flex flex-col gap-1">
                           <div className="flex items-center gap-2">
+                            {isActiveTrace && (
+                              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                            )}
                             <div className="font-mono text-xs font-semibold text-gray-700 dark:text-gray-300">
                               Turn {trace.turn_id.replace('turn_', '')}
                             </div>
@@ -444,6 +760,29 @@ const handleRowClick = (trace: TraceLog) => {
                           <div className="text-[10px] text-gray-400 dark:text-gray-500 font-mono">
                             {formatRelativeTime(trace.created_at)}
                           </div>
+                          {/* Audio Timeline */}
+                          {(() => {
+                            const timestampData = cumulativeTimestamps[trace.id]
+                            console.log(`🎯 JSX Debug for ${trace.turn_id}:`, {
+                              traceId: trace.id,
+                              hasData: !!timestampData,
+                              timestampData,
+                              allKeys: Object.keys(cumulativeTimestamps)
+                            })
+                            
+                            if (timestampData) {
+                              return (
+                                <div className="text-[9px] text-blue-500 dark:text-blue-400 font-mono">
+                                  {Math.round(timestampData.startTime)}s-{Math.round(timestampData.endTime)}s
+                                </div>
+                              )
+                            }
+                            return (
+                              <div className="text-[9px] text-red-500 font-mono">
+                                No data
+                              </div>
+                            )
+                          })()}
                         </div>
 
                         {/* Trace Info */}
