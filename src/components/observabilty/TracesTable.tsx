@@ -178,22 +178,6 @@ const TracesTable: React.FC<TracesTableProps> = ({
     return filtered
   }, [traceData, filters])
 
-  // Debug: Test highlighting by cycling through traces every 3 seconds
-  useEffect(() => {
-    if (!processedTraces?.length) return
-    
-    const interval = setInterval(() => {
-      const currentIndex = processedTraces.findIndex(trace => trace.id === activeTraceId)
-      const nextIndex = (currentIndex + 1) % processedTraces.length
-      const nextTrace = processedTraces[nextIndex]
-      
-      console.log('🎵 Debug: Auto-cycling to trace', nextTrace.id)
-      setActiveTraceId(nextTrace.id)
-    }, 3000)
-    
-    return () => clearInterval(interval)
-  }, [processedTraces, activeTraceId])
-
   const getTraceStatus = (trace: TraceLog) => {
     // Check if this turn is flagged for bug reports
     if (checkBugReportFlags.has(trace.turn_id.toString())) {
