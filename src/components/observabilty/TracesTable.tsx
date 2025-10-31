@@ -396,15 +396,39 @@ const TracesTable: React.FC<TracesTableProps> = ({
         sourceUsed: audioDuration > 0 ? 'Found audio duration' : 'No audio duration found'
       })
       
-      // Calculate trace duration: latency + audio duration
-      // If both are 0, use reasonable fallbacks based on content length
+      // Calculate trace duration: latency + audio durations for both user and agent
+      // Skip first turn (turn_1) as it typically doesn't have user audio
+      const turnNumber = parseInt(trace.turn_id.replace('turn_', '')) || 0
+      const isFirstTurn = turnNumber === 1
+      
       let traceDuration = latency + audioDuration
       
+      // For turns after the first, add actual audio durations from metrics
+      if (!isFirstTurn) {
+        // Get actual user (STT) audio duration from metrics
+        const userAudioDuration = trace.stt_metrics?.audio_duration || 0
+        
+        // Get actual agent (TTS) audio duration from metrics  
+        const agentAudioDuration = trace.tts_metrics?.audio_duration || 0
+        
+        // Add both actual audio durations to the trace duration
+        traceDuration += userAudioDuration + agentAudioDuration
+        
+        console.log(`🎭 Turn ${turnNumber} actual audio durations:`, {
+          userAudioDuration: userAudioDuration.toFixed(3),
+          agentAudioDuration: agentAudioDuration.toFixed(3),
+          totalAudioDuration: (userAudioDuration + agentAudioDuration).toFixed(3),
+          stt_metrics_available: !!trace.stt_metrics,
+          tts_metrics_available: !!trace.tts_metrics
+        })
+      }
+      
       console.log(`📏 Trace duration calculation for ${trace.turn_id}:`, {
+        isFirstTurn,
         latency: latency,
-        audioDuration: audioDuration,
-        combined: traceDuration,
-        formula: 'latency + audioDuration'
+        systemAudioDuration: audioDuration,
+        finalTraceDuration: traceDuration,
+        formula: isFirstTurn ? 'latency + systemAudio' : 'latency + systemAudio + userAudio + agentAudio'
       })
       
       if (traceDuration === 0) {
@@ -423,9 +447,11 @@ const TracesTable: React.FC<TracesTableProps> = ({
       
       console.log(`🎵 Trace ${index} (${trace.turn_id}):`, {
         id: trace.id,
+        turnNumber,
+        isFirstTurn,
         latency: `${latency.toFixed(3)}s`,
-        audioDuration: `${audioDuration.toFixed(3)}s`, 
-        traceDuration: `${traceDuration.toFixed(3)}s`,
+        systemAudioDuration: `${audioDuration.toFixed(3)}s`, 
+        finalTraceDuration: `${traceDuration.toFixed(3)}s`,
         startTime: `${startTime.toFixed(3)}s`,
         endTime: `${endTime.toFixed(3)}s`,
         raw_trace_duration_ms: trace.trace_duration_ms,
@@ -436,10 +462,11 @@ const TracesTable: React.FC<TracesTableProps> = ({
         },
         calculationBreakdown: {
           step1_latency: latency,
-          step2_audioDuration: audioDuration,
-          step3_sum: latency + audioDuration,
-          step4_final: traceDuration,
-          step5_timeRange: `${startTime.toFixed(3)}s to ${endTime.toFixed(3)}s`
+          step2_systemAudio: audioDuration,
+          step3_userAudio: !isFirstTurn ? (trace.stt_metrics?.audio_duration || 0).toFixed(3) : 'N/A (first turn)',
+          step4_agentAudio: !isFirstTurn ? (trace.tts_metrics?.audio_duration || 0).toFixed(3) : 'N/A (first turn)',
+          step5_finalDuration: traceDuration,
+          step6_timeRange: `${startTime.toFixed(3)}s to ${endTime.toFixed(3)}s`
         }
       })
       
@@ -602,89 +629,89 @@ const handleRowClick = (trace: TraceLog) => {
   return (
     <>
       <div className="flex flex-col h-full bg-white dark:bg-gray-900 overflow-hidden">
-        {/* Tab Navigation */}
+        {/* Tab Navigation with Audio Sync Card */}
         <div className="border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 px-4 py-2 flex-shrink-0">
-          <nav className="flex space-x-4">
-            <button 
-              onClick={() => setActiveTab("turns")}
-              className={cn(
-                "px-3 py-2 text-sm font-medium rounded-md transition-colors",
-                activeTab === "turns" 
-                  ? "bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800" 
-                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-              )}
-            >
-              Conversation Turns ({processedTraces.length})
-            </button>
-            {sessionSpans && sessionSpans.length > 0 && (
-              <>
-            <button 
-              onClick={() => setActiveTab("trace")}
-              className={cn(
-                "px-3 py-2 text-sm font-medium rounded-md transition-colors",
-                activeTab === "trace" 
-                  ? "bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800" 
-                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-              )}
-            >
-              Session Trace ({sessionSpans?.length || 0} spans)
-            </button>
-            <button 
-              onClick={() => setActiveTab("waterfall")}
-              className={cn(
-                "px-3 py-2 text-sm font-medium rounded-md transition-colors",
-                activeTab === "waterfall" 
-                  ? "bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800" 
-                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-              )}
-            >
-              Timeline View ({sessionSpans?.length || 0} spans)
-            </button>
-            </>)}
-          </nav>
+          <div className="flex items-center justify-between">
+            <nav className="flex space-x-4">
+              <button 
+                onClick={() => setActiveTab("turns")}
+                className={cn(
+                  "px-3 py-2 text-sm font-medium rounded-md transition-colors",
+                  activeTab === "turns" 
+                    ? "bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800" 
+                    : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                )}
+              >
+                Conversation Turns ({processedTraces.length})
+              </button>
+              {sessionSpans && sessionSpans.length > 0 && (
+                <>
+              <button 
+                onClick={() => setActiveTab("trace")}
+                className={cn(
+                  "px-3 py-2 text-sm font-medium rounded-md transition-colors",
+                  activeTab === "trace" 
+                    ? "bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800" 
+                    : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                )}
+              >
+                Session Trace ({sessionSpans?.length || 0} spans)
+              </button>
+              <button 
+                onClick={() => setActiveTab("waterfall")}
+                className={cn(
+                  "px-3 py-2 text-sm font-medium rounded-md transition-colors",
+                  activeTab === "waterfall" 
+                    ? "bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800" 
+                    : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                )}
+              >
+                Timeline View ({sessionSpans?.length || 0} spans)
+              </button>
+              </>)}
+            </nav>
+            
+            {/* Audio Sync Status Card */}
+            {isAudioPlaying && (
+              <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg px-3 py-2 flex items-center gap-3 text-xs">
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                <div className="flex items-center gap-4">
+                  <span className="text-gray-700 dark:text-gray-300">
+                    <span className="font-medium">Audio:</span> {currentAudioTime.toFixed(1)}s
+                  </span>
+                  {findActiveTrace ? (
+                    <>
+                      <span className="text-blue-600 dark:text-blue-400">
+                        <span className="font-medium">Turn:</span> {findActiveTrace.turnId.replace('turn_', '')}
+                      </span>
+                      <span className="text-purple-600 dark:text-purple-400">
+                        <span className="font-medium">Duration:</span> {findActiveTrace.traceDuration.toFixed(1)}s
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-red-500 dark:text-red-400">
+                      No matching trace
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
   
         {/* Tab Content */}
         {activeTab === "turns" && (
           <>
-            {/* Header with Audio Sync Status */}
+            {/* Header */}
             <div className="border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 px-4 py-2 flex-shrink-0">
-              <div className="flex items-center justify-between mb-2">
-                <div className="grid grid-cols-12 gap-3 text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wide flex-1">
-                  <div className="col-span-1">Turn ID</div>
-                  <div className="col-span-2">Trace Info</div>
-                  <div className="col-span-5">Conversation</div>
-                  <div className="col-span-1">Operations</div>
-                  <div className="col-span-1">Latency (s)</div>
-                  <div className="col-span-1">Cost</div>
-                  <div className="col-span-1">Status</div>
-                </div>
-                {/* Audio Sync Status - Only show when audio is playing */}
-                {isAudioPlaying && (
-                  <div className="flex items-center gap-3 text-xs">
-                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                    <span className="text-gray-600 dark:text-gray-400">
-                      Audio: {currentAudioTime.toFixed(1)}s
-                    </span>
-                    {findActiveTrace ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-blue-600 dark:text-blue-400">
-                          Turn {findActiveTrace.turnId.replace('turn_', '')}
-                        </span>
-                        <span className="text-gray-500 dark:text-gray-400">
-                          ({findActiveTrace.startTime.toFixed(1)}s - {findActiveTrace.endTime.toFixed(1)}s)
-                        </span>
-                        <span className="text-purple-600 dark:text-purple-400">
-                          Duration: {findActiveTrace.traceDuration.toFixed(1)}s
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="text-red-500 dark:text-red-400">
-                        No matching trace
-                      </span>
-                    )}
-                  </div>
-                )}
+              <div className="grid grid-cols-12 gap-3 text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wide">
+                <div className="col-span-1">Turn ID</div>
+                <div className="col-span-2">Trace Info</div>
+                <div className="col-span-5">Conversation</div>
+                <div className="col-span-1">Operations</div>
+                <div className="col-span-1">Latency (s)</div>
+                <div className="col-span-1">Cost</div>
+                <div className="col-span-1">Status</div>
               </div>
             </div>
 
@@ -727,7 +754,7 @@ const handleRowClick = (trace: TraceLog) => {
                           hasBugReport
                             ? "border-l-red-500 bg-red-50 dark:bg-red-900/10 hover:bg-red-50 dark:hover:bg-red-900/20"
                             : isActiveTrace
-                            ? "border-l-green-500 bg-green-100 dark:bg-green-900/20 shadow-lg ring-2 ring-green-200 dark:ring-green-800"
+                            ? "border-l-green-500 bg-green-100 dark:bg-green-900/20 shadow-md border-r-2 border-r-green-300 dark:border-r-green-700"
                             : "border-l-transparent hover:border-l-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/10"
                         )}
                       >
