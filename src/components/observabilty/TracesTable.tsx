@@ -830,7 +830,12 @@ const handleRowClick = (trace: TraceLog) => {
                                 <UserCheck className="w-3 h-3 text-blue-600 dark:text-blue-400" />
                                 <span className="text-blue-600 dark:text-blue-400 font-medium text-sm">Evaluator</span>
                               </div>
-                              <span className="ml-5 text-gray-800 dark:text-gray-200">{truncateText(trace.user_transcript, 120)}</span>
+                              <div className={cn(
+                                "ml-5 text-gray-800 dark:text-gray-200",
+                                isActiveTrace && "bg-blue-50 dark:bg-blue-900/10 p-3 rounded-lg border border-blue-200 dark:border-blue-800 leading-relaxed"
+                              )}>
+                                {isActiveTrace ? trace.user_transcript : truncateText(trace.user_transcript, 120)}
+                              </div>
                             </div>
                           )}
                           {trace.agent_response && (
@@ -853,10 +858,13 @@ const handleRowClick = (trace: TraceLog) => {
                                   </Badge>
                                 )}
                               </div>
-                              <span className={cn(
+                              <div className={cn(
                                 "ml-5",
-                                hasBugReport ? "text-red-800 dark:text-red-300" : "text-gray-600 dark:text-gray-300"
-                              )}>{truncateText(trace.agent_response, 120)}</span>
+                                hasBugReport ? "text-red-800 dark:text-red-300" : "text-gray-600 dark:text-gray-300",
+                                isActiveTrace && "bg-green-50 dark:bg-green-900/10 p-3 rounded-lg border border-green-200 dark:border-green-800 leading-relaxed"
+                              )}>
+                                {isActiveTrace ? trace.agent_response : truncateText(trace.agent_response, 120)}
+                              </div>
                             </div>
                           )}
                           {!trace.user_transcript && !trace.agent_response && (
