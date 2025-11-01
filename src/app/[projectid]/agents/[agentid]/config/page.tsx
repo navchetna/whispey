@@ -11,6 +11,8 @@ import { Input } from '@/components/ui/input'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { 
   CopyIcon, 
   CheckIcon, 
@@ -31,7 +33,11 @@ import {
   MoreVertical,
   Save,
   X,
-  Brain
+  Brain,
+  ChevronDown,
+  HelpCircle,
+  Edit,
+  Lock
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -47,7 +53,6 @@ import ModelSelector from '@/components/agents/AgentConfig/ModelSelector'
 import SelectTTS from '@/components/agents/AgentConfig/SelectTTSDialog'
 import SelectSTT from '@/components/agents/AgentConfig/SelectSTTDialog'
 import AgentAdvancedSettings from '@/components/agents/AgentConfig/AgentAdvancedSettings'
-import PromptSettingsSheet from '@/components/agents/AgentConfig/PromptSettingsSheet'
 import { usePromptSettings } from '@/hooks/usePromptSettings'
 import { buildFormValuesFromAgent, getDefaultFormValues, useAgentConfig, useAgentMutations } from '@/hooks/useAgentConfig'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -244,9 +249,12 @@ interface Transcript {
 export default function AgentConfig() {
   const { agentid } = useParams()
   const [isCopied, setIsCopied] = useState(false)
-  const [isPromptSettingsOpen, setIsPromptSettingsOpen] = useState(false)
   const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState(false)
   const [isTalkToAssistantOpen, setIsTalkToAssistantOpen] = useState(false)
+  const [isAdvancedDeveloperSettingsCollapsed, setIsAdvancedDeveloperSettingsCollapsed] = useState(false)
+  const [isServiceProviderEditMode, setIsServiceProviderEditMode] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [lastSavedConfig, setLastSavedConfig] = useState<any>(null)
   
   // Agent status state
   const [agentStatus, setAgentStatus] = useState<AgentStatus>({ status: 'stopped' })
@@ -279,9 +287,14 @@ export default function AgentConfig() {
     config: {}
   })
 
-  // Sarvam-specific configuration state
+  // Enhanced configuration state
   const [sarvamConfig, setSarvamConfig] = useState({
     agentName: '',
+    selectedProvider: 'sarvam', // Default to Sarvam
+    medium: 'web', // 'web' or 'phone'
+    webUrl: '',
+    phoneNumber: '',
+    statementOfPurpose: '',
     serviceProviders: {
       asr: { baseUrl: '', modelName: '', apiKey: '' },
       llm: { baseUrl: '', modelName: '', apiKey: '' },
@@ -606,23 +619,141 @@ export default function AgentConfig() {
     setHasExternalChanges(true)
   }
 
-  // Sarvam configuration handlers
+  // Initialize provider config from agent data when it loads
+  useEffect(() => {
+    if (agentDataResponse?.[0]?.configuration?.provider_config) {
+      const providerConfig = agentDataResponse[0].configuration.provider_config
+      console.log('🔄 Initializing provider config from agent data:', providerConfig)
+      
+      setSarvamConfig(prev => ({
+        ...prev,
+        selectedProvider: providerConfig.provider || 'sarvam',
+        medium: providerConfig.configuration?.medium?.type || 'web',
+        webUrl: providerConfig.configuration?.medium?.type === 'web' ? providerConfig.configuration?.medium?.endpoint || '' : '',
+        phoneNumber: providerConfig.configuration?.medium?.type === 'phone' ? providerConfig.configuration?.medium?.endpoint || '' : '',
+        statementOfPurpose: providerConfig.configuration?.prompt?.statementOfPurpose || '',
+        serviceProviders: providerConfig.configuration?.serviceProviders || prev.serviceProviders,
+        testingBots: providerConfig.configuration?.testingBots || prev.testingBots
+      }))
+      
+      console.log('✅ Provider config initialized from agent data')
+    }
+  }, [agentDataResponse])
+
+  // Load saved configuration on component mount
+  useEffect(() => {
+    const loadSavedConfiguration = async () => {
+      try {
+        const response = await fetch(`/api/agents/provider-config?agentId=${agentid}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' }
+        })
+        
+        if (response.ok) {
+          const result = await response.json()
+          const savedConfig = result.data
+          console.log('📋 Loaded saved configuration:', savedConfig)
+          
+          if (savedConfig && savedConfig.configuration) {
+            // Update sarvamConfig with saved data
+            setSarvamConfig(prev => ({
+              ...prev,
+              selectedProvider: savedConfig.provider || 'sarvam',
+              medium: savedConfig.configuration.medium?.type || 'web',
+              webUrl: savedConfig.configuration.medium?.type === 'web' ? savedConfig.configuration.medium?.endpoint || '' : '',
+              phoneNumber: savedConfig.configuration.medium?.type === 'phone' ? savedConfig.configuration.medium?.endpoint || '' : '',
+              statementOfPurpose: savedConfig.configuration.prompt?.statementOfPurpose || '',
+              serviceProviders: savedConfig.configuration.serviceProviders || prev.serviceProviders,
+              testingBots: savedConfig.configuration.testingBots || prev.testingBots
+            }))
+            
+            setLastSavedConfig(savedConfig)
+            console.log('✅ Configuration loaded and applied')
+          }
+        } else if (response.status === 404) {
+          console.log('📝 No saved configuration found, using defaults')
+        }
+      } catch (error) {
+        console.error('❌ Failed to load saved configuration:', error)
+      }
+    }
+    
+    if (agentid) {
+      loadSavedConfiguration()
+    }
+  }, [agentid])
+
+  // Enhanced save configuration handler
   const saveSarvamConfig = async () => {
     try {
-      console.log('💾 Saving Sarvam configuration:', sarvamConfig)
-      // Here you would implement the actual save logic to your backend
-      // For now, we'll just log it and show a success message
+      setIsSaving(true)
+      console.log('💾 Saving enhanced agent configuration:', sarvamConfig)
       
-      // Example API call:
-      // await fetch('/api/sarvam/config', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ agentId: agentid, config: sarvamConfig })
-      // })
+      // Validate configuration based on selected provider
+      const validationResults = {
+        hasProvider: !!sarvamConfig.selectedProvider,
+        hasMedium: !!sarvamConfig.medium,
+        hasEndpoint: sarvamConfig.medium === 'web' ? !!sarvamConfig.webUrl : !!sarvamConfig.phoneNumber,
+        hasPurpose: !!sarvamConfig.statementOfPurpose?.trim(),
+        isComplete: false
+      }
       
-      console.log('✅ Sarvam configuration saved successfully')
+      validationResults.isComplete = validationResults.hasProvider && 
+                                   validationResults.hasMedium && 
+                                   validationResults.hasEndpoint && 
+                                   validationResults.hasPurpose
+      
+      if (!validationResults.isComplete) {
+        console.warn('⚠️ Configuration validation failed:', validationResults)
+        alert('Please complete all required fields before saving.')
+        return
+      }
+      
+      // Create complete configuration payload
+      const configPayload = {
+        agentId: agentid,
+        agentName: agentName,
+        provider: sarvamConfig.selectedProvider,
+        configuration: {
+          medium: {
+            type: sarvamConfig.medium,
+            endpoint: sarvamConfig.medium === 'web' ? sarvamConfig.webUrl : sarvamConfig.phoneNumber
+          },
+          prompt: {
+            statementOfPurpose: sarvamConfig.statementOfPurpose
+          },
+          serviceProviders: sarvamConfig.serviceProviders,
+          testingBots: sarvamConfig.testingBots
+        },
+        timestamp: new Date().toISOString()
+      }
+      
+      // Save to backend API
+      const response = await fetch('/api/agents/provider-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(configPayload)
+      })
+      
+      if (!response.ok) {
+        throw new Error(`Failed to save configuration: ${response.statusText}`)
+      }
+      
+      const result = await response.json()
+      console.log('✅ Configuration saved successfully:', result)
+      
+      // Update last saved config and exit edit mode
+      setLastSavedConfig(configPayload)
+      setIsServiceProviderEditMode(false)
+      
+      // Show success feedback
+      alert(`🎉 ${sarvamConfig.selectedProvider} configuration saved successfully!`)
+      
     } catch (error) {
-      console.error('❌ Failed to save Sarvam configuration:', error)
+      console.error('❌ Failed to save enhanced agent configuration:', error)
+      alert('Failed to save configuration. Please try again.')
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -814,22 +945,42 @@ export default function AgentConfig() {
               </Button>
             )}
 
-            {/* Save Sarvam Config */}
-            <Button 
-              size="sm" 
-              variant="outline"
-              className="h-8 px-3" 
-              onClick={saveSarvamConfig}
-            >
-              <div className="w-4 h-4 bg-purple-600 rounded-full flex items-center justify-center mr-2">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" className="text-white">
-                  <path d="M12 2L3.09 8.26L4 9L12 4L20 9L20.91 8.26L12 2Z" fill="currentColor"/>
-                  <path d="M12 6L3.09 12.26L4 13L12 8L20 13L20.91 12.26L12 6Z" fill="currentColor"/>
-                  <path d="M12 10L3.09 16.26L4 17L12 12L20 17L20.91 16.26L12 10Z" fill="currentColor"/>
-                </svg>
-              </div>
-              Sarvam
-            </Button>
+            {/* Save Configuration - Enhanced */}
+            {isServiceProviderEditMode && (
+              <Button 
+                size="sm" 
+                variant="outline"
+                className="h-8 px-3" 
+                onClick={saveSarvamConfig}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : (
+                  <div className={`w-4 h-4 rounded-full flex items-center justify-center mr-2 ${
+                    sarvamConfig.selectedProvider === 'sarvam' ? 'bg-purple-600' :
+                    sarvamConfig.selectedProvider === 'vapi' ? 'bg-green-600' :
+                    sarvamConfig.selectedProvider === 'vaani' ? 'bg-blue-600' :
+                    sarvamConfig.selectedProvider === 'smallest' ? 'bg-yellow-600' :
+                    sarvamConfig.selectedProvider === 'bolna' ? 'bg-orange-600' :
+                    'bg-gray-600'
+                  }`}>
+                    {sarvamConfig.selectedProvider === 'sarvam' && (
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" className="text-white">
+                        <path d="M12 2L3.09 8.26L4 9L12 4L20 9L20.91 8.26L12 2Z" fill="currentColor"/>
+                        <path d="M12 6L3.09 12.26L4 13L12 8L20 13L20.91 12.26L12 6Z" fill="currentColor"/>
+                        <path d="M12 10L3.09 16.26L4 17L12 12L20 17L20.91 16.26L12 10Z" fill="currentColor"/>
+                      </svg>
+                    )}
+                    {sarvamConfig.selectedProvider === 'vapi' && <span className="text-white text-xs">V</span>}
+                    {sarvamConfig.selectedProvider === 'vaani' && <span className="text-white text-xs">VA</span>}
+                    {sarvamConfig.selectedProvider === 'smallest' && <span className="text-white text-xs">⚡</span>}
+                    {sarvamConfig.selectedProvider === 'bolna' && <span className="text-white text-xs">B</span>}
+                  </div>
+                )}
+                {isSaving ? 'Saving...' : `Save ${sarvamConfig.selectedProvider?.charAt(0).toUpperCase() + sarvamConfig.selectedProvider?.slice(1)}`}
+              </Button>
+            )}
 
             {/* Three Dot Menu */}
             <DropdownMenu>
@@ -847,12 +998,6 @@ export default function AgentConfig() {
                   >
                     <PhoneIcon className="w-4 h-4 mr-2" />
                     Talk to Assistant
-                  </DropdownMenuItem>
-
-                  {/* Advanced Settings */}
-                  <DropdownMenuItem onSelect={() => setIsAdvancedSettingsOpen(true)}>
-                    <SlidersHorizontal className="w-4 h-4 mr-2" />
-                    Advanced Settings
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
 
@@ -987,309 +1132,623 @@ export default function AgentConfig() {
           {/* Left Side - Main Configuration */}
           <div className="flex-1 min-w-0 flex flex-col space-y-3">
             
-            {/* Sarvam Agent Configuration Section */}
-            <div className="bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 border border-purple-200 dark:border-purple-700 rounded-lg p-4 space-y-4">
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-6 h-6 bg-purple-600 rounded-full flex items-center justify-center">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-white">
-                    <path d="M12 2L3.09 8.26L4 9L12 4L20 9L20.91 8.26L12 2Z" fill="currentColor"/>
-                    <path d="M12 6L3.09 12.26L4 13L12 8L20 13L20.91 12.26L12 6Z" fill="currentColor"/>
-                    <path d="M12 10L3.09 16.26L4 17L12 12L20 17L20.91 16.26L12 10Z" fill="currentColor"/>
-                  </svg>
+            {/* Service Provider Selection */}
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <SettingsIcon className="w-5 h-5 text-blue-600" />
+                  <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Service Provider Configuration</h3>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <HelpCircle className="w-4 h-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-xs">
+                        <p className="text-sm">
+                          Configure the voice bot that will be evaluated or tested. This is your <strong>System Under Test (SUT)</strong> - the main agent being assessed by evaluator bots.
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
-                <h3 className="text-sm font-semibold text-purple-800 dark:text-purple-200">Sarvam Agent Configuration</h3>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Agent Name */}
-                <div className="space-y-2">
-                  <Label className="text-xs font-medium text-gray-700 dark:text-gray-300">Sarvam Agent Name</Label>
-                  <Input
-                    value={sarvamConfig.agentName}
-                    onChange={(e) => setSarvamConfig(prev => ({ ...prev, agentName: e.target.value }))}
-                    placeholder="Enter agent name..."
-                    className="h-8 text-sm"
-                  />
-                </div>
-
-                {/* Testing Bot Profiles */}
-                <div className="space-y-2">
-                  <Label className="text-xs font-medium text-gray-700 dark:text-gray-300">Testing Bot Profiles</Label>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setIsTestingBotsOpen(true)}
-                    className="h-8 w-full justify-start text-sm"
-                  >
-                    <User className="w-4 h-4 mr-2" />
-                    Manage Profiles ({sarvamConfig.testingBots.length})
-                  </Button>
-                </div>
-              </div>
-
-              {/* Service Providers Configuration */}
-              <div className="space-y-3">
-                <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wide">Service Providers</h4>
                 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                  {/* ASR Configuration */}
-                  <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Mic className="w-4 h-4 text-blue-600" />
-                      <h5 className="text-xs font-semibold text-gray-700 dark:text-gray-300">ASR (Speech-to-Text)</h5>
+                <div className="flex items-center gap-2">
+                  {/* Status Indicator */}
+                  {lastSavedConfig && !isServiceProviderEditMode && (
+                    <div className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                      <Lock className="w-3 h-3" />
+                      <span>Saved</span>
                     </div>
-                    <div className="space-y-2">
-                      <Input
-                        placeholder="Base URL"
-                        value={sarvamConfig.serviceProviders.asr.baseUrl}
-                        onChange={(e) => setSarvamConfig(prev => ({
-                          ...prev,
-                          serviceProviders: {
-                            ...prev.serviceProviders,
-                            asr: { ...prev.serviceProviders.asr, baseUrl: e.target.value }
+                  )}
+                  
+                  {/* Edit/Save/Cancel Buttons */}
+                  {!isServiceProviderEditMode ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsServiceProviderEditMode(true)}
+                      className="h-8 text-xs"
+                    >
+                      <Edit className="w-3 h-3 mr-1" />
+                      Edit
+                    </Button>
+                  ) : (
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          // Reset to last saved config or defaults
+                          if (lastSavedConfig) {
+                            setSarvamConfig(prev => ({
+                              ...prev,
+                              selectedProvider: lastSavedConfig.provider || 'sarvam',
+                              medium: lastSavedConfig.configuration.medium?.type || 'web',
+                              webUrl: lastSavedConfig.configuration.medium?.type === 'web' ? lastSavedConfig.configuration.medium?.endpoint || '' : '',
+                              phoneNumber: lastSavedConfig.configuration.medium?.type === 'phone' ? lastSavedConfig.configuration.medium?.endpoint || '' : '',
+                              statementOfPurpose: lastSavedConfig.configuration.prompt?.statementOfPurpose || '',
+                              serviceProviders: lastSavedConfig.configuration.serviceProviders || prev.serviceProviders,
+                              testingBots: lastSavedConfig.configuration.testingBots || prev.testingBots
+                            }))
                           }
-                        }))}
+                          setIsServiceProviderEditMode(false)
+                        }}
                         className="h-8 text-xs"
-                      />
-                      <Input
-                        placeholder="Model Name"
-                        value={sarvamConfig.serviceProviders.asr.modelName}
-                        onChange={(e) => setSarvamConfig(prev => ({
-                          ...prev,
-                          serviceProviders: {
-                            ...prev.serviceProviders,
-                            asr: { ...prev.serviceProviders.asr, modelName: e.target.value }
-                          }
-                        }))}
+                      >
+                        <X className="w-3 h-3 mr-1" />
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={saveSarvamConfig}
+                        disabled={isSaving}
                         className="h-8 text-xs"
-                      />
-                      <Input
-                        type="password"
-                        placeholder="API Key"
-                        value={sarvamConfig.serviceProviders.asr.apiKey}
-                        onChange={(e) => setSarvamConfig(prev => ({
-                          ...prev,
-                          serviceProviders: {
-                            ...prev.serviceProviders,
-                            asr: { ...prev.serviceProviders.asr, apiKey: e.target.value }
-                          }
-                        }))}
-                        className="h-8 text-xs"
-                      />
+                      >
+                        {isSaving ? (
+                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                        ) : (
+                          <Save className="w-3 h-3 mr-1" />
+                        )}
+                        {isSaving ? 'Saving...' : 'Save'}
+                      </Button>
                     </div>
-                  </div>
+                  )}
+                </div>
+              </div>
 
-                  {/* LLM Configuration */}
-                  <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Brain className="w-4 h-4 text-green-600" />
-                      <h5 className="text-xs font-semibold text-gray-700 dark:text-gray-300">LLM (Language Model)</h5>
+              {/* Service Provider Selection Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                {[
+                  { 
+                    id: 'sarvam', 
+                    name: 'Sarvam', 
+                    icon: '🟣',
+                    color: 'purple',
+                    bgColor: 'bg-purple-50 dark:bg-purple-900/20',
+                    borderColor: 'border-purple-200 dark:border-purple-700',
+                    textColor: 'text-purple-700 dark:text-purple-300'
+                  },
+                  { 
+                    id: 'vapi', 
+                    name: 'Vapi', 
+                    icon: '🟢',
+                    color: 'green',
+                    bgColor: 'bg-green-50 dark:bg-green-900/20',
+                    borderColor: 'border-green-200 dark:border-green-700',
+                    textColor: 'text-green-700 dark:text-green-300'
+                  },
+                  { 
+                    id: 'vaani', 
+                    name: 'Vaani', 
+                    icon: '🔵',
+                    color: 'blue',
+                    bgColor: 'bg-blue-50 dark:bg-blue-900/20',
+                    borderColor: 'border-blue-200 dark:border-blue-700',
+                    textColor: 'text-blue-700 dark:text-blue-300'
+                  },
+                  { 
+                    id: 'smallest', 
+                    name: 'Smallest.ai', 
+                    icon: '⚡',
+                    color: 'yellow',
+                    bgColor: 'bg-yellow-50 dark:bg-yellow-900/20',
+                    borderColor: 'border-yellow-200 dark:border-yellow-700',
+                    textColor: 'text-yellow-700 dark:text-yellow-300'
+                  },
+                  { 
+                    id: 'bolna', 
+                    name: 'Bolna', 
+                    icon: '🟠',
+                    color: 'orange',
+                    bgColor: 'bg-orange-50 dark:bg-orange-900/20',
+                    borderColor: 'border-orange-200 dark:border-orange-700',
+                    textColor: 'text-orange-700 dark:text-orange-300'
+                  }
+                ].map((provider) => (
+                  <button
+                    key={provider.id}
+                    onClick={() => isServiceProviderEditMode && setSarvamConfig(prev => ({ ...prev, selectedProvider: provider.id }))}
+                    disabled={!isServiceProviderEditMode}
+                    className={`
+                      relative p-3 rounded-lg border-2 transition-all duration-200 text-center
+                      ${sarvamConfig.selectedProvider === provider.id 
+                        ? `${provider.bgColor} ${provider.borderColor} shadow-md` 
+                        : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700'
+                      }
+                      ${!isServiceProviderEditMode ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}
+                    `}
+                  >
+                    <div className="flex flex-col items-center gap-2">
+                      <span className="text-2xl">{provider.icon}</span>
+                      <span className={`text-xs font-medium ${
+                        sarvamConfig.selectedProvider === provider.id 
+                          ? provider.textColor 
+                          : 'text-gray-700 dark:text-gray-300'
+                      }`}>
+                        {provider.name}
+                      </span>
                     </div>
-                    <div className="space-y-2">
-                      <Input
-                        placeholder="Base URL"
-                        value={sarvamConfig.serviceProviders.llm.baseUrl}
-                        onChange={(e) => setSarvamConfig(prev => ({
-                          ...prev,
-                          serviceProviders: {
-                            ...prev.serviceProviders,
-                            llm: { ...prev.serviceProviders.llm, baseUrl: e.target.value }
-                          }
-                        }))}
-                        className="h-8 text-xs"
-                      />
-                      <Input
-                        placeholder="Model Name"
-                        value={sarvamConfig.serviceProviders.llm.modelName}
-                        onChange={(e) => setSarvamConfig(prev => ({
-                          ...prev,
-                          serviceProviders: {
-                            ...prev.serviceProviders,
-                            llm: { ...prev.serviceProviders.llm, modelName: e.target.value }
-                          }
-                        }))}
-                        className="h-8 text-xs"
-                      />
-                      <Input
-                        type="password"
-                        placeholder="API Key"
-                        value={sarvamConfig.serviceProviders.llm.apiKey}
-                        onChange={(e) => setSarvamConfig(prev => ({
-                          ...prev,
-                          serviceProviders: {
-                            ...prev.serviceProviders,
-                            llm: { ...prev.serviceProviders.llm, apiKey: e.target.value }
-                          }
-                        }))}
-                        className="h-8 text-xs"
-                      />
-                    </div>
-                  </div>
+                    {sarvamConfig.selectedProvider === provider.id && (
+                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full flex items-center justify-center">
+                        <CheckIcon className="w-2 h-2 text-white" />
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
 
-                  {/* TTS Configuration */}
-                  <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Volume2 className="w-4 h-4 text-purple-600" />
-                      <h5 className="text-xs font-semibold text-gray-700 dark:text-gray-300">TTS (Text-to-Speech)</h5>
+              {/* Medium Selection */}
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <MessageSquare className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Communication Medium</span>
+                </div>
+                
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => isServiceProviderEditMode && setSarvamConfig(prev => ({ ...prev, medium: 'web' }))}
+                    disabled={!isServiceProviderEditMode}
+                    className={`
+                      flex-1 p-3 rounded-lg border-2 transition-all duration-200
+                      ${sarvamConfig.medium === 'web' 
+                        ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300' 
+                        : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                      }
+                      ${!isServiceProviderEditMode ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}
+                    `}
+                  >
+                    <div className="flex flex-col items-center gap-2">
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9v-9m0-9v9m0 9c-5 0-9-4-9-9s4-9 9-9" />
+                      </svg>
+                      <span className="text-sm font-medium">Web URL</span>
                     </div>
-                    <div className="space-y-2">
-                      <Input
-                        placeholder="Base URL"
-                        value={sarvamConfig.serviceProviders.tts.baseUrl}
-                        onChange={(e) => setSarvamConfig(prev => ({
-                          ...prev,
-                          serviceProviders: {
-                            ...prev.serviceProviders,
-                            tts: { ...prev.serviceProviders.tts, baseUrl: e.target.value }
-                          }
-                        }))}
-                        className="h-8 text-xs"
-                      />
-                      <Input
-                        placeholder="Model Name"
-                        value={sarvamConfig.serviceProviders.tts.modelName}
-                        onChange={(e) => setSarvamConfig(prev => ({
-                          ...prev,
-                          serviceProviders: {
-                            ...prev.serviceProviders,
-                            tts: { ...prev.serviceProviders.tts, modelName: e.target.value }
-                          }
-                        }))}
-                        className="h-8 text-xs"
-                      />
-                      <Input
-                        type="password"
-                        placeholder="API Key"
-                        value={sarvamConfig.serviceProviders.tts.apiKey}
-                        onChange={(e) => setSarvamConfig(prev => ({
-                          ...prev,
-                          serviceProviders: {
-                            ...prev.serviceProviders,
-                            tts: { ...prev.serviceProviders.tts, apiKey: e.target.value }
-                          }
-                        }))}
-                        className="h-8 text-xs"
-                      />
+                  </button>
+                  
+                  <button
+                    onClick={() => isServiceProviderEditMode && setSarvamConfig(prev => ({ ...prev, medium: 'phone' }))}
+                    disabled={!isServiceProviderEditMode}
+                    className={`
+                      flex-1 p-3 rounded-lg border-2 transition-all duration-200
+                      ${sarvamConfig.medium === 'phone' 
+                        ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700 text-green-700 dark:text-green-300' 
+                        : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                      }
+                      ${!isServiceProviderEditMode ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}
+                    `}
+                  >
+                    <div className="flex flex-col items-center gap-2">
+                      <PhoneIcon className="w-6 h-6" />
+                      <span className="text-sm font-medium">Phone Number</span>
                     </div>
+                  </button>
+                </div>
+
+                {/* URL/Phone Input based on selection */}
+                {sarvamConfig.medium && (
+                  <div className="mt-3">
+                    <Input
+                      placeholder={sarvamConfig.medium === 'web' ? 'Enter web URL...' : 'Enter phone number...'}
+                      value={sarvamConfig.medium === 'web' ? sarvamConfig.webUrl || '' : sarvamConfig.phoneNumber || ''}
+                      onChange={(e) => isServiceProviderEditMode && setSarvamConfig(prev => ({
+                        ...prev,
+                        ...(sarvamConfig.medium === 'web' 
+                          ? { webUrl: e.target.value } 
+                          : { phoneNumber: e.target.value }
+                        )
+                      }))}
+                      disabled={!isServiceProviderEditMode}
+                      className="h-9 text-sm"
+                      type={sarvamConfig.medium === 'phone' ? 'tel' : 'url'}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Statement of Purpose / Prompt Configuration */}
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Brain className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Statement of Purpose</span>
+                </div>
+                
+                <Textarea
+                  placeholder="Define your agent's purpose, behavior, and how it should interact with users..."
+                  value={sarvamConfig.statementOfPurpose || ''}
+                  onChange={(e) => isServiceProviderEditMode && setSarvamConfig(prev => ({ ...prev, statementOfPurpose: e.target.value }))}
+                  disabled={!isServiceProviderEditMode}
+                  className="min-h-[100px] text-sm resize-none border-gray-200 dark:border-gray-700"
+                />
+                
+                <div className="flex justify-between items-center mt-2">
+                  <span className="text-xs text-gray-400 dark:text-gray-500">
+                    {(sarvamConfig.statementOfPurpose || '').length.toLocaleString()} characters
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (!isServiceProviderEditMode) return
+                        const templates = [
+                          "You are a helpful customer service agent. Be professional, empathetic, and solution-oriented.",
+                          "You are a sales assistant. Be enthusiastic, knowledgeable about products, and help customers make informed decisions.",
+                          "You are a technical support specialist. Be patient, detail-oriented, and guide users through troubleshooting steps.",
+                          "You are a personal assistant. Be organized, proactive, and help users manage their tasks and schedule efficiently."
+                        ]
+                        const randomTemplate = templates[Math.floor(Math.random() * templates.length)]
+                        setSarvamConfig(prev => ({ ...prev, statementOfPurpose: randomTemplate }))
+                      }}
+                      disabled={!isServiceProviderEditMode}
+                      className="h-7 text-xs"
+                    >
+                      Use Template
+                    </Button>
                   </div>
                 </div>
               </div>
             </div>
             
-            {/* Quick Setup Row - Responsive Stack */}
-            <div className="flex flex-col sm:flex-row gap-3 flex-shrink-0">
-              {/* LLM Selection */}
-              <div className="flex-1 min-w-0">
-                <ModelSelector
-                  selectedProvider={formik.values.selectedProvider}
-                  selectedModel={formik.values.selectedModel}
-                  temperature={formik.values.temperature}
-                  onProviderChange={handleProviderChange}
-                  onModelChange={handleModelChange}
-                  onTemperatureChange={handleTemperatureChange}
-                  azureConfig={azureConfig}
-                  onAzureConfigChange={handleAzureConfigChange}
-                />
+            {/* Advanced Developer Settings */}
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <Collapsible open={!isAdvancedDeveloperSettingsCollapsed} onOpenChange={(open) => setIsAdvancedDeveloperSettingsCollapsed(!open)}>
+                <CollapsibleTrigger className="flex items-center justify-between w-full p-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded transition-colors">
+                  <div className="flex items-center gap-2">
+                    <SettingsIcon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                    <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Advanced Developer Settings</h3>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <HelpCircle className="w-4 h-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs">
+                          <p className="text-sm">
+                            Configure the <strong>evaluator/tester bots</strong> that will assess and interact with your System Under Test voice bot. These settings control how the testing agents behave during evaluation.
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                  <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isAdvancedDeveloperSettingsCollapsed ? '' : 'rotate-180'}`} />
+                </CollapsibleTrigger>
+                
+                <CollapsibleContent className="space-y-4 mt-4">
+                  {/* Model Configuration Section */}
+                  <div className="space-y-4">
+                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wide">Model Configuration</h4>
+                
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  {/* LLM Configuration */}
+                  <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Brain className="w-4 h-4 text-green-600" />
+                      <h5 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Large Language Model</h5>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <ModelSelector
+                        selectedProvider={formik.values.selectedProvider}
+                        selectedModel={formik.values.selectedModel}
+                        temperature={formik.values.temperature}
+                        onProviderChange={handleProviderChange}
+                        onModelChange={handleModelChange}
+                        onTemperatureChange={handleTemperatureChange}
+                        azureConfig={azureConfig}
+                        onAzureConfigChange={handleAzureConfigChange}
+                      />
+                      
+                      {/* Service Provider Details */}
+                      <div className="space-y-2 border-t border-gray-200 dark:border-gray-700 pt-3">
+                        <Label className="text-xs font-medium text-gray-600 dark:text-gray-400">Provider Configuration</Label>
+                        <Input
+                          placeholder="Base URL (optional)"
+                          value={sarvamConfig.serviceProviders.llm.baseUrl}
+                          onChange={(e) => setSarvamConfig(prev => ({
+                            ...prev,
+                            serviceProviders: {
+                              ...prev.serviceProviders,
+                              llm: { ...prev.serviceProviders.llm, baseUrl: e.target.value }
+                            }
+                          }))}
+                          className="h-8 text-xs"
+                        />
+                        <Input
+                          type="password"
+                          placeholder="API Key (optional)"
+                          value={sarvamConfig.serviceProviders.llm.apiKey}
+                          onChange={(e) => setSarvamConfig(prev => ({
+                            ...prev,
+                            serviceProviders: {
+                              ...prev.serviceProviders,
+                              llm: { ...prev.serviceProviders.llm, apiKey: e.target.value }
+                            }
+                          }))}
+                          className="h-8 text-xs"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* STT Configuration */}
+                  <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Mic className="w-4 h-4 text-blue-600" />
+                      <h5 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Speech-to-Text</h5>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <SelectSTT 
+                        selectedProvider={formik.values.sttProvider}
+                        selectedModel={formik.values.sttModel}
+                        selectedLanguage={formik.values.sttConfig?.language}   
+                        initialConfig={formik.values.sttConfig}                
+                        onSTTSelect={handleSTTSelect}
+                      />
+                      
+                      {/* Service Provider Details */}
+                      <div className="space-y-2 border-t border-gray-200 dark:border-gray-700 pt-3">
+                        <Label className="text-xs font-medium text-gray-600 dark:text-gray-400">Provider Configuration</Label>
+                        <Input
+                          placeholder="Base URL (optional)"
+                          value={sarvamConfig.serviceProviders.asr.baseUrl}
+                          onChange={(e) => setSarvamConfig(prev => ({
+                            ...prev,
+                            serviceProviders: {
+                              ...prev.serviceProviders,
+                              asr: { ...prev.serviceProviders.asr, baseUrl: e.target.value }
+                            }
+                          }))}
+                          className="h-8 text-xs"
+                        />
+                        <Input
+                          type="password"
+                          placeholder="API Key (optional)"
+                          value={sarvamConfig.serviceProviders.asr.apiKey}
+                          onChange={(e) => setSarvamConfig(prev => ({
+                            ...prev,
+                            serviceProviders: {
+                              ...prev.serviceProviders,
+                              asr: { ...prev.serviceProviders.asr, apiKey: e.target.value }
+                            }
+                          }))}
+                          className="h-8 text-xs"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* TTS Configuration */}
+                  <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Volume2 className="w-4 h-4 text-purple-600" />
+                      <h5 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Text-to-Speech</h5>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <SelectTTS 
+                        selectedVoice={formik.values.selectedVoice}
+                        initialProvider={formik.values.ttsProvider}
+                        initialModel={formik.values.ttsModel}
+                        initialConfig={formik.values.ttsVoiceConfig}
+                        onVoiceSelect={handleVoiceSelect}
+                      />
+                      
+                      {/* Service Provider Details */}
+                      <div className="space-y-2 border-t border-gray-200 dark:border-gray-700 pt-3">
+                        <Label className="text-xs font-medium text-gray-600 dark:text-gray-400">Provider Configuration</Label>
+                        <Input
+                          placeholder="Base URL (optional)"
+                          value={sarvamConfig.serviceProviders.tts.baseUrl}
+                          onChange={(e) => setSarvamConfig(prev => ({
+                            ...prev,
+                            serviceProviders: {
+                              ...prev.serviceProviders,
+                              tts: { ...prev.serviceProviders.tts, baseUrl: e.target.value }
+                            }
+                          }))}
+                          className="h-8 text-xs"
+                        />
+                        <Input
+                          type="password"
+                          placeholder="API Key (optional)"
+                          value={sarvamConfig.serviceProviders.tts.apiKey}
+                          onChange={(e) => setSarvamConfig(prev => ({
+                            ...prev,
+                            serviceProviders: {
+                              ...prev.serviceProviders,
+                              tts: { ...prev.serviceProviders.tts, apiKey: e.target.value }
+                            }
+                          }))}
+                          className="h-8 text-xs"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              {/* STT Selection */}
-              <div className="flex-1 min-w-0">
-                <SelectSTT 
-                  selectedProvider={formik.values.sttProvider}
-                  selectedModel={formik.values.sttModel}
-                  selectedLanguage={formik.values.sttConfig?.language}   
-                  initialConfig={formik.values.sttConfig}                
-                  onSTTSelect={handleSTTSelect}
-                />
-              </div>
+              {/* Advanced Behavior Settings */}
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wide">Advanced Behavior Settings</h4>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Voice Activity Detection */}
+                  <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Mic className="w-4 h-4 text-blue-600" />
+                      <h5 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Voice Activity Detection</h5>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <div className="space-y-2">
+                        <Label className="text-xs font-medium text-gray-600 dark:text-gray-400">VAD Provider</Label>
+                        <Select 
+                          value={formik.values.advancedSettings?.vad?.vadProvider || 'webrtc'} 
+                          onValueChange={(value) => formik.setFieldValue('advancedSettings.vad.vadProvider', value)}
+                        >
+                          <SelectTrigger className="h-8 text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="webrtc">WebRTC</SelectItem>
+                            <SelectItem value="openai">OpenAI</SelectItem>
+                            <SelectItem value="silero">Silero</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                          Min Silence Duration: {formik.values.advancedSettings?.vad?.minSilenceDuration || 1000}ms
+                        </Label>
+                        <Slider
+                          value={[formik.values.advancedSettings?.vad?.minSilenceDuration || 1000]}
+                          onValueChange={(value) => formik.setFieldValue('advancedSettings.vad.minSilenceDuration', value[0])}
+                          min={100}
+                          max={3000}
+                          step={100}
+                          className="w-full"
+                        />
+                      </div>
+                    </div>
+                  </div>
 
-              {/* TTS Selection */}
-              <div className="flex-1 min-w-0">
-                <SelectTTS 
-                  selectedVoice={formik.values.selectedVoice}
-                  initialProvider={formik.values.ttsProvider}
-                  initialModel={formik.values.ttsModel}
-                  initialConfig={formik.values.ttsVoiceConfig}
-                  onVoiceSelect={handleVoiceSelect}
-                />
-              </div>
-            </div>
+                  {/* Interruption Settings */}
+                  <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <SettingsIcon className="w-4 h-4 text-green-600" />
+                      <h5 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Interruption Control</h5>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-medium text-gray-600 dark:text-gray-400">Allow Interruptions</Label>
+                        <Switch
+                          checked={formik.values.advancedSettings?.interruption?.allowInterruptions || false}
+                          onCheckedChange={(checked) => formik.setFieldValue('advancedSettings.interruption.allowInterruptions', checked)}
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                          Min Duration: {formik.values.advancedSettings?.interruption?.minInterruptionDuration || 500}ms
+                        </Label>
+                        <Slider
+                          value={[formik.values.advancedSettings?.interruption?.minInterruptionDuration || 500]}
+                          onValueChange={(value) => formik.setFieldValue('advancedSettings.interruption.minInterruptionDuration', value[0])}
+                          min={100}
+                          max={2000}
+                          step={50}
+                          className="w-full"
+                        />
+                      </div>
+                    </div>
+                  </div>
 
-            {/* Conversation Flow */}
-            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 space-y-3 flex-shrink-0">
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                  Conversation Start
-                </label>
-                <Select 
-                  value={formik.values.firstMessageMode?.mode || formik.values.firstMessageMode} 
-                  onValueChange={(value) => {
-                    // Handle both old string format and new object format
-                    if (typeof formik.values.firstMessageMode === 'object') {
-                      formik.setFieldValue('firstMessageMode', {
-                        ...formik.values.firstMessageMode,
-                        mode: value
-                      })
-                    } else {
-                      // Convert to new object format
-                      formik.setFieldValue('firstMessageMode', {
-                        mode: value,
-                        allow_interruptions: true,
-                        first_message: formik.values.customFirstMessage || ''
-                      })
-                    }
-                  }}
-                >
-                  <SelectTrigger className="h-8 text-sm w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {firstMessageModes.map((mode) => (
-                      <SelectItem key={mode.value} value={mode.value} className="text-sm">
-                        {mode.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                  {/* Filler Words Settings */}
+                  <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <MessageSquare className="w-4 h-4 text-purple-600" />
+                      <h5 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Filler Words & Natural Speech</h5>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-medium text-gray-600 dark:text-gray-400">Enable Filler Words</Label>
+                        <Switch
+                          checked={formik.values.advancedSettings?.fillers?.enableFillerWords || false}
+                          onCheckedChange={(checked) => formik.setFieldValue('advancedSettings.fillers.enableFillerWords', checked)}
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label className="text-xs font-medium text-gray-600 dark:text-gray-400">General Fillers</Label>
+                        <Input
+                          placeholder="um, uh, like, you know..."
+                          value={formik.values.advancedSettings?.fillers?.generalFillers?.join(', ') || ''}
+                          onChange={(e) => {
+                            const fillers = e.target.value.split(',').map(f => f.trim()).filter(f => f)
+                            formik.setFieldValue('advancedSettings.fillers.generalFillers', fillers)
+                          }}
+                          className="h-8 text-xs"
+                        />
+                      </div>
+                    </div>
+                  </div>
 
-              {/* First Message Textarea */}
-              {((typeof formik.values.firstMessageMode === 'object' && formik.values.firstMessageMode.mode === 'assistant_speaks_first') ||
-                (typeof formik.values.firstMessageMode === 'string' && formik.values.firstMessageMode === 'assistant_speaks_first')) && (
-                <Textarea
-                  placeholder="Enter the first message..."
-                  value={
-                    typeof formik.values.firstMessageMode === 'object' 
-                      ? formik.values.firstMessageMode.first_message 
-                      : formik.values.customFirstMessage
-                  }
-                  onChange={(e) => {
-                    if (typeof formik.values.firstMessageMode === 'object') {
-                      formik.setFieldValue('firstMessageMode', {
-                        ...formik.values.firstMessageMode,
-                        first_message: e.target.value
-                      })
-                    } else {
-                      // Also update the old customFirstMessage field for backward compatibility
-                      formik.setFieldValue('customFirstMessage', e.target.value)
-                      // Convert to new object format
-                      formik.setFieldValue('firstMessageMode', {
-                        mode: formik.values.firstMessageMode || 'assistant_speaks_first',
-                        allow_interruptions: true,
-                        first_message: e.target.value
-                      })
-                    }
-                  }}
-                  className="min-h-[60px] text-xs resize-none border-gray-200 dark:border-gray-700"
-                />
-              )}
+                  {/* Session Behavior */}
+                  <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <User className="w-4 h-4 text-orange-600" />
+                      <h5 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Session Behavior</h5>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <div className="space-y-2">
+                        <Label className="text-xs font-medium text-gray-600 dark:text-gray-400">Preemptive Generation</Label>
+                        <Select 
+                          value={formik.values.advancedSettings?.session?.preemptiveGeneration || 'enabled'} 
+                          onValueChange={(value) => formik.setFieldValue('advancedSettings.session.preemptiveGeneration', value)}
+                        >
+                          <SelectTrigger className="h-8 text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="enabled">Enabled</SelectItem>
+                            <SelectItem value="disabled">Disabled</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label className="text-xs font-medium text-gray-600 dark:text-gray-400">Turn Detection</Label>
+                        <Select 
+                          value={formik.values.advancedSettings?.session?.turn_detection || 'multilingual'} 
+                          onValueChange={(value) => formik.setFieldValue('advancedSettings.session.turn_detection', value)}
+                        >
+                          <SelectTrigger className="h-8 text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="multilingual">Multilingual</SelectItem>
+                            <SelectItem value="english">English Only</SelectItem>
+                            <SelectItem value="disabled">Disabled</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+                </CollapsibleContent>
+              </Collapsible>
             </div>
 
             {/* System Prompt */}
             <div className="flex-1 min-h-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 flex flex-col">
               <div className="flex items-center justify-between mb-3 flex-shrink-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-gray-600 dark:text-gray-400">System Prompt</span>
+                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">System Prompt</span>
                   <Popover>
                     <PopoverTrigger asChild>
                       <button className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
@@ -1303,7 +1762,7 @@ export default function AgentConfig() {
                           <span className="text-xs">{settings.fontSize}px</span>
                           <Slider
                             value={[settings.fontSize]}
-                            onValueChange={(value) => setFontSize(value[0])} // This will auto-save to localStorage
+                            onValueChange={(value) => setFontSize(value[0])}
                             min={8}
                             max={18}
                             step={1}
@@ -1316,14 +1775,6 @@ export default function AgentConfig() {
                 </div>
 
                 <div className="flex gap-2">
-                  <button
-                    onClick={() => setIsPromptSettingsOpen(true)}
-                    className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 cursor-pointer transition-colors"
-                  >
-                    <SettingsIcon className="w-4 h-4" />
-                    <span>Settings</span>
-                  </button>
-
                   <button
                     onClick={copyToClipboard}
                     className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 cursor-pointer transition-colors"
@@ -1360,18 +1811,10 @@ export default function AgentConfig() {
             </div>
           </div>
 
-          {/* Right Side - Advanced Settings - Desktop Only */}
-          <div className="hidden lg:block w-80 flex-shrink-0 min-h-0">
-            <AgentAdvancedSettings 
-              advancedSettings={formik.values.advancedSettings}
-              onFieldChange={formik.setFieldValue}
-            />
-          </div>
-          
         </div>
       </div>
 
-      {/* Mobile Sheets for Talk to Assistant and Advanced Settings */}
+      {/* Mobile Sheets for Talk to Assistant */}
       <Sheet open={isTalkToAssistantOpen} onOpenChange={setIsTalkToAssistantOpen}>
         <SheetContent side="right" className="w-full sm:w-96 p-0">
           <SheetHeader className="sr-only">
@@ -1385,29 +1828,6 @@ export default function AgentConfig() {
           />
         </SheetContent>
       </Sheet>
-
-      <Sheet open={isAdvancedSettingsOpen} onOpenChange={setIsAdvancedSettingsOpen}>
-        <SheetContent side="right" className="w-full sm:w-96 p-0">
-          <SheetHeader className="px-4 py-3 border-b">
-            <SheetTitle className="text-sm">Advanced Settings</SheetTitle>
-          </SheetHeader>
-          <div className="flex-1 overflow-y-auto">
-            <AgentAdvancedSettings 
-              advancedSettings={formik.values.advancedSettings}
-              onFieldChange={formik.setFieldValue}
-            />
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      <PromptSettingsSheet
-        open={isPromptSettingsOpen}
-        onOpenChange={setIsPromptSettingsOpen}
-        prompt={formik.values.prompt}
-        onPromptChange={(newPrompt) => formik.setFieldValue('prompt', newPrompt)}
-        variables={formik.values.variables}
-        onVariablesChange={(newVariables) => formik.setFieldValue('variables', newVariables)}
-      />
 
       {/* Testing Bot Profiles Dialog */}
       <Dialog open={isTestingBotsOpen} onOpenChange={setIsTestingBotsOpen}>

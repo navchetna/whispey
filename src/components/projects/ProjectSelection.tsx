@@ -5,9 +5,10 @@ import { useRouter } from 'next/navigation'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import TokenRegenerationConfirmDialog from '../TokenRegenerationConfirmDialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
-import { ChevronRight, Settings, Loader2, AlertCircle, Search, Plus, MoreHorizontal, Trash2, Key, Copy, Eye, EyeOff, RefreshCw, Users, Clock, Grid3X3, List, Building2, ChevronsUpDown } from 'lucide-react'
+import { ChevronRight, Settings, Loader2, AlertCircle, Search, Plus, MoreHorizontal, Trash2, Key, Copy, Eye, EyeOff, RefreshCw, Users, Clock, Grid3X3, List, Building2, ChevronsUpDown, Edit2, Check, X } from 'lucide-react'
 import ProjectCreationDialog from './ProjectCreationDialog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import MemberManagementDialog from '../MemberManagmentDialog'
@@ -45,6 +46,11 @@ const ProjectSelection: React.FC<ProjectSelectionProps> = ({ isAuthLoaded = fals
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  
+  // Edit mode state
+  const [editingProject, setEditingProject] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState({ name: '', description: '' })
+  const [updating, setUpdating] = useState<string | null>(null)
 
   const { isMobile } = useMobile(768)
   
@@ -175,6 +181,59 @@ const ProjectSelection: React.FC<ProjectSelectionProps> = ({ isAuthLoaded = fals
     }
   }
 
+  const handleEditProject = (project: Project) => {
+    setEditingProject(project.id)
+    setEditForm({
+      name: project.name,
+      description: project.description || ''
+    })
+  }
+
+  const handleCancelEdit = () => {
+    setEditingProject(null)
+    setEditForm({ name: '', description: '' })
+  }
+
+  const handleSaveEdit = async (projectId: string) => {
+    if (!editForm.name.trim()) {
+      return
+    }
+
+    setUpdating(projectId)
+    try {
+      const response = await fetch(`/api/projects/${projectId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update_project',
+          name: editForm.name.trim(),
+          description: editForm.description.trim() || null,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to update project')
+      }
+
+      const updatedProject = await response.json()
+      
+      // Update the projects list
+      setProjects(prevProjects => 
+        prevProjects.map(p => p.id === projectId ? updatedProject : p)
+      )
+      
+      setEditingProject(null)
+      setEditForm({ name: '', description: '' })
+    } catch (error: unknown) {
+      console.error('Error updating project:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Failed to update project'
+      alert(`Failed to update project: ${errorMessage}`)
+    } finally {
+      setUpdating(null)
+    }
+  }
+
   const handleCloseTokenDialog = () => {
     setShowTokenDialog(null)
     setRegeneratedToken(null)
@@ -214,212 +273,375 @@ const ProjectSelection: React.FC<ProjectSelectionProps> = ({ isAuthLoaded = fals
   ) || []
 
   // Comfortable Card Component (Original Style)
-  const ComfortableCard = ({ project }: { project: Project }) => (
-    <Card
-      className={`group bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-md dark:hover:shadow-lg transition-all duration-200 cursor-pointer ${
-        selectedProject === project.id ? 'opacity-50 scale-[0.98]' : ''
-      }`}
-      onClick={() => handleProjectClick(project)}
-    >
-      <CardContent className="p-4">
-        {/* Header */}
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-3 min-w-0 flex-1">
-            <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-blue-600 rounded flex items-center justify-center text-white font-medium text-xs flex-shrink-0">
-              {getWorkspaceInitials(project.name)}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 mb-1">
-                <h3 className="font-medium text-gray-900 dark:text-gray-100 text-sm truncate">{project.name}</h3>
-                <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${project.is_active ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'}`}></div>
-              </div>
-              <div className="flex items-center gap-1">
-                <Badge 
-                  variant="outline" 
-                  className={`text-xs font-normal border ${getEnvironmentColor(project.environment)} px-1.5 py-0`}
-                >
-                  {project.environment}
-                </Badge>
-                {project.token_hash && (
-                  <Badge variant="outline" className="text-xs font-normal bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800 px-1.5 py-0">
-                    <Key className="h-2 w-2 mr-0.5" />
-                    API
-                  </Badge>
-                )}
-                {project.agent_count !== undefined && (
-                  <Badge variant="outline" className="text-xs font-normal bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 px-1.5 py-0">
-                    {project.agent_count}
-                  </Badge>
-                )}
-              </div>
-            </div>
-          </div>
-          
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <MoreHorizontal className="h-3 w-3" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem onClick={(e) => {
-                e.stopPropagation()
-                setSelectedProjectForDialog(project)
-                setShowAddMemberDialog(true)
-              }} className="text-xs">
-                <Users className="h-3 w-3 mr-2" />
-                Manage access
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={(e) => {
-                e.stopPropagation()
-                router.push(`${project.id}/agents/api-keys`)
-              }} className="text-xs">
-                <Settings className="h-3 w-3 mr-2" />
-                Settings
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={(e) => {
-                e.stopPropagation()
-                router.push(`/${project.id}/agents/api-keys`)
-              }} disabled={regeneratingToken === project.id} className="text-xs">
-                {regeneratingToken === project.id ? (
-                  <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-3 w-3 mr-2" />
-                )}
-                Regenerate token
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={(e) => {
-                e.stopPropagation()
-                setShowDeleteConfirm(project)
-              }} className="text-xs text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400">
-                <Trash2 className="h-3 w-3 mr-2" />
-                Delete workspace
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+  const ComfortableCard = ({ project }: { project: Project }) => {
+    const isEditing = editingProject === project.id
+    const isUpdating = updating === project.id
 
-        {/* Description */}
-        {project.description && (
-          <p className="text-xs text-gray-600 dark:text-gray-400 mb-4 line-clamp-2 leading-relaxed">
-            {project.description}
-          </p>
-        )}
+    return (
+      <Card
+        className={`group bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-md dark:hover:shadow-lg transition-all duration-200 ${
+          isEditing ? 'border-blue-300 dark:border-blue-600 shadow-md' : 'cursor-pointer'
+        } ${selectedProject === project.id ? 'opacity-50 scale-[0.98]' : ''}`}
+        onClick={isEditing ? undefined : () => handleProjectClick(project)}
+      >
+        <CardContent className="p-4">
+          {/* Header */}
+          <div className="flex items-start justify-between mb-3">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-blue-600 rounded flex items-center justify-center text-white font-medium text-xs flex-shrink-0">
+                {getWorkspaceInitials(isEditing ? editForm.name : project.name)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  {isEditing ? (
+                    <Input
+                      value={editForm.name}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, name: e.target.value }))}
+                      className="h-6 text-sm font-medium text-gray-900 dark:text-gray-100 border-0 p-0 focus:ring-0 bg-transparent"
+                      placeholder="Project name"
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          handleSaveEdit(project.id)
+                        } else if (e.key === 'Escape') {
+                          handleCancelEdit()
+                        }
+                      }}
+                    />
+                  ) : (
+                    <h3 className="font-medium text-gray-900 dark:text-gray-100 text-sm truncate">{project.name}</h3>
+                  )}
+                  <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${project.is_active ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'}`}></div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Badge 
+                    variant="outline" 
+                    className={`text-xs font-normal border ${getEnvironmentColor(project.environment)} px-1.5 py-0`}
+                  >
+                    {project.environment}
+                  </Badge>
+                  {project.token_hash && (
+                    <Badge variant="outline" className="text-xs font-normal bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800 px-1.5 py-0">
+                      <Key className="h-2 w-2 mr-0.5" />
+                      API
+                    </Badge>
+                  )}
+                  {project.agent_count !== undefined && (
+                    <Badge variant="outline" className="text-xs font-normal bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 px-1.5 py-0">
+                      {project.agent_count}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-1">
+              {isEditing ? (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20"
+                    onClick={() => handleSaveEdit(project.id)}
+                    disabled={isUpdating || !editForm.name.trim()}
+                  >
+                    {isUpdating ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Check className="h-3 w-3" />
+                    )}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0 text-gray-400 hover:text-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
+                    onClick={handleCancelEdit}
+                    disabled={isUpdating}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0 text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleEditProject(project)
+                    }}
+                  >
+                    <Edit2 className="h-3 w-3" />
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <MoreHorizontal className="h-3 w-3" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-44">
+                      <DropdownMenuItem onClick={(e) => {
+                        e.stopPropagation()
+                        handleEditProject(project)
+                      }} className="text-xs">
+                        <Edit2 className="h-3 w-3 mr-2" />
+                        Edit project
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={(e) => {
+                        e.stopPropagation()
+                        setSelectedProjectForDialog(project)
+                        setShowAddMemberDialog(true)
+                      }} className="text-xs">
+                        <Users className="h-3 w-3 mr-2" />
+                        Manage access
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={(e) => {
+                        e.stopPropagation()
+                        router.push(`${project.id}/agents/api-keys`)
+                      }} className="text-xs">
+                        <Settings className="h-3 w-3 mr-2" />
+                        Settings
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={(e) => {
+                        e.stopPropagation()
+                        router.push(`/${project.id}/agents/api-keys`)
+                      }} disabled={regeneratingToken === project.id} className="text-xs">
+                        {regeneratingToken === project.id ? (
+                          <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3 w-3 mr-2" />
+                        )}
+                        Regenerate token
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={(e) => {
+                        e.stopPropagation()
+                        setShowDeleteConfirm(project)
+                      }} className="text-xs text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400">
+                        <Trash2 className="h-3 w-3 mr-2" />
+                        Delete workspace
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </>
+              )}
+            </div>
+          </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between pt-3 border-t border-gray-100 dark:border-gray-700">
-          <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
-            <Clock className="w-3 h-3" />
-            <span>{formatDate(project.created_at)}</span>
-          </div>
-          <div className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-            <span>Open</span>
-            <ChevronRight className="w-3 h-3" />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  )
+          {/* Description */}
+          {isEditing ? (
+            <textarea
+              value={editForm.description}
+              onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
+              className="w-full px-0 py-1 text-xs text-gray-600 dark:text-gray-400 bg-transparent border-0 resize-none focus:ring-0 focus:outline-none"
+              placeholder="Brief description (optional)..."
+              rows={2}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && e.ctrlKey) {
+                  handleSaveEdit(project.id)
+                } else if (e.key === 'Escape') {
+                  handleCancelEdit()
+                }
+              }}
+            />
+          ) : (
+            project.description && (
+              <p className="text-xs text-gray-600 dark:text-gray-400 mb-4 line-clamp-2 leading-relaxed">
+                {project.description}
+              </p>
+            )
+          )}
+
+          {/* Footer */}
+          {!isEditing && (
+            <div className="flex items-center justify-between pt-3 border-t border-gray-100 dark:border-gray-700">
+              <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                <Clock className="w-3 h-3" />
+                <span>{formatDate(project.created_at)}</span>
+              </div>
+              <div className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                <span>Open</span>
+                <ChevronRight className="w-3 h-3" />
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    )
+  }
 
   // Compact Card Component (New Compact Style)
-  const CompactCard = ({ project }: { project: Project }) => (
-    <Card
-      className={`group bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-md dark:hover:shadow-lg transition-all duration-200 cursor-pointer ${
-        selectedProject === project.id ? 'opacity-50 scale-[0.98]' : ''
-      }`}
-      onClick={() => handleProjectClick(project)}
-    >
-      <CardContent className="p-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5 min-w-0 flex-1">
-            <div className="w-7 h-7 bg-gradient-to-br from-indigo-500 to-blue-600 rounded flex items-center justify-center text-white font-medium text-xs flex-shrink-0">
-              {getWorkspaceInitials(project.name)}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5 mb-1">
-                <h3 className="font-medium text-gray-900 dark:text-gray-100 text-sm truncate">{project.name}</h3>
-                <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${project.is_active ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'}`}></div>
+  const CompactCard = ({ project }: { project: Project }) => {
+    const isEditing = editingProject === project.id
+    const isUpdating = updating === project.id
+
+    return (
+      <Card
+        className={`group bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-md dark:hover:shadow-lg transition-all duration-200 ${
+          isEditing ? 'border-blue-300 dark:border-blue-600 shadow-md' : 'cursor-pointer'
+        } ${selectedProject === project.id ? 'opacity-50 scale-[0.98]' : ''}`}
+        onClick={isEditing ? undefined : () => handleProjectClick(project)}
+      >
+        <CardContent className="p-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <div className="w-7 h-7 bg-gradient-to-br from-indigo-500 to-blue-600 rounded flex items-center justify-center text-white font-medium text-xs flex-shrink-0">
+                {getWorkspaceInitials(isEditing ? editForm.name : project.name)}
               </div>
-              <div className="flex items-center gap-1.5">
-                <Badge variant="outline" className={`text-xs font-normal border ${getEnvironmentColor(project.environment)} px-1.5 py-0 h-4`}>
-                  {project.environment}
-                </Badge>
-                {project.token_hash && (
-                  <Badge variant="outline" className="text-xs font-normal bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800 px-1.5 py-0 h-4">
-                    <Key className="h-2 w-2 mr-0.5" />
-                    API
-                  </Badge>
-                )}
-                <span className="text-xs text-gray-500 dark:text-gray-400">{project.agent_count} agents</span>
-                <span className="text-xs text-gray-400 dark:text-gray-500">•</span>
-                <span className="text-xs text-gray-400 dark:text-gray-500">{formatDate(project.created_at)}</span>
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-1">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <MoreHorizontal className="h-3 w-3" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuItem onClick={(e) => {
-                  e.stopPropagation()
-                  setSelectedProjectForDialog(project)
-                  setShowAddMemberDialog(true)
-                }} className="text-xs">
-                  <Users className="h-3 w-3 mr-2" />
-                  Manage access
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={(e) => {
-                  e.stopPropagation()
-                  router.push(`/${project.id}/agents/api-keys`)
-                }} className="text-xs">
-                  <Settings className="h-3 w-3 mr-2" />
-                  Settings
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={(e) => {
-                  e.stopPropagation()
-                  router.push(`/${project.id}/agents/api-keys`)
-                }} disabled={regeneratingToken === project.id} className="text-xs">
-                  {regeneratingToken === project.id ? (
-                    <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 mb-1">
+                  {isEditing ? (
+                    <Input
+                      value={editForm.name}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, name: e.target.value }))}
+                      className="h-5 text-sm font-medium text-gray-900 dark:text-gray-100 border-0 p-0 focus:ring-0 bg-transparent"
+                      placeholder="Project name"
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          handleSaveEdit(project.id)
+                        } else if (e.key === 'Escape') {
+                          handleCancelEdit()
+                        }
+                      }}
+                    />
                   ) : (
-                    <RefreshCw className="h-3 w-3 mr-2" />
+                    <h3 className="font-medium text-gray-900 dark:text-gray-100 text-sm truncate">{project.name}</h3>
                   )}
-                  Regenerate token
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={(e) => {
-                  e.stopPropagation()
-                  setShowDeleteConfirm(project)
-                }} className="text-xs text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400">
-                  <Trash2 className="h-3 w-3 mr-2" />
-                  Delete workspace
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <ChevronRight className="w-3 h-3 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-all" />
+                  <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${project.is_active ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'}`}></div>
+                </div>
+                {!isEditing && (
+                  <div className="flex items-center gap-1.5">
+                    <Badge variant="outline" className={`text-xs font-normal border ${getEnvironmentColor(project.environment)} px-1.5 py-0 h-4`}>
+                      {project.environment}
+                    </Badge>
+                    {project.token_hash && (
+                      <Badge variant="outline" className="text-xs font-normal bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800 px-1.5 py-0 h-4">
+                        <Key className="h-2 w-2 mr-0.5" />
+                        API
+                      </Badge>
+                    )}
+                    <span className="text-xs text-gray-500 dark:text-gray-400">{project.agent_count} agents</span>
+                    <span className="text-xs text-gray-400 dark:text-gray-500">•</span>
+                    <span className="text-xs text-gray-400 dark:text-gray-500">{formatDate(project.created_at)}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-1">
+              {isEditing ? (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20"
+                    onClick={() => handleSaveEdit(project.id)}
+                    disabled={isUpdating || !editForm.name.trim()}
+                  >
+                    {isUpdating ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Check className="h-3 w-3" />
+                    )}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0 text-gray-400 hover:text-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
+                    onClick={handleCancelEdit}
+                    disabled={isUpdating}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0 text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleEditProject(project)
+                    }}
+                  >
+                    <Edit2 className="h-3 w-3" />
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <MoreHorizontal className="h-3 w-3" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-44">
+                      <DropdownMenuItem onClick={(e) => {
+                        e.stopPropagation()
+                        handleEditProject(project)
+                      }} className="text-xs">
+                        <Edit2 className="h-3 w-3 mr-2" />
+                        Edit project
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={(e) => {
+                        e.stopPropagation()
+                        setSelectedProjectForDialog(project)
+                        setShowAddMemberDialog(true)
+                      }} className="text-xs">
+                        <Users className="h-3 w-3 mr-2" />
+                        Manage access
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={(e) => {
+                        e.stopPropagation()
+                        router.push(`/${project.id}/agents/api-keys`)
+                      }} className="text-xs">
+                        <Settings className="h-3 w-3 mr-2" />
+                        Settings
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={(e) => {
+                        e.stopPropagation()
+                        router.push(`/${project.id}/agents/api-keys`)
+                      }} disabled={regeneratingToken === project.id} className="text-xs">
+                        {regeneratingToken === project.id ? (
+                          <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3 w-3 mr-2" />
+                        )}
+                        Regenerate token
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={(e) => {
+                        e.stopPropagation()
+                        setShowDeleteConfirm(project)
+                      }} className="text-xs text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400">
+                        <Trash2 className="h-3 w-3 mr-2" />
+                        Delete workspace
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <ChevronRight className="w-3 h-3 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-all" />
+                </>
+              )}
+            </div>
           </div>
-        </div>
-      </CardContent>
-    </Card>
-  )
+        </CardContent>
+      </Card>
+    )
+  }
 
   const CurrentCardComponent = density === 'compact' ? CompactCard : ComfortableCard
 

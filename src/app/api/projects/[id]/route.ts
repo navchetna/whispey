@@ -29,13 +29,46 @@ export async function PUT(
   try {
     const { id: projectId } = await params
     const body = await request.json()
-    const { action } = body
+    const { action, name, description } = body
 
     if (!projectId) {
       return NextResponse.json(
         { error: 'Project ID is required' },
         { status: 400 }
       )
+    }
+
+    // Handle project name/description update
+    if (action === 'update_project') {
+      if (!name || !name.trim()) {
+        return NextResponse.json(
+          { error: 'Project name is required' },
+          { status: 400 }
+        )
+      }
+
+      // Update the project with new name and description
+      const { data, error } = await supabase
+        .from('pype_voice_projects')
+        .update({ 
+          name: name.trim(),
+          description: description?.trim() || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', projectId)
+        .select('*')
+        .single()
+
+      if (error) {
+        console.error('Error updating project:', error)
+        return NextResponse.json(
+          { error: 'Failed to update project' },
+          { status: 500 }
+        )
+      }
+
+      console.log(`Successfully updated project "${data.name}"`)
+      return NextResponse.json(data, { status: 200 })
     }
 
     if (action === 'regenerate_token') {

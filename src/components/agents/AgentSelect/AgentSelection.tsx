@@ -176,6 +176,23 @@ const AgentSelection: React.FC<AgentSelectionProps> = ({ projectId }) => {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <main className={`max-w-6xl mx-auto py-6 ${isMobile ? 'px-4' : 'px-8 py-8'}`}>
+        {/* Header Section with Project Name and Agent Info */}
+        <div className="px-8 py-3 mb-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+                {project?.name || 'Project'}
+              </h1>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                {filteredAgents.length === 0 
+                  ? 'No agents configured'
+                  : `${filteredAgents.length} agent${filteredAgents.length === 1 ? '' : 's'} being monitored`
+                }
+              </p>
+            </div>
+          </div>
+        </div>
+
         <AgentToolbar
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
