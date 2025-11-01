@@ -246,6 +246,10 @@ export const getDefaultFormValues = () => ({
   prompt: '',
   variables: [],
   temperature: 0.7,
+  // New deployment fields
+  deploymentAgentName: '',
+  deploymentAgentDescription: '',
+  deploymentLanguage: 'english',
   ttsProvider: '',
   ttsModel: '',
   ttsVoiceConfig: {},
@@ -358,6 +362,10 @@ export const buildFormValuesFromAgent = (assistant: any) => {
       }))
     : [],
     temperature: temperatureValue,
+    // New deployment fields with defaults
+    deploymentAgentName: assistant.name || '',
+    deploymentAgentDescription: assistant.description || '',
+    deploymentLanguage: assistant.language || 'english',
     ttsProvider: assistant.tts?.name || 'elevenlabs',
     ttsModel: assistant.tts?.model || 'eleven_multilingual_v2',
     ttsVoiceConfig: (assistant.tts?.name === 'sarvam' || assistant.tts?.name === 'sarvam_tts') ? {
