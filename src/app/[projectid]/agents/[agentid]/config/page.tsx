@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react'
 import { useSupabaseQuery } from '@/hooks/useSupabase'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
@@ -249,6 +249,7 @@ interface Transcript {
 
 export default function AgentConfig() {
   const { agentid, projectid } = useParams()
+  const router = useRouter()
   const [isCopied, setIsCopied] = useState(false)
   const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState(false)
   const [isTalkToAssistantOpen, setIsTalkToAssistantOpen] = useState(false)
@@ -280,16 +281,6 @@ export default function AgentConfig() {
   const [showDeploymentPopup, setShowDeploymentPopup] = useState(false)
   const [deploymentResponse, setDeploymentResponse] = useState<any>(null)
   const [deploymentError, setDeploymentError] = useState<string | null>(null)
-  
-  // Cache for advanced configuration (not saved to database until deploy)
-  const [cachedAdvancedConfig, setCachedAdvancedConfig] = useState({
-    advancedSettings: {},
-    deploymentData: {
-      agentName: '',
-      agentDescription: '',
-      language: 'english'
-    }
-  })
 
   const [ttsConfig, setTtsConfig] = useState({
     provider: '',
@@ -486,35 +477,21 @@ export default function AgentConfig() {
   }, [agentConfigData])
 
   const handleSaveDraft = () => {
-    // Cache advanced configuration and deployment fields (not saved to database)
-    setCachedAdvancedConfig({
-      advancedSettings: formik.values.advancedSettings || {},
-      deploymentData: {
-        agentName: formik.values.deploymentAgentName || '',
-        agentDescription: formik.values.deploymentAgentDescription || '',
-        language: formik.values.deploymentLanguage || 'english'
-      }
-    })
-    
     // Only save service provider configuration to database
     const serviceProviderConfig = {
       azureConfig: formik.values.selectedProvider === 'azure_openai' ? azureConfig : null,
       sarvamConfig: {
-        serviceProviders: sarvamConfig.serviceProviders
+        selectedProvider: sarvamConfig.selectedProvider,
+        medium: sarvamConfig.medium,
+        webUrl: sarvamConfig.webUrl,
+        phoneNumber: sarvamConfig.phoneNumber,
+        statementOfPurpose: sarvamConfig.statementOfPurpose,
+        serviceProviders: sarvamConfig.serviceProviders,
+        testingBots: sarvamConfig.testingBots
       },
       basicConfiguration: {
-        selectedProvider: formik.values.selectedProvider,
-        selectedModel: formik.values.selectedModel,
-        temperature: formik.values.temperature,
-        selectedVoice: formik.values.selectedVoice,
-        ttsProvider: formik.values.ttsProvider || ttsConfig.provider,
-        ttsModel: formik.values.ttsModel || ttsConfig.model,
-        ttsVoiceConfig: formik.values.ttsVoiceConfig || ttsConfig.config,
-        sttProvider: sttConfig.provider,
-        sttModel: sttConfig.model,
-        sttConfig: sttConfig.config,
-        selectedLanguage: formik.values.selectedLanguage,
-        prompt: formik.values.prompt
+        selectedProvider: formik.values.selectedProvider
+        // Only saving service provider, not TTS/STT/other configs
       },
       metadata: {
         agentId: agentid,
@@ -524,104 +501,50 @@ export default function AgentConfig() {
       }
     }
     
-    console.log('💾 SAVE DRAFT - Service Provider Configuration:', serviceProviderConfig)
-    console.log('📦 CACHED - Advanced Configuration:', cachedAdvancedConfig)
+    console.log('💾 SAVE DRAFT - Service Provider Configuration Only:', serviceProviderConfig)
     saveDraft.mutate(serviceProviderConfig)
   }
 
   const handleSaveAndDeploy = async () => {
-    // Update cached advanced configuration with current form values
-    const currentAdvancedConfig = {
-      advancedSettings: formik.values.advancedSettings || {},
-      deploymentData: {
-        agentName: formik.values.deploymentAgentName || cachedAdvancedConfig.deploymentData.agentName,
-        agentDescription: formik.values.deploymentAgentDescription || cachedAdvancedConfig.deploymentData.agentDescription,
-        language: formik.values.deploymentLanguage || cachedAdvancedConfig.deploymentData.language
-      }
+    // Extract required data directly from form (no caching)
+    const deploymentData = {
+      agent_name: formik.values.deploymentAgentName || '',
+      agent_description: formik.values.deploymentAgentDescription || '',
+      llm_provisioner: formik.values.selectedProvider || 'openai',
+      llm_model: formik.values.selectedModel || 'gpt-4',
+      stt_provisioner: sttConfig.provider || 'openai',
+      stt_model: sttConfig.model || 'whisper-1',
+      tts_provisioner: formik.values.ttsProvider || ttsConfig.provider || 'openai',
+      tts_model: formik.values.ttsModel || ttsConfig.model || 'tts-1',
+      tts_speaker: formik.values.selectedVoice || 'alloy',
+      language: formik.values.deploymentLanguage || 'english'
     }
-    
-    // Update cache
-    setCachedAdvancedConfig(currentAdvancedConfig)
-    
-    // Combine service provider config (saved to DB) + advanced config (cached) for API call
-    const completeFormData = {
-      formikValues: formik.values,
-      ttsConfiguration: {
-        voiceId: formik.values.selectedVoice,
-        provider: formik.values.ttsProvider || ttsConfig.provider,
-        model: formik.values.ttsModel || ttsConfig.model,
-        config: formik.values.ttsVoiceConfig || ttsConfig.config
-      },
-      sttConfiguration: {
-        provider: sttConfig.provider,
-        model: sttConfig.model,
-        config: sttConfig.config
-      },
-      llmConfiguration: {
-        provider: formik.values.selectedProvider,
-        model: formik.values.selectedModel,
-        temperature: formik.values.temperature,
-        azureConfig: formik.values.selectedProvider === 'azure_openai' ? azureConfig : null
-      },
-      agentSettings: {
-        language: formik.values.selectedLanguage,
-        firstMessageMode: formik.values.firstMessageMode,
-        customFirstMessage: formik.values.customFirstMessage,
-        aiStartsAfterSilence: formik.values.aiStartsAfterSilence,
-        silenceTime: formik.values.silenceTime,
-        prompt: formik.values.prompt
-      },
-      // Include cached advanced settings
-      advancedSettings: currentAdvancedConfig.advancedSettings,
-      deploymentSettings: currentAdvancedConfig.deploymentData,
-      validationStatus: {
-        hasLLM: !!(formik.values.selectedProvider && formik.values.selectedModel),
-        hasTTS: !!(formik.values.selectedVoice && formik.values.ttsProvider),
-        hasSTT: !!(sttConfig.provider),
-        hasPrompt: !!formik.values.prompt.trim(),
-        hasDeploymentInfo: !!(currentAdvancedConfig.deploymentData.agentName && currentAdvancedConfig.deploymentData.agentDescription),
-        isReadyForDeploy: !!(
-          formik.values.selectedProvider && 
-          formik.values.selectedModel && 
-          formik.values.prompt.trim() &&
-          currentAdvancedConfig.deploymentData.agentName &&
-          currentAdvancedConfig.deploymentData.agentDescription
-        )
-      },
-      assistantName: agentConfigData?.agent?.assistant?.[0]?.name || 'Assistant',
-      metadata: {
-        agentId: agentid,
-        agentName: agentName,
-        timestamp: new Date().toISOString(),
-        action: 'SAVE_AND_DEPLOY'
-      }
-    }
-    
-    console.log('🚀 SAVE & DEPLOY - Complete Configuration:', completeFormData)
-    console.log('📦 USING - Advanced Config:', currentAdvancedConfig)
     
     // Validation before deployment
-    if (!completeFormData.validationStatus.isReadyForDeploy) {
-      console.warn('⚠️ SAVE & DEPLOY - Validation Failed:', completeFormData.validationStatus)
-      setDeploymentError('Please fill in all required fields: LLM configuration, prompt, agent name, and agent description.')
+    console.log('🔍 VALIDATION DEBUG:', {
+      deploymentAgentName: formik.values.deploymentAgentName,
+      deploymentAgentDescription: formik.values.deploymentAgentDescription,
+      selectedProvider: formik.values.selectedProvider,
+      selectedModel: formik.values.selectedModel,
+      deploymentData
+    })
+    
+    const isValid = !!(
+      deploymentData.llm_provisioner &&
+      deploymentData.llm_model
+    )
+    
+    if (!isValid) {
+      console.warn('⚠️ SAVE & DEPLOY - Validation Failed:', deploymentData)
+      setDeploymentError('Please fill in all required fields: LLM configuration.')
       return
     }
     
+    console.log('🚀 SAVE & DEPLOY - Deployment Data:', deploymentData)
+    
     try {
-      // Save the configuration first
-      saveAndDeploy.mutate(completeFormData)
-      
-      // Call the deployment API using cached advanced configuration
-      const deploymentData = {
-        room_name: currentAdvancedConfig.deploymentData.agentName,
-        description: currentAdvancedConfig.deploymentData.agentDescription,
-        language: currentAdvancedConfig.deploymentData.language,
-        agent_config: completeFormData
-      }
-      
-      console.log('🚀 Calling deployment API with:', deploymentData)
-      
-      const response = await fetch('/api/create-agent-room', {
+      // Call the backend service directly
+      const response = await fetch('http://localhost:8000/create-agent-room', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -743,10 +666,21 @@ export default function AgentConfig() {
               testingBots: savedConfig.configuration.testingBots || prev.testingBots
             }))
             
+            // Only populate the service provider related form fields
+            if (savedConfig.configuration.basicConfiguration) {
+              const basicConfig = savedConfig.configuration.basicConfiguration
+              
+              // Only restore service provider selection
+              formik.setValues({
+                ...formik.values,
+                selectedProvider: basicConfig.selectedProvider || formik.values.selectedProvider
+              })
+            }
+            
             setLastSavedConfig(savedConfig)
             // Data exists, so start in view mode (edit disabled)
             setIsServiceProviderEditMode(false)
-            console.log('✅ Configuration loaded and applied - starting in view mode')
+            console.log('✅ Service Provider configuration loaded and applied - starting in view mode')
           }
         } else if (response.status === 404) {
           console.log('📝 No saved configuration found - starting in edit mode')
@@ -787,7 +721,7 @@ export default function AgentConfig() {
       
       if (!validationResults.isComplete) {
         console.warn('⚠️ Configuration validation failed:', validationResults)
-        alert('Please complete all required fields before saving.')
+        // Remove alert popup - just log the error
         return
       }
       
@@ -840,16 +774,16 @@ export default function AgentConfig() {
       const result = await response.json()
       console.log('✅ Service provider configuration saved successfully:', result)
       
-      // Update last saved config and exit edit mode
+      // Update last saved config and exit edit mode (no popup)
       setLastSavedConfig(serviceProviderConfig)
       setIsServiceProviderEditMode(false)
       
-      // Show success feedback
-      alert(`🎉 ${sarvamConfig.selectedProvider} configuration saved successfully!`)
+      // Only log success - no popup alert
+      console.log(`✅ ${sarvamConfig.selectedProvider} configuration saved successfully!`)
       
     } catch (error) {
       console.error('❌ Failed to save enhanced agent configuration:', error)
-      alert('Failed to save configuration. Please try again.')
+      // Only log error - no popup alert
     } finally {
       setIsSaving(false)
     }
@@ -1255,7 +1189,7 @@ export default function AgentConfig() {
                   {lastSavedConfig && !isServiceProviderEditMode && (
                     <div className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
                       <Lock className="w-3 h-3" />
-                      <span>Saved</span>
+                      <span>Service Provider Saved</span>
                     </div>
                   )}
                   
@@ -1263,7 +1197,7 @@ export default function AgentConfig() {
                   {!lastSavedConfig && isServiceProviderEditMode && (
                     <div className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
                       <Edit className="w-3 h-3" />
-                      <span>Setup Configuration</span>
+                      <span>Setup Service Provider</span>
                     </div>
                   )}
                   
@@ -1286,7 +1220,7 @@ export default function AgentConfig() {
                           variant="outline"
                           size="sm"
                           onClick={() => {
-                            // Reset to last saved config
+                            // Reset to last saved service provider config only
                             setSarvamConfig(prev => ({
                               ...prev,
                               selectedProvider: lastSavedConfig.provider || 'sarvam',
@@ -1297,6 +1231,13 @@ export default function AgentConfig() {
                               serviceProviders: lastSavedConfig.configuration.serviceProviders || prev.serviceProviders,
                               testingBots: lastSavedConfig.configuration.testingBots || prev.testingBots
                             }))
+                            
+                            // Only reset service provider selection in form
+                            if (lastSavedConfig.configuration.basicConfiguration) {
+                              const basicConfig = lastSavedConfig.configuration.basicConfiguration
+                              formik.setFieldValue('selectedProvider', basicConfig.selectedProvider || formik.initialValues.selectedProvider)
+                            }
+                            
                             setIsServiceProviderEditMode(false)
                           }}
                           className="h-8 text-xs"
@@ -1816,17 +1757,12 @@ export default function AgentConfig() {
                             </TooltipTrigger>
                             <TooltipContent side="top" className="max-w-xs">
                               <p className="text-sm">
-                                Deployment fields are <strong>cached locally</strong> when you save draft. They are only sent to the API when you click <strong>"Save and Deploy"</strong>.
+                                Deployment fields are used directly when you click <strong>"Save and Deploy"</strong>.
                               </p>
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
                       </div>
-                      {(cachedAdvancedConfig.deploymentData.agentName || cachedAdvancedConfig.deploymentData.agentDescription) && (
-                        <Badge variant="secondary" className="text-xs">
-                          Cached
-                        </Badge>
-                      )}
                     </div>
                     
                     <div className="space-y-3">
@@ -1834,14 +1770,9 @@ export default function AgentConfig() {
                         <Label className="text-xs font-medium text-gray-600 dark:text-gray-400">Agent Name</Label>
                         <Input
                           placeholder="Enter agent name for deployment"
-                          value={formik.values.deploymentAgentName || cachedAdvancedConfig.deploymentData.agentName}
+                          value={formik.values.deploymentAgentName || ''}
                           onChange={(e) => {
-                            const value = e.target.value
-                            formik.setFieldValue('deploymentAgentName', value)
-                            setCachedAdvancedConfig(prev => ({ 
-                              ...prev, 
-                              deploymentData: { ...prev.deploymentData, agentName: value }
-                            }))
+                            formik.setFieldValue('deploymentAgentName', e.target.value)
                           }}
                           className="h-8 text-xs"
                         />
@@ -1851,14 +1782,9 @@ export default function AgentConfig() {
                         <Label className="text-xs font-medium text-gray-600 dark:text-gray-400">Agent Description</Label>
                         <Textarea
                           placeholder="Enter agent description for deployment"
-                          value={formik.values.deploymentAgentDescription || cachedAdvancedConfig.deploymentData.agentDescription}
+                          value={formik.values.deploymentAgentDescription || ''}
                           onChange={(e) => {
-                            const value = e.target.value
-                            formik.setFieldValue('deploymentAgentDescription', value)
-                            setCachedAdvancedConfig(prev => ({ 
-                              ...prev, 
-                              deploymentData: { ...prev.deploymentData, agentDescription: value }
-                            }))
+                            formik.setFieldValue('deploymentAgentDescription', e.target.value)
                           }}
                           className="text-xs min-h-[60px]"
                           rows={3}
@@ -1868,13 +1794,9 @@ export default function AgentConfig() {
                       <div className="space-y-2">
                         <Label className="text-xs font-medium text-gray-600 dark:text-gray-400">Language</Label>
                         <Select 
-                          value={formik.values.deploymentLanguage || cachedAdvancedConfig.deploymentData.language} 
+                          value={formik.values.deploymentLanguage || 'english'} 
                           onValueChange={(value) => {
                             formik.setFieldValue('deploymentLanguage', value)
-                            setCachedAdvancedConfig(prev => ({ 
-                              ...prev, 
-                              deploymentData: { ...prev.deploymentData, language: value }
-                            }))
                           }}
                         >
                           <SelectTrigger className="h-8 text-sm">
@@ -2071,17 +1993,58 @@ export default function AgentConfig() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Rocket className="w-5 h-5 text-green-600" />
-              Deployment Successful
+              Agent Deployed Successfully!
             </DialogTitle>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Your agent is now live and ready to use. View the deployment details below.
+            </p>
           </DialogHeader>
           
           <div className="space-y-4">
             {deploymentResponse && (
-              <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Deployment Response</h4>
-                <pre className="text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap overflow-x-auto">
-                  {JSON.stringify(deploymentResponse, null, 2)}
-                </pre>
+              <div className="space-y-4">
+                {/* Deployment Success Summary */}
+                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-green-700 dark:text-green-300 mb-2">
+                    🎉 Agent Successfully Deployed
+                  </h4>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    {deploymentResponse.agent_name && (
+                      <div>
+                        <span className="text-gray-600 dark:text-gray-400">Agent Name:</span>
+                        <p className="font-medium text-gray-900 dark:text-gray-100">{deploymentResponse.agent_name}</p>
+                      </div>
+                    )}
+                    {deploymentResponse.status && (
+                      <div>
+                        <span className="text-gray-600 dark:text-gray-400">Status:</span>
+                        <p className="font-medium text-green-600 dark:text-green-400 capitalize">{deploymentResponse.status}</p>
+                      </div>
+                    )}
+                    {deploymentResponse.created_at && (
+                      <div>
+                        <span className="text-gray-600 dark:text-gray-400">Deployed At:</span>
+                        <p className="font-medium text-gray-900 dark:text-gray-100">
+                          {new Date(deploymentResponse.created_at).toLocaleString()}
+                        </p>
+                      </div>
+                    )}
+                    {deploymentResponse.language && (
+                      <div>
+                        <span className="text-gray-600 dark:text-gray-400">Language:</span>
+                        <p className="font-medium text-gray-900 dark:text-gray-100 capitalize">{deploymentResponse.language}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Technical Details (Collapsible) */}
+                <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Technical Response</h4>
+                  <pre className="text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap overflow-x-auto">
+                    {JSON.stringify(deploymentResponse, null, 2)}
+                  </pre>
+                </div>
               </div>
             )}
             
@@ -2122,7 +2085,7 @@ export default function AgentConfig() {
             )}
           </div>
           
-          <DialogFooter>
+          <DialogFooter className="flex gap-3">
             <Button 
               variant="outline" 
               onClick={() => {
@@ -2134,12 +2097,17 @@ export default function AgentConfig() {
               Close
             </Button>
             <Button 
+              className="bg-green-600 hover:bg-green-700 text-white"
               onClick={() => {
-                // Navigate to overview dashboard
-                window.location.href = `/${projectid}/agents`
+                // Close popup and navigate to agent overview dashboard
+                setShowDeploymentPopup(false)
+                setDeploymentResponse(null)
+                setDeploymentError(null)
+                router.push(`/${projectid}/agents/${agentid}`)
               }}
             >
-              Go to Overview
+              <Rocket className="w-4 h-4 mr-2" />
+              Go to Agent Overview
             </Button>
           </DialogFooter>
         </DialogContent>
