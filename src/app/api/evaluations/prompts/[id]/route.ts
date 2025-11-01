@@ -35,6 +35,7 @@ export async function PUT(
       api_url,
       api_key,
       scoring_output_type,
+      success_criteria,
       temperature,
       max_tokens,
       expected_output_format,
@@ -85,6 +86,7 @@ export async function PUT(
         api_url: api_url || '',
         api_key: api_key || '', // Note: In production, encrypt this
         scoring_output_type: scoring_output_type || 'float',
+        success_criteria: success_criteria || 'higher_is_better',
         temperature: temperature || 0.0,
         max_tokens: max_tokens || 1000,
         expected_output_format: expected_output_format || {},

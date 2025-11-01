@@ -32,6 +32,7 @@ CREATE TABLE public.pype_voice_evaluation_prompts (
     api_url text,
     api_key text, -- Note: In production, this should be encrypted
     scoring_output_type varchar(20) DEFAULT 'float' CHECK (scoring_output_type IN ('bool', 'int', 'percentage', 'float')),
+    success_criteria varchar(20) DEFAULT NULL CHECK (success_criteria IN ('true', 'false', 'higher_is_better', 'lower_is_better')),
     temperature decimal(3,2) DEFAULT 0.0 CHECK (temperature >= 0 AND temperature <= 2),
     max_tokens integer DEFAULT 1000 CHECK (max_tokens > 0),
     expected_output_format jsonb DEFAULT '{}',

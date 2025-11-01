@@ -42,8 +42,8 @@ interface VapiAssistant {
 const PLATFORM_OPTIONS = [
   { 
     value: 'livekit', 
-    label: 'LiveKit Agent',
-    description: 'Monitor your LiveKit voice agent',
+    label: 'Create New',
+    description: 'Monitor your voice agent',
     icon: Activity,
     color: 'blue'
   },

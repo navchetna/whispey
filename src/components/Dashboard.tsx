@@ -418,11 +418,11 @@ const Dashboard: React.FC<DashboardProps> = ({ agentId }) => {
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <h1 className={`${isMobile ? 'text-lg max-w-[180px]' : 'text-2xl max-w-[250px]'} font-semibold text-gray-900 dark:text-gray-100 tracking-tight truncate cursor-default`}>
-                            {agent.name}
+                            {project?.name ? `${project.name} • ${agent.name}` : agent.name}
                           </h1>
                         </TooltipTrigger>
                         <TooltipContent>
-                          <p>{agent.name}</p>
+                          <p>{project?.name ? `${project.name} • ${agent.name}` : agent.name}</p>
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>

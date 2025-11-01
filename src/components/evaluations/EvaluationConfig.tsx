@@ -28,6 +28,21 @@ const getProviderDisplayName = (provider: string) => {
   }
 }
 
+const getSuccessCriteriaDisplayText = (criteria: string) => {
+  switch (criteria) {
+    case 'true':
+      return 'Success when True'
+    case 'false':
+      return 'Success when False'
+    case 'higher_is_better':
+      return 'Higher is Better'
+    case 'lower_is_better':
+      return 'Lower is Better'
+    default:
+      return criteria
+  }
+}
+
 const getScoringOutputTypeInfo = (type: string) => {
   switch (type) {
     case 'bool':
@@ -35,35 +50,45 @@ const getScoringOutputTypeInfo = (type: string) => {
         label: 'Boolean (True/False)',
         description: 'Simple pass/fail evaluation (true or false)',
         example: 'true, false',
-        range: 'true or false'
+        range: 'true or false',
+        successCriteriaOptions: ['true', 'false'],
+        successCriteriaLabel: 'Success Value'
       }
     case 'int':
       return {
         label: 'Integer (Whole Numbers)',
         description: 'Discrete scoring with whole numbers',
         example: '1, 2, 3, 4, 5',
-        range: 'Any whole number'
+        range: 'Any whole number',
+        successCriteriaOptions: ['higher_is_better', 'lower_is_better'],
+        successCriteriaLabel: 'Success Direction'
       }
     case 'percentage':
       return {
         label: 'Percentage (0-100%)',
         description: 'Percentage-based scoring from 0 to 100',
         example: '85%, 92%, 67%',
-        range: '0% to 100%'
+        range: '0% to 100%',
+        successCriteriaOptions: ['higher_is_better', 'lower_is_better'],
+        successCriteriaLabel: 'Success Direction'
       }
     case 'float':
       return {
         label: 'Float (Decimal Numbers)',
         description: 'Precise scoring with decimal values',
         example: '8.5, 9.2, 7.8',
-        range: 'Any decimal number'
+        range: 'Any decimal number',
+        successCriteriaOptions: ['higher_is_better', 'lower_is_better'],
+        successCriteriaLabel: 'Success Direction'
       }
     default:
       return {
         label: 'Unknown',
         description: '',
         example: '',
-        range: ''
+        range: '',
+        successCriteriaOptions: [],
+        successCriteriaLabel: ''
       }
   }
 }
@@ -79,6 +104,7 @@ interface EvaluationPrompt {
   api_url: string
   api_key: string
   scoring_output_type: string
+  success_criteria: string
   temperature: number
   max_tokens: number
   expected_output_format: any
@@ -560,7 +586,8 @@ ${diag.sampleCallLogs.all.map((log: any) => `• ${log.id}: ${log.call_ended_rea
                           <span>Output: {getScoringOutputTypeInfo(prompt.scoring_output_type || 'float').label}</span>
                           <span>Temp: {prompt.temperature}</span>
                         </div>
-                        <div className="flex items-center justify-end text-xs text-gray-500">
+                        <div className="flex items-center justify-between text-xs text-gray-500">
+                          <span>Success: {getSuccessCriteriaDisplayText(prompt.success_criteria)}</span>
                           <span className={`px-2 py-1 rounded-full ${prompt.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
                             {prompt.is_active ? 'Active' : 'Inactive'}
                           </span>
@@ -771,6 +798,7 @@ Provide only the JSON response, nothing else.`,
     api_url: 'https://api.openai.com/v1',
     api_key: '',
     scoring_output_type: 'float',
+    success_criteria: 'higher_is_better',
     temperature: 0.0,
     max_tokens: 1000
   })
@@ -788,6 +816,7 @@ Provide only the JSON response, nothing else.`,
         api_url: editPrompt.api_url || 'https://api.openai.com/v1',
         api_key: editPrompt.api_key || '',
         scoring_output_type: editPrompt.scoring_output_type || 'float',
+        success_criteria: editPrompt.success_criteria || (editPrompt.scoring_output_type === 'bool' ? 'true' : 'higher_is_better'),
         temperature: editPrompt.temperature || 0.0,
         max_tokens: editPrompt.max_tokens || 1000
       })
@@ -822,6 +851,7 @@ Provide only the JSON response, nothing else.`,
         api_url: 'https://api.openai.com/v1',
         api_key: '',
         scoring_output_type: 'float',
+        success_criteria: 'higher_is_better',
         temperature: 0.0,
         max_tokens: 1000
       })
@@ -1041,6 +1071,7 @@ Provide only the JSON response, nothing else.`,
           api_url: 'https://api.openai.com/v1',
           api_key: '',
           scoring_output_type: 'float',
+          success_criteria: 'higher_is_better',
           temperature: 0.0,
           max_tokens: 1000
         })
@@ -1136,7 +1167,15 @@ Provide only the JSON response, nothing else.`,
             <Label htmlFor="scoring_output_type">Scoring Output Type</Label>
             <Select 
               value={formData.scoring_output_type} 
-              onValueChange={(value) => setFormData({ ...formData, scoring_output_type: value })}
+              onValueChange={(value) => {
+                // Auto-update success criteria based on output type
+                const defaultCriteria = value === 'bool' ? 'true' : 'higher_is_better'
+                setFormData({ 
+                  ...formData, 
+                  scoring_output_type: value,
+                  success_criteria: defaultCriteria
+                })
+              }}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Select output type" />
@@ -1157,6 +1196,45 @@ Provide only the JSON response, nothing else.`,
               </div>
             )}
           </div>
+
+          {/* Success Criteria Field - Debug version */}
+          {formData.scoring_output_type && (
+            <div>
+              <Label htmlFor="success_criteria">
+                {getScoringOutputTypeInfo(formData.scoring_output_type).successCriteriaLabel || 'Success Criteria'}
+              </Label>
+              <Select 
+                value={formData.success_criteria} 
+                onValueChange={(value) => setFormData({ ...formData, success_criteria: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select success criteria" />
+                </SelectTrigger>
+                <SelectContent>
+                  {getScoringOutputTypeInfo(formData.scoring_output_type).successCriteriaOptions?.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {getSuccessCriteriaDisplayText(option)}
+                    </SelectItem>
+                  )) || []}
+                </SelectContent>
+              </Select>
+              <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded text-xs">
+                <p className="text-green-700">
+                  <strong>Current Setting:</strong> {getSuccessCriteriaDisplayText(formData.success_criteria)}
+                </p>
+                {formData.scoring_output_type === 'bool' && (
+                  <p className="text-green-600 mt-1">
+                    This determines which boolean value (true or false) indicates a successful evaluation.
+                  </p>
+                )}
+                {(formData.scoring_output_type === 'int' || formData.scoring_output_type === 'percentage' || formData.scoring_output_type === 'float') && (
+                  <p className="text-green-600 mt-1">
+                    This determines whether higher scores or lower scores indicate better performance.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
 
           <div>
             <Label htmlFor="description">Description</Label>
@@ -1366,6 +1444,7 @@ Provide your evaluation in JSON format:
                 <div><span className="text-blue-700">Provider:</span> {getProviderDisplayName(formData.llm_provider)}</div>
                 <div><span className="text-blue-700">Model:</span> {formData.model}</div>
                 <div><span className="text-blue-700">Output Type:</span> {getScoringOutputTypeInfo(formData.scoring_output_type).label}</div>
+                <div><span className="text-blue-700">Success Criteria:</span> {getSuccessCriteriaDisplayText(formData.success_criteria)}</div>
                 <div><span className="text-blue-700">Temperature:</span> {formData.temperature}</div>
                 <div><span className="text-blue-700">Max Tokens:</span> {formData.max_tokens}</div>
               </div>
