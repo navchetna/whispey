@@ -37,7 +37,8 @@ import {
   ChevronDown,
   HelpCircle,
   Edit,
-  Lock
+  Lock,
+  Rocket
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -247,7 +248,7 @@ interface Transcript {
 }
 
 export default function AgentConfig() {
-  const { agentid } = useParams()
+  const { agentid, projectid } = useParams()
   const [isCopied, setIsCopied] = useState(false)
   const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState(false)
   const [isTalkToAssistantOpen, setIsTalkToAssistantOpen] = useState(false)
@@ -274,6 +275,21 @@ export default function AgentConfig() {
   })
 
   const [hasExternalChanges, setHasExternalChanges] = useState(false)
+
+  // Deployment state
+  const [showDeploymentPopup, setShowDeploymentPopup] = useState(false)
+  const [deploymentResponse, setDeploymentResponse] = useState<any>(null)
+  const [deploymentError, setDeploymentError] = useState<string | null>(null)
+  
+  // Cache for advanced configuration (not saved to database until deploy)
+  const [cachedAdvancedConfig, setCachedAdvancedConfig] = useState({
+    advancedSettings: {},
+    deploymentData: {
+      agentName: '',
+      agentDescription: '',
+      language: 'english'
+    }
+  })
 
   const [ttsConfig, setTtsConfig] = useState({
     provider: '',
@@ -470,47 +486,64 @@ export default function AgentConfig() {
   }, [agentConfigData])
 
   const handleSaveDraft = () => {
-    const completeFormData = {
-      formikValues: formik.values,
-      ttsConfiguration: {
-        voiceId: formik.values.selectedVoice,
-        provider: formik.values.ttsProvider || ttsConfig.provider,
-        model: formik.values.ttsModel || ttsConfig.model,
-        config: formik.values.ttsVoiceConfig || ttsConfig.config
+    // Cache advanced configuration and deployment fields (not saved to database)
+    setCachedAdvancedConfig({
+      advancedSettings: formik.values.advancedSettings || {},
+      deploymentData: {
+        agentName: formik.values.deploymentAgentName || '',
+        agentDescription: formik.values.deploymentAgentDescription || '',
+        language: formik.values.deploymentLanguage || 'english'
+      }
+    })
+    
+    // Only save service provider configuration to database
+    const serviceProviderConfig = {
+      azureConfig: formik.values.selectedProvider === 'azure_openai' ? azureConfig : null,
+      sarvamConfig: {
+        serviceProviders: sarvamConfig.serviceProviders
       },
-      sttConfiguration: {
-        provider: sttConfig.provider,
-        model: sttConfig.model,
-        config: sttConfig.config
-      },
-      llmConfiguration: {
-        provider: formik.values.selectedProvider,
-        model: formik.values.selectedModel,
+      basicConfiguration: {
+        selectedProvider: formik.values.selectedProvider,
+        selectedModel: formik.values.selectedModel,
         temperature: formik.values.temperature,
-        azureConfig: formik.values.selectedProvider === 'azure_openai' ? azureConfig : null
-      },
-      agentSettings: {
-        language: formik.values.selectedLanguage,
-        firstMessageMode: formik.values.firstMessageMode,
-        customFirstMessage: formik.values.customFirstMessage,
-        aiStartsAfterSilence: formik.values.aiStartsAfterSilence,
-        silenceTime: formik.values.silenceTime,
+        selectedVoice: formik.values.selectedVoice,
+        ttsProvider: formik.values.ttsProvider || ttsConfig.provider,
+        ttsModel: formik.values.ttsModel || ttsConfig.model,
+        ttsVoiceConfig: formik.values.ttsVoiceConfig || ttsConfig.config,
+        sttProvider: sttConfig.provider,
+        sttModel: sttConfig.model,
+        sttConfig: sttConfig.config,
+        selectedLanguage: formik.values.selectedLanguage,
         prompt: formik.values.prompt
       },
-      assistantName: agentConfigData?.agent?.assistant?.[0]?.name || 'Assistant',
       metadata: {
         agentId: agentid,
         agentName: agentName,
         timestamp: new Date().toISOString(),
-        action: 'SAVE_DRAFT'
+        action: 'SAVE_SERVICE_PROVIDER_CONFIG'
       }
     }
     
-    console.log('💾 SAVE DRAFT - Complete Configuration:', completeFormData)
-    saveDraft.mutate(completeFormData)
+    console.log('💾 SAVE DRAFT - Service Provider Configuration:', serviceProviderConfig)
+    console.log('📦 CACHED - Advanced Configuration:', cachedAdvancedConfig)
+    saveDraft.mutate(serviceProviderConfig)
   }
 
-  const handleSaveAndDeploy = () => {
+  const handleSaveAndDeploy = async () => {
+    // Update cached advanced configuration with current form values
+    const currentAdvancedConfig = {
+      advancedSettings: formik.values.advancedSettings || {},
+      deploymentData: {
+        agentName: formik.values.deploymentAgentName || cachedAdvancedConfig.deploymentData.agentName,
+        agentDescription: formik.values.deploymentAgentDescription || cachedAdvancedConfig.deploymentData.agentDescription,
+        language: formik.values.deploymentLanguage || cachedAdvancedConfig.deploymentData.language
+      }
+    }
+    
+    // Update cache
+    setCachedAdvancedConfig(currentAdvancedConfig)
+    
+    // Combine service provider config (saved to DB) + advanced config (cached) for API call
     const completeFormData = {
       formikValues: formik.values,
       ttsConfiguration: {
@@ -538,15 +571,21 @@ export default function AgentConfig() {
         silenceTime: formik.values.silenceTime,
         prompt: formik.values.prompt
       },
+      // Include cached advanced settings
+      advancedSettings: currentAdvancedConfig.advancedSettings,
+      deploymentSettings: currentAdvancedConfig.deploymentData,
       validationStatus: {
         hasLLM: !!(formik.values.selectedProvider && formik.values.selectedModel),
         hasTTS: !!(formik.values.selectedVoice && formik.values.ttsProvider),
         hasSTT: !!(sttConfig.provider),
         hasPrompt: !!formik.values.prompt.trim(),
+        hasDeploymentInfo: !!(currentAdvancedConfig.deploymentData.agentName && currentAdvancedConfig.deploymentData.agentDescription),
         isReadyForDeploy: !!(
           formik.values.selectedProvider && 
           formik.values.selectedModel && 
-          formik.values.prompt.trim()
+          formik.values.prompt.trim() &&
+          currentAdvancedConfig.deploymentData.agentName &&
+          currentAdvancedConfig.deploymentData.agentDescription
         )
       },
       assistantName: agentConfigData?.agent?.assistant?.[0]?.name || 'Assistant',
@@ -559,14 +598,51 @@ export default function AgentConfig() {
     }
     
     console.log('🚀 SAVE & DEPLOY - Complete Configuration:', completeFormData)
+    console.log('📦 USING - Advanced Config:', currentAdvancedConfig)
     
     // Validation before deployment
     if (!completeFormData.validationStatus.isReadyForDeploy) {
       console.warn('⚠️ SAVE & DEPLOY - Validation Failed:', completeFormData.validationStatus)
+      setDeploymentError('Please fill in all required fields: LLM configuration, prompt, agent name, and agent description.')
       return
     }
     
-    saveAndDeploy.mutate(completeFormData)
+    try {
+      // Save the configuration first
+      saveAndDeploy.mutate(completeFormData)
+      
+      // Call the deployment API using cached advanced configuration
+      const deploymentData = {
+        room_name: currentAdvancedConfig.deploymentData.agentName,
+        description: currentAdvancedConfig.deploymentData.agentDescription,
+        language: currentAdvancedConfig.deploymentData.language,
+        agent_config: completeFormData
+      }
+      
+      console.log('🚀 Calling deployment API with:', deploymentData)
+      
+      const response = await fetch('/api/create-agent-room', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(deploymentData)
+      })
+      
+      const responseData = await response.json()
+      
+      if (response.ok) {
+        setDeploymentResponse(responseData)
+        setShowDeploymentPopup(true)
+        setDeploymentError(null)
+        console.log('✅ Deployment successful:', responseData)
+      } else {
+        throw new Error(responseData.error || 'Deployment failed')
+      }
+    } catch (error) {
+      console.error('❌ Deployment error:', error)
+      setDeploymentError(error instanceof Error ? error.message : 'Deployment failed')
+    }
   }
 
   const handleCancel = () => {
@@ -668,13 +744,19 @@ export default function AgentConfig() {
             }))
             
             setLastSavedConfig(savedConfig)
-            console.log('✅ Configuration loaded and applied')
+            // Data exists, so start in view mode (edit disabled)
+            setIsServiceProviderEditMode(false)
+            console.log('✅ Configuration loaded and applied - starting in view mode')
           }
         } else if (response.status === 404) {
-          console.log('📝 No saved configuration found, using defaults')
+          console.log('📝 No saved configuration found - starting in edit mode')
+          // No data exists, so start in edit mode (allow direct entry)
+          setIsServiceProviderEditMode(true)
         }
       } catch (error) {
         console.error('❌ Failed to load saved configuration:', error)
+        // On error, default to edit mode to allow configuration
+        setIsServiceProviderEditMode(true)
       }
     }
     
@@ -687,7 +769,7 @@ export default function AgentConfig() {
   const saveSarvamConfig = async () => {
     try {
       setIsSaving(true)
-      console.log('💾 Saving enhanced agent configuration:', sarvamConfig)
+      console.log('💾 Saving service provider configuration:', sarvamConfig)
       
       // Validate configuration based on selected provider
       const validationResults = {
@@ -709,41 +791,57 @@ export default function AgentConfig() {
         return
       }
       
-      // Create complete configuration payload
-      const configPayload = {
-        agentId: agentid,
-        agentName: agentName,
-        provider: sarvamConfig.selectedProvider,
-        configuration: {
-          medium: {
-            type: sarvamConfig.medium,
-            endpoint: sarvamConfig.medium === 'web' ? sarvamConfig.webUrl : sarvamConfig.phoneNumber
-          },
-          prompt: {
-            statementOfPurpose: sarvamConfig.statementOfPurpose
-          },
+      // Use the same structure as handleSaveDraft for service provider config
+      const serviceProviderConfig = {
+        azureConfig: formik.values.selectedProvider === 'azure_openai' ? azureConfig : null,
+        sarvamConfig: {
+          selectedProvider: sarvamConfig.selectedProvider,
+          medium: sarvamConfig.medium,
+          webUrl: sarvamConfig.webUrl,
+          phoneNumber: sarvamConfig.phoneNumber,
+          statementOfPurpose: sarvamConfig.statementOfPurpose,
           serviceProviders: sarvamConfig.serviceProviders,
           testingBots: sarvamConfig.testingBots
         },
-        timestamp: new Date().toISOString()
+        basicConfiguration: {
+          selectedProvider: formik.values.selectedProvider,
+          selectedModel: formik.values.selectedModel,
+          temperature: formik.values.temperature,
+          selectedVoice: formik.values.selectedVoice,
+          ttsProvider: formik.values.ttsProvider || ttsConfig.provider,
+          ttsModel: formik.values.ttsModel || ttsConfig.model,
+          ttsVoiceConfig: formik.values.ttsVoiceConfig || ttsConfig.config,
+          sttProvider: sttConfig.provider,
+          sttModel: sttConfig.model,
+          sttConfig: sttConfig.config,
+          selectedLanguage: formik.values.selectedLanguage,
+          prompt: formik.values.prompt
+        },
+        metadata: {
+          agentId: agentid,
+          agentName: agentName,
+          timestamp: new Date().toISOString(),
+          action: 'SAVE_SARVAM_CONFIG'
+        }
       }
       
-      // Save to backend API
-      const response = await fetch('/api/agents/provider-config', {
+      // Use the save-draft API instead of provider-config
+      const response = await fetch('/api/agents/save-draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(configPayload)
+        body: JSON.stringify(serviceProviderConfig)
       })
       
       if (!response.ok) {
-        throw new Error(`Failed to save configuration: ${response.statusText}`)
+        const errorData = await response.json()
+        throw new Error(`Failed to save configuration: ${errorData.message || response.statusText}`)
       }
       
       const result = await response.json()
-      console.log('✅ Configuration saved successfully:', result)
+      console.log('✅ Service provider configuration saved successfully:', result)
       
       // Update last saved config and exit edit mode
-      setLastSavedConfig(configPayload)
+      setLastSavedConfig(serviceProviderConfig)
       setIsServiceProviderEditMode(false)
       
       // Show success feedback
@@ -1161,8 +1259,16 @@ export default function AgentConfig() {
                     </div>
                   )}
                   
-                  {/* Edit/Save/Cancel Buttons */}
-                  {!isServiceProviderEditMode ? (
+                  {/* First-time setup indicator */}
+                  {!lastSavedConfig && isServiceProviderEditMode && (
+                    <div className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
+                      <Edit className="w-3 h-3" />
+                      <span>Setup Configuration</span>
+                    </div>
+                  )}
+                  
+                  {/* Edit/Save/Cancel Buttons - Only show Edit button if data exists */}
+                  {!isServiceProviderEditMode && lastSavedConfig ? (
                     <Button
                       variant="outline"
                       size="sm"
@@ -1172,14 +1278,15 @@ export default function AgentConfig() {
                       <Edit className="w-3 h-3 mr-1" />
                       Edit
                     </Button>
-                  ) : (
+                  ) : isServiceProviderEditMode ? (
                     <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          // Reset to last saved config or defaults
-                          if (lastSavedConfig) {
+                      {/* Only show Cancel button if there's saved config to revert to */}
+                      {lastSavedConfig && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            // Reset to last saved config
                             setSarvamConfig(prev => ({
                               ...prev,
                               selectedProvider: lastSavedConfig.provider || 'sarvam',
@@ -1190,14 +1297,14 @@ export default function AgentConfig() {
                               serviceProviders: lastSavedConfig.configuration.serviceProviders || prev.serviceProviders,
                               testingBots: lastSavedConfig.configuration.testingBots || prev.testingBots
                             }))
-                          }
-                          setIsServiceProviderEditMode(false)
-                        }}
-                        className="h-8 text-xs"
-                      >
-                        <X className="w-3 h-3 mr-1" />
-                        Cancel
-                      </Button>
+                            setIsServiceProviderEditMode(false)
+                          }}
+                          className="h-8 text-xs"
+                        >
+                          <X className="w-3 h-3 mr-1" />
+                          Cancel
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         onClick={saveSarvamConfig}
@@ -1212,7 +1319,7 @@ export default function AgentConfig() {
                         {isSaving ? 'Saving...' : 'Save'}
                       </Button>
                     </div>
-                  )}
+                  ) : null}
                 </div>
               </div>
 
@@ -1696,6 +1803,108 @@ export default function AgentConfig() {
                     </div>
                   </div>
 
+                  {/* Deployment Configuration */}
+                  <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Rocket className="w-4 h-4 text-blue-600" />
+                        <h5 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Deployment Configuration</h5>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <HelpCircle className="w-4 h-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p className="text-sm">
+                                Deployment fields are <strong>cached locally</strong> when you save draft. They are only sent to the API when you click <strong>"Save and Deploy"</strong>.
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                      {(cachedAdvancedConfig.deploymentData.agentName || cachedAdvancedConfig.deploymentData.agentDescription) && (
+                        <Badge variant="secondary" className="text-xs">
+                          Cached
+                        </Badge>
+                      )}
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <div className="space-y-2">
+                        <Label className="text-xs font-medium text-gray-600 dark:text-gray-400">Agent Name</Label>
+                        <Input
+                          placeholder="Enter agent name for deployment"
+                          value={formik.values.deploymentAgentName || cachedAdvancedConfig.deploymentData.agentName}
+                          onChange={(e) => {
+                            const value = e.target.value
+                            formik.setFieldValue('deploymentAgentName', value)
+                            setCachedAdvancedConfig(prev => ({ 
+                              ...prev, 
+                              deploymentData: { ...prev.deploymentData, agentName: value }
+                            }))
+                          }}
+                          className="h-8 text-xs"
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label className="text-xs font-medium text-gray-600 dark:text-gray-400">Agent Description</Label>
+                        <Textarea
+                          placeholder="Enter agent description for deployment"
+                          value={formik.values.deploymentAgentDescription || cachedAdvancedConfig.deploymentData.agentDescription}
+                          onChange={(e) => {
+                            const value = e.target.value
+                            formik.setFieldValue('deploymentAgentDescription', value)
+                            setCachedAdvancedConfig(prev => ({ 
+                              ...prev, 
+                              deploymentData: { ...prev.deploymentData, agentDescription: value }
+                            }))
+                          }}
+                          className="text-xs min-h-[60px]"
+                          rows={3}
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label className="text-xs font-medium text-gray-600 dark:text-gray-400">Language</Label>
+                        <Select 
+                          value={formik.values.deploymentLanguage || cachedAdvancedConfig.deploymentData.language} 
+                          onValueChange={(value) => {
+                            formik.setFieldValue('deploymentLanguage', value)
+                            setCachedAdvancedConfig(prev => ({ 
+                              ...prev, 
+                              deploymentData: { ...prev.deploymentData, language: value }
+                            }))
+                          }}
+                        >
+                          <SelectTrigger className="h-8 text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="english">English</SelectItem>
+                            <SelectItem value="hindi">Hindi</SelectItem>
+                            <SelectItem value="spanish">Spanish</SelectItem>
+                            <SelectItem value="french">French</SelectItem>
+                            <SelectItem value="german">German</SelectItem>
+                            <SelectItem value="italian">Italian</SelectItem>
+                            <SelectItem value="portuguese">Portuguese</SelectItem>
+                            <SelectItem value="russian">Russian</SelectItem>
+                            <SelectItem value="chinese">Chinese</SelectItem>
+                            <SelectItem value="japanese">Japanese</SelectItem>
+                            <SelectItem value="korean">Korean</SelectItem>
+                            <SelectItem value="arabic">Arabic</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      
+                      {deploymentError && (
+                        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                          <p className="text-xs text-red-600 dark:text-red-400">{deploymentError}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                   {/* Session Behavior */}
                   <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
                     <div className="flex items-center gap-2">
@@ -1742,72 +1951,6 @@ export default function AgentConfig() {
               </div>
                 </CollapsibleContent>
               </Collapsible>
-            </div>
-
-            {/* System Prompt */}
-            <div className="flex-1 min-h-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 flex flex-col">
-              <div className="flex items-center justify-between mb-3 flex-shrink-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">System Prompt</span>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <button className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
-                        <TypeIcon className="w-3 h-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" />
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-48 p-3" align="start">
-                      <div className="space-y-2">
-                        <Label className="text-xs">Font Size</Label>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs">{settings.fontSize}px</span>
-                          <Slider
-                            value={[settings.fontSize]}
-                            onValueChange={(value) => setFontSize(value[0])}
-                            min={8}
-                            max={18}
-                            step={1}
-                            className="flex-1"
-                          />
-                        </div>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={copyToClipboard}
-                    className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 cursor-pointer transition-colors"
-                    disabled={!formik.values.prompt}
-                  >
-                    {isCopied ? (
-                      <>
-                        <CheckIcon className="w-4 h-4 text-green-500" />
-                        <span className="text-green-500">Copied!</span>
-                      </>
-                    ) : (
-                      <>
-                        <CopyIcon className="w-4 h-4" />
-                        <span>Copy</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-              
-              <Textarea
-                placeholder="Define your agent's behavior and personality..."
-                value={formik.values.prompt}
-                onChange={(e) => formik.setFieldValue('prompt', e.target.value)}
-                className="flex-1 min-h-0 font-mono resize-none leading-relaxed border-gray-200 dark:border-gray-700"
-                style={getTextareaStyles()}
-              />
-              
-              <div className="flex justify-between items-center mt-2 flex-shrink-0">
-                <span className="text-xs text-gray-400 dark:text-gray-500">
-                  {formik.values.prompt.length.toLocaleString()} chars
-                </span>
-              </div>
             </div>
           </div>
 
@@ -1917,6 +2060,86 @@ export default function AgentConfig() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsTestingBotsOpen(false)}>
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Deployment Response Popup */}
+      <Dialog open={showDeploymentPopup} onOpenChange={setShowDeploymentPopup}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Rocket className="w-5 h-5 text-green-600" />
+              Deployment Successful
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            {deploymentResponse && (
+              <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Deployment Response</h4>
+                <pre className="text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap overflow-x-auto">
+                  {JSON.stringify(deploymentResponse, null, 2)}
+                </pre>
+              </div>
+            )}
+            
+            {deploymentError && (
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-red-700 dark:text-red-300 mb-2">Deployment Error</h4>
+                <p className="text-sm text-red-600 dark:text-red-400">{deploymentError}</p>
+              </div>
+            )}
+            
+            {deploymentResponse?.deployment_url && (
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-blue-700 dark:text-blue-300 mb-2">Quick Links</h4>
+                <div className="space-y-2">
+                  <div>
+                    <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">Deployment URL:</span>
+                    <br />
+                    <a 
+                      href={deploymentResponse.deployment_url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline break-all"
+                    >
+                      {deploymentResponse.deployment_url}
+                    </a>
+                  </div>
+                  {deploymentResponse.webhook_url && (
+                    <div>
+                      <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">Webhook URL:</span>
+                      <br />
+                      <span className="text-xs text-gray-600 dark:text-gray-400 font-mono break-all">
+                        {deploymentResponse.webhook_url}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowDeploymentPopup(false)
+                setDeploymentResponse(null)
+                setDeploymentError(null)
+              }}
+            >
+              Close
+            </Button>
+            <Button 
+              onClick={() => {
+                // Navigate to overview dashboard
+                window.location.href = `/${projectid}/agents`
+              }}
+            >
+              Go to Overview
             </Button>
           </DialogFooter>
         </DialogContent>
