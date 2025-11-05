@@ -56,11 +56,9 @@ Download and install from [PostgreSQL Official Website](https://www.postgresql.o
 
 #### Create Database and User
 
-The database setup includes two scripts:
-1. `setup-db.sql` - Creates the database, user, and sets proper permissions
-2. `database_migration_complete.sql` - Creates all tables and initial data
+**Simple Setup (Recommended):**
 
-**Step 1: Run the setup script as PostgreSQL superuser**
+1. **Run the setup script as PostgreSQL superuser:**
 ```bash
 # Connect to PostgreSQL as superuser
 sudo -u postgres psql
@@ -72,36 +70,13 @@ sudo -u postgres psql
 \q
 ```
 
-If you encounter permission issues, you can manually run these commands:
-```sql
--- Create database and user
-CREATE DATABASE whispey;
-CREATE USER whispey_user WITH ENCRYPTED PASSWORD 'whispey123';
-
--- Grant all privileges on database
-GRANT ALL PRIVILEGES ON DATABASE whispey TO whispey_user;
-
--- Connect to the whispey database
-\c whispey
-
--- Grant privileges on schema and future tables
-GRANT ALL ON SCHEMA public TO whispey_user;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO whispey_user;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO whispey_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO whispey_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO whispey_user;
-
--- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-```
-
-**Step 2: Run the database migration**
+2. **Run the database migration:**
 ```bash
 # Connect as the whispey_user and run the migration
 psql -h localhost -U whispey_user -d whispey -f database_migration_complete.sql
 ```
 
-**Step 3: Verify the setup**
+3. **Verify the setup:**
 ```bash
 # Connect to verify everything is working
 psql -h localhost -U whispey_user -d whispey
@@ -122,26 +97,19 @@ psql -h localhost -U whispey_user -d whispey
 
 **Troubleshooting Permission Issues:**
 
-If you get "permission denied for schema public" errors:
+If you get "permission denied for schema public" errors, connect as PostgreSQL superuser and run:
+```bash
+sudo -u postgres psql -d whispey
+```
 
-1. **Connect as PostgreSQL superuser:**
-   ```bash
-   sudo -u postgres psql -d whispey
-   ```
-
-2. **Run permission fixes:**
-   ```sql
-   GRANT ALL ON SCHEMA public TO whispey_user;
-   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO whispey_user;
-   GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO whispey_user;
-   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO whispey_user;
-   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO whispey_user;
-   ```
-
-3. **Then run the migration as whispey_user:**
-   ```bash
-   psql -h localhost -U whispey_user -d whispey -f database_migration_complete.sql
-   ```
+Then run these permission fixes:
+```sql
+GRANT ALL ON SCHEMA public TO whispey_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO whispey_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO whispey_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO whispey_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO whispey_user;
+```
 
 ### 3. Environment Configuration
 
