@@ -56,23 +56,92 @@ Download and install from [PostgreSQL Official Website](https://www.postgresql.o
 
 #### Create Database and User
 
+The database setup includes two scripts:
+1. `setup-db.sql` - Creates the database, user, and sets proper permissions
+2. `database_migration_complete.sql` - Creates all tables and initial data
+
+**Step 1: Run the setup script as PostgreSQL superuser**
 ```bash
 # Connect to PostgreSQL as superuser
 sudo -u postgres psql
 
-# Create database and user
-CREATE DATABASE whispey;
-CREATE USER whispey_user WITH ENCRYPTED PASSWORD 'your_secure_password';
-GRANT ALL PRIVILEGES ON DATABASE whispey TO whispey_user;
+# Run the setup script
+\i setup-db.sql
+
+# Exit superuser session
 \q
 ```
 
-#### Run Database Migration
+If you encounter permission issues, you can manually run these commands:
+```sql
+-- Create database and user
+CREATE DATABASE whispey;
+CREATE USER whispey_user WITH ENCRYPTED PASSWORD 'whispey123';
 
+-- Grant all privileges on database
+GRANT ALL PRIVILEGES ON DATABASE whispey TO whispey_user;
+
+-- Connect to the whispey database
+\c whispey
+
+-- Grant privileges on schema and future tables
+GRANT ALL ON SCHEMA public TO whispey_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO whispey_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO whispey_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO whispey_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO whispey_user;
+
+-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+```
+
+**Step 2: Run the database migration**
 ```bash
-# Connect to your database and run the migration script
+# Connect as the whispey_user and run the migration
 psql -h localhost -U whispey_user -d whispey -f database_migration_complete.sql
 ```
+
+**Step 3: Verify the setup**
+```bash
+# Connect to verify everything is working
+psql -h localhost -U whispey_user -d whispey
+
+# Check that tables were created
+\dt
+
+# Exit
+\q
+```
+
+**Default Credentials:**
+- Database: `whispey`
+- Username: `whispey_user`
+- Password: `whispey123`
+
+⚠️ **Security Note**: Change the default password in production! Update both the database user password and your `.env.local` file.
+
+**Troubleshooting Permission Issues:**
+
+If you get "permission denied for schema public" errors:
+
+1. **Connect as PostgreSQL superuser:**
+   ```bash
+   sudo -u postgres psql -d whispey
+   ```
+
+2. **Run permission fixes:**
+   ```sql
+   GRANT ALL ON SCHEMA public TO whispey_user;
+   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO whispey_user;
+   GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO whispey_user;
+   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO whispey_user;
+   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO whispey_user;
+   ```
+
+3. **Then run the migration as whispey_user:**
+   ```bash
+   psql -h localhost -U whispey_user -d whispey -f database_migration_complete.sql
+   ```
 
 ### 3. Environment Configuration
 
@@ -84,7 +153,7 @@ POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DATABASE=whispey
 POSTGRES_USER=whispey_user
-POSTGRES_PASSWORD=your_secure_password
+POSTGRES_PASSWORD=whispey123
 
 # JWT Secret (IMPORTANT: Change this in production!)
 JWT_SECRET=your-super-secure-jwt-secret-key-minimum-32-characters
@@ -96,6 +165,10 @@ VOICE_EVALS_MASTER_KEY=your-unique-voice-evals-key
 # OpenAI (Optional - for AI evaluations)
 OPENAI_API_KEY=your_openai_api_key_here
 ```
+
+⚠️ **Important**: The default password `whispey123` is used for initial setup. Change it in production:
+1. Update the database user password: `ALTER USER whispey_user PASSWORD 'new_secure_password';`
+2. Update your `.env.local` file with the new password
 
 ### 4. Build and Start
 
