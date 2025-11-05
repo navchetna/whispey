@@ -1,7 +1,43 @@
--- Whispey Database Schema - Complete On-Premise Migration
--- This script creates the complete Whispey database schema for PostgreSQL
--- Suitable for on-premise deployment without cloud dependencies
--- Run this script in your PostgreSQL database to set up all required tables and functions
+-- Whispey Database Setup Script with Proper Permissions
+-- Run this script as PostgreSQL superuser (postgres) to set up the database and user
+
+-- ==============================================
+-- DATABASE AND USER SETUP
+-- ==============================================
+
+-- Create database if it doesn't exist
+SELECT 'CREATE DATABASE whispey'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'whispey')\gexec
+
+-- Create user if it doesn't exist
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = 'whispey_user') THEN
+        CREATE USER whispey_user WITH ENCRYPTED PASSWORD 'whispey_password_change_this';
+    END IF;
+END
+$$;
+
+-- Grant necessary permissions
+GRANT ALL PRIVILEGES ON DATABASE whispey TO whispey_user;
+
+-- Connect to the whispey database
+\c whispey
+
+-- Grant schema permissions
+GRANT ALL ON SCHEMA public TO whispey_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO whispey_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO whispey_user;
+GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO whispey_user;
+
+-- Set default privileges for future objects
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO whispey_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO whispey_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO whispey_user;
+
+-- Enable necessary extensions
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ==============================================
 -- CLEANUP EXISTING OBJECTS
@@ -20,6 +56,9 @@ DROP FUNCTION IF EXISTS build_single_filter_condition(jsonb) CASCADE;
 DROP FUNCTION IF EXISTS update_evaluation_prompt_updated_at() CASCADE;
 DROP FUNCTION IF EXISTS update_evaluation_job_completion() CASCADE;
 DROP FUNCTION IF EXISTS get_evaluation_job_stats(uuid) CASCADE;
+DROP FUNCTION IF EXISTS create_user_session(uuid, timestamp with time zone) CASCADE;
+DROP FUNCTION IF EXISTS validate_user_session(text) CASCADE;
+DROP FUNCTION IF EXISTS cleanup_expired_sessions() CASCADE;
 
 -- Drop existing views
 DROP VIEW IF EXISTS evaluation_results_detailed CASCADE;
@@ -37,7 +76,8 @@ DROP TABLE IF EXISTS public.pype_voice_session_traces CASCADE;
 DROP TABLE IF EXISTS public.pype_voice_custom_totals_configs CASCADE;
 DROP TABLE IF EXISTS public.pype_voice_agent_call_log_views CASCADE;
 DROP TABLE IF EXISTS public.pype_voice_api_keys CASCADE;
-DROP TABLE IF EXISTS public.pype_voice_email_project_mapping CASCADE;
+DROP TABLE IF EXISTS public.pype_voice_project_user_mapping CASCADE;
+DROP TABLE IF EXISTS public.pype_voice_user_sessions CASCADE;
 DROP TABLE IF EXISTS public.pype_voice_call_logs CASCADE;
 DROP TABLE IF EXISTS public.pype_voice_metrics_logs CASCADE;
 DROP TABLE IF EXISTS public.pype_voice_agents CASCADE;
@@ -59,7 +99,7 @@ CREATE TABLE public.pype_voice_users (
     first_name text,
     last_name text,
     profile_image_url text,
-    password_hash text NOT NULL, -- For local authentication
+    password_hash text NOT NULL,
     is_active boolean DEFAULT true,
     is_admin boolean DEFAULT false,
     created_at timestamp with time zone DEFAULT now(),
@@ -404,6 +444,10 @@ CREATE TABLE public.pype_voice_evaluation_results (
     created_at timestamp with time zone DEFAULT now()
 );
 
+-- Grant permissions on all newly created tables
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO whispey_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO whispey_user;
+
 -- ==============================================
 -- INDEXES FOR PERFORMANCE
 -- ==============================================
@@ -521,6 +565,10 @@ SELECT
 FROM public.pype_voice_evaluation_results r
 JOIN public.pype_voice_evaluation_jobs j ON r.job_id = j.id
 JOIN public.pype_voice_evaluation_prompts p ON r.prompt_id = p.id;
+
+-- Grant permissions on views
+GRANT ALL ON evaluation_results_detailed TO whispey_user;
+GRANT ALL ON call_summary_materialized TO whispey_user;
 
 -- ==============================================
 -- UTILITY FUNCTIONS
@@ -930,22 +978,6 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ==============================================
--- TRIGGERS
--- ==============================================
-
--- Trigger to automatically update updated_at on prompt changes
-CREATE TRIGGER trigger_update_evaluation_prompt_updated_at
-    BEFORE UPDATE ON public.pype_voice_evaluation_prompts
-    FOR EACH ROW
-    EXECUTE FUNCTION update_evaluation_prompt_updated_at();
-
--- Trigger to automatically update completion timestamp
-CREATE TRIGGER trigger_update_evaluation_job_completion
-    BEFORE UPDATE ON public.pype_voice_evaluation_jobs
-    FOR EACH ROW
-    EXECUTE FUNCTION update_evaluation_job_completion();
-
--- ==============================================
 -- USER AND SESSION MANAGEMENT FUNCTIONS
 -- ==============================================
 
@@ -992,6 +1024,25 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Grant execute permissions on functions
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO whispey_user;
+
+-- ==============================================
+-- TRIGGERS
+-- ==============================================
+
+-- Trigger to automatically update updated_at on prompt changes
+CREATE TRIGGER trigger_update_evaluation_prompt_updated_at
+    BEFORE UPDATE ON public.pype_voice_evaluation_prompts
+    FOR EACH ROW
+    EXECUTE FUNCTION update_evaluation_prompt_updated_at();
+
+-- Trigger to automatically update completion timestamp
+CREATE TRIGGER trigger_update_evaluation_job_completion
+    BEFORE UPDATE ON public.pype_voice_evaluation_jobs
+    FOR EACH ROW
+    EXECUTE FUNCTION update_evaluation_job_completion();
+
 -- ==============================================
 -- INITIAL DATA
 -- ==============================================
@@ -1006,6 +1057,16 @@ ON CONFLICT (email) DO NOTHING;
 REFRESH MATERIALIZED VIEW call_summary_materialized;
 
 -- ==============================================
+-- FINAL PERMISSIONS
+-- ==============================================
+
+-- Grant all permissions to whispey_user on all created objects
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO whispey_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO whispey_user;
+GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO whispey_user;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO whispey_user;
+
+-- ==============================================
 -- SETUP COMPLETE
 -- ==============================================
 
@@ -1015,4 +1076,6 @@ BEGIN
     RAISE NOTICE 'Whispey database schema setup completed successfully!';
     RAISE NOTICE 'Default admin user created: admin@whispey.local / admin123';
     RAISE NOTICE 'Please change the default password after first login.';
+    RAISE NOTICE 'Database user: whispey_user';
+    RAISE NOTICE 'Remember to update the password in your .env.local file!';
 END $$;
