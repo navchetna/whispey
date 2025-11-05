@@ -56,27 +56,21 @@ Download and install from [PostgreSQL Official Website](https://www.postgresql.o
 
 #### Create Database and User
 
-**Simple Setup (Recommended):**
+**Simple Setup:**
 
-1. **Run the setup script as PostgreSQL superuser:**
+1. **Run the complete setup script as PostgreSQL superuser:**
 ```bash
 # Connect to PostgreSQL as superuser
 sudo -u postgres psql
 
-# Run the setup script
+# Run the complete setup script (creates database, user, tables, and data)
 \i setup-db.sql
 
 # Exit superuser session
 \q
 ```
 
-2. **Run the database migration:**
-```bash
-# Connect as the whispey_user and run the migration
-psql -h localhost -U whispey_user -d whispey -f database_migration_complete.sql
-```
-
-3. **Verify the setup:**
+2. **Verify the setup:**
 ```bash
 # Connect to verify everything is working
 psql -h localhost -U whispey_user -d whispey

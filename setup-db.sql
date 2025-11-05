@@ -13,7 +13,7 @@ WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'whispey')\gexec
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = 'whispey_user') THEN
-        CREATE USER whispey_user WITH ENCRYPTED PASSWORD 'whispey_password_change_this';
+        CREATE USER whispey_user WITH ENCRYPTED PASSWORD 'whispey123';
     END IF;
 END
 $$;
