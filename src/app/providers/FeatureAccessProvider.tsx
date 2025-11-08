@@ -2,7 +2,7 @@
 'use client'
 
 import React, { createContext, useContext, useEffect, useState } from 'react'
-import { useUser } from '@clerk/nextjs'
+import { useLocalUser } from '@/lib/local-auth'
 import { blacklistedEmails } from '@/utils/constants'
 
 interface FeatureAccessContextType {
@@ -30,13 +30,13 @@ interface FeatureAccessProviderProps {
 }
 
 export function FeatureAccessProvider({ children }: FeatureAccessProviderProps) {
-  const { user, isLoaded } = useUser()
+  const { user, isLoaded } = useLocalUser()
   const [canCreatePypeAgent, setCanCreatePypeAgent] = useState(false)
   const [userEmail, setUserEmail] = useState<string | null>(null)
 
   useEffect(() => {
     if (isLoaded) {
-      const email = user?.emailAddresses?.[0]?.emailAddress?.toLowerCase()
+      const email = user?.email?.toLowerCase()
       setUserEmail(email || null)
       
       // Only allow Pype agent creation for blacklisted emails (internal team)

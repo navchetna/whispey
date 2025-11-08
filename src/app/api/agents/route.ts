@@ -1,12 +1,7 @@
 // src/app/api/agents/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { query } from "@/lib/postgres"
 import { encryptApiKey } from '@/lib/vapi-encryption'
-
-// Create Supabase client for server-side operations
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 export async function POST(request: NextRequest) {
   try {
@@ -46,14 +41,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify project exists
-    const { data: project, error: projectError } = await supabase
-      .from('pype_voice_projects')
-      .select('id')
-      .eq('id', project_id)
-      .single()
+    const projectResult = await query(
+      'SELECT id FROM pype_voice_projects WHERE id = $1',
+      [project_id]
+    )
 
-    if (projectError || !project) {
-      console.error('Project lookup error:', projectError)
+    if (projectResult.rows.length === 0) {
       return NextResponse.json(
         { error: 'Invalid project ID' },
         { status: 400 }
@@ -61,22 +54,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if agent with same name already exists in this project  
-    const { data: existingAgent, error: checkError } = await supabase
-      .from('pype_voice_agents')
-      .select('id, name')
-      .eq('project_id', project_id)
-      .eq('name', name.trim())
-      .maybeSingle()
+    const existingAgentResult = await query(
+      'SELECT id, name FROM pype_voice_agents WHERE project_id = $1 AND name = $2',
+      [project_id, name.trim()]
+    )
 
-    if (checkError) {
-      console.error('❌ Error checking existing agent:', checkError)
-      return NextResponse.json(
-        { error: 'Failed to validate agent name' },
-        { status: 500 }
-      )
-    }
-
-    if (existingAgent) {
+    if (existingAgentResult.rows.length > 0) {
       return NextResponse.json(
         { error: `Agent with name "${name.trim()}" already exists in this project. Please choose a different name.` },
         { status: 409 }
@@ -123,19 +106,34 @@ export async function POST(request: NextRequest) {
     })
 
     // Insert agent into pype_voice_agents
-    const { data: agent, error: agentError } = await supabase
-      .from('pype_voice_agents')
-      .insert([agentData])
-      .select('*')
-      .single()
+    const insertResult = await query(
+      `INSERT INTO pype_voice_agents 
+        (name, agent_type, configuration, project_id, platform, environment, is_active, 
+         vapi_api_key_encrypted, vapi_project_key_encrypted, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+       RETURNING *`,
+      [
+        agentData.name,
+        agentData.agent_type,
+        JSON.stringify(agentData.configuration),
+        agentData.project_id,
+        agentData.platform,
+        agentData.environment,
+        agentData.is_active,
+        agentData.vapi_api_key_encrypted || null,
+        agentData.vapi_project_key_encrypted || null
+      ]
+    )
 
-    if (agentError) {
-      console.error('❌ Error creating agent:', agentError)
+    if (insertResult.rows.length === 0) {
+      console.error('❌ Error creating agent')
       return NextResponse.json(
-        { error: `Failed to create agent: ${agentError.message}` },
+        { error: 'Failed to create agent' },
         { status: 500 }
       )
     }
+
+    const agent = insertResult.rows[0]
 
     console.log(`✅ Successfully created ${platform} agent "${agent.name}" with ID: ${agent.id}`)
     
@@ -154,30 +152,47 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const projectId = searchParams.get('project_id')
+    const agentId = searchParams.get('id')
+    const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined
+    const offset = searchParams.get('offset') ? parseInt(searchParams.get('offset')!) : 0
+    const orderBy = searchParams.get('orderBy') || 'created_at'
+    const order = searchParams.get('order') === 'asc' ? 'ASC' : 'DESC'
 
-    if (!projectId) {
-      return NextResponse.json(
-        { error: 'Project ID is required' },
-        { status: 400 }
-      )
+    // Build WHERE conditions
+    const conditions: string[] = []
+    const params: any[] = []
+    let paramIndex = 1
+
+    if (projectId) {
+      conditions.push(`project_id = $${paramIndex}`)
+      params.push(projectId)
+      paramIndex++
     }
 
-    const { data: agents, error } = await supabase
-      .from('pype_voice_agents')
-      .select('*')
-      .eq('project_id', projectId)
-      .eq('is_active', true)
-      .order('created_at', { ascending: false })
-
-    if (error) {
-      console.error('Error fetching agents:', error)
-      return NextResponse.json(
-        { error: 'Failed to fetch agents' },
-        { status: 500 }
-      )
+    if (agentId) {
+      conditions.push(`id = $${paramIndex}`)
+      params.push(agentId)
+      paramIndex++
     }
 
-    return NextResponse.json({ agents })
+    // Always filter active agents unless specified
+    if (!searchParams.has('include_inactive')) {
+      conditions.push(`is_active = true`)
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    const limitClause = limit ? `LIMIT ${limit}` : ''
+    const offsetClause = offset > 0 ? `OFFSET ${offset}` : ''
+
+    const result = await query(
+      `SELECT * FROM pype_voice_agents 
+       ${whereClause} 
+       ORDER BY ${orderBy} ${order} 
+       ${limitClause} ${offsetClause}`,
+      params
+    )
+
+    return NextResponse.json({ data: result.rows, count: result.rows.length })
 
   } catch (error) {
     console.error('Unexpected error fetching agents:', error)

@@ -1,7 +1,7 @@
 // app/api/webhooks/clerk/route.ts
 import { Webhook } from 'svix'
 import { headers } from 'next/headers'
-import { createClient } from '@supabase/supabase-js'
+import { query } from "@/lib/postgres"
 import { NextRequest, NextResponse } from 'next/server'
 
 interface ClerkWebhookEvent {
@@ -29,11 +29,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.error('❌ Missing CLERK_WEBHOOK_SIGNING_SECRET')
     return new NextResponse('Missing webhook secret', { status: 500 })
   }
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  
-  const supabase = createClient(supabaseUrl, supabaseAnonKey)
   
   // Get the headers
   const headerPayload = await headers()
@@ -83,20 +78,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       console.log('✅ Creating new user in database')
 
-      const { data, error } = await supabase.from('pype_voice_users').insert({
-        clerk_id: id,
-        email: email_addresses[0]?.email_address || '',
-        first_name: first_name,
-        last_name: last_name,
-        profile_image_url: image_url,
-      }).select().single()
+      const result = await query(
+        `INSERT INTO pype_voice_users (clerk_id, email, first_name, last_name, profile_image_url)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *`,
+        [id, email_addresses[0]?.email_address || '', first_name, last_name, image_url]
+      )
 
-      if (error) {
-        console.error('❌ Error creating user in Supabase:', error)
+      if (result.rows.length === 0) {
+        console.error('❌ Error creating user in database: No rows returned')
         return new NextResponse('Error creating user', { status: 500 })
       }
 
-      console.log('🎉 User created successfully:', data)
+      console.log('🎉 User created successfully:', result.rows[0])
     }
 
     if (eventType === 'user.updated') {
@@ -104,39 +98,37 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       console.log('📝 Updating user in database')
 
-      const { data, error } = await supabase
-        .from('pype_voice_users')
-        .update({
-          email: email_addresses[0]?.email_address || '',
-          first_name: first_name,
-          last_name: last_name,
-          profile_image_url: image_url,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('clerk_id', id)
-        .select()
-        .single()
+      const result = await query(
+        `UPDATE pype_voice_users 
+         SET email = $1, first_name = $2, last_name = $3, 
+             profile_image_url = $4, updated_at = $5
+         WHERE clerk_id = $6
+         RETURNING *`,
+        [
+          email_addresses[0]?.email_address || '',
+          first_name,
+          last_name,
+          image_url,
+          new Date().toISOString(),
+          id
+        ]
+      )
 
-      if (error) {
-        console.error('❌ Error updating user in Supabase:', error)
+      if (result.rows.length === 0) {
+        console.error('❌ Error updating user in database: No rows returned')
         return new NextResponse('Error updating user', { status: 500 })
       }
 
-      console.log('📝 User updated successfully:', data)
+      console.log('📝 User updated successfully:', result.rows[0])
     }
 
     if (eventType === 'user.deleted') {
       console.log('🗑️ Deleting user from database')
 
-      const { error } = await supabase
-        .from('pype_voice_users')
-        .delete()
-        .eq('clerk_id', id)
-
-      if (error) {
-        console.error('❌ Error deleting user from Supabase:', error)
-        return new NextResponse('Error deleting user', { status: 500 })
-      }
+      await query(
+        'DELETE FROM pype_voice_users WHERE clerk_id = $1',
+        [id]
+      )
 
       console.log('🗑️ User deleted successfully')
     }

@@ -1,11 +1,7 @@
 // src/lib/api-key-management.ts
 import crypto from 'crypto'
 import { encryptWithWhispeyKey } from './whispey-crypto'
-import { createClient } from '@supabase/supabase-js'
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+import { query } from './postgres'
 
 /**
  * Generate a secure API token with pype prefix
@@ -45,24 +41,20 @@ export async function createProjectApiKey(
     const tokenHashMaster = encryptWithWhispeyKey(apiToken)
     const maskedKey = maskToken(apiToken)
 
-    const { data, error } = await supabase
-      .from('pype_voice_api_keys')
-      .insert({
-        project_id: projectId,
-        user_clerk_id: userClerkId,
-        token_hash: tokenHash,
-        token_hash_master: tokenHashMaster,
-        masked_key: maskedKey,
-      })
-      .select('id')
-      .single()
+    const result = await query(
+      `INSERT INTO pype_voice_api_keys 
+       (project_id, user_clerk_id, token_hash, token_hash_master, masked_key) 
+       VALUES ($1, $2, $3, $4, $5) 
+       RETURNING id`,
+      [projectId, userClerkId, tokenHash, tokenHashMaster, maskedKey]
+    )
 
-    if (error) {
-      console.error('Error creating project API key:', error)
-      return { success: false, error: error.message }
+    if (result.rows.length === 0) {
+      console.error('Error creating project API key: No rows returned')
+      return { success: false, error: 'Failed to create API key' }
     }
 
-    return { success: true, id: data.id }
+    return { success: true, id: result.rows[0].id }
   } catch (error) {
     console.error('Unexpected error creating project API key:', error)
     return { 
@@ -79,21 +71,17 @@ export async function getProjectApiKeys(projectId: string) {
     try {
       console.log('Getting API keys for project:', projectId)
       
-      const { data, error } = await supabase
-        .from('pype_voice_api_keys')
-        .select('*')
-        .eq('project_id', projectId)
-        .order('created_at', { ascending: false })
+      const result = await query(
+        `SELECT * FROM pype_voice_api_keys 
+         WHERE project_id = $1 
+         ORDER BY created_at DESC`,
+        [projectId]
+      )
   
-      console.log('Supabase response:', { data, error })
+      console.log('Query response:', { rowCount: result.rows.length })
   
-      if (error) {
-        console.error('Error fetching project API keys:', error)
-        return { success: false, error: error.message }
-      }
-  
-      console.log('Returning data:', data || [])
-      return { success: true, data: data || [] }
+      console.log('Returning data:', result.rows || [])
+      return { success: true, data: result.rows || [] }
     } catch (error) {
       console.error('Unexpected error fetching project API keys:', error)
       return { 
@@ -108,10 +96,10 @@ export async function getProjectApiKeys(projectId: string) {
  */
 export async function updateKeyLastUsed(tokenHash: string): Promise<void> {
   try {
-    await supabase
-      .from('pype_voice_api_keys')
-      .update({ last_used: new Date().toISOString() })
-      .eq('token_hash', tokenHash)
+    await query(
+      'UPDATE pype_voice_api_keys SET last_used = $1 WHERE token_hash = $2',
+      [new Date().toISOString(), tokenHash]
+    )
   } catch (error) {
     console.error('Error updating key last used:', error)
     // Don't throw - this is not critical for authentication

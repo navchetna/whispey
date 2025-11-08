@@ -8,9 +8,8 @@ import TracesTable from "@/components/observabilty/TracesTable"
 import { useState, use, useCallback } from "react"
 import { extractS3Key } from "@/utils/s3"
 import AudioPlayer from "@/components/AudioPlayer"
-import AudioSyncedTranscript from "@/components/AudioSyncedTranscript"
-import { useSupabaseQuery } from "@/hooks/useSupabase"
 import ObservabilityStats from "@/components/observabilty/ObservabilityStats"
+import { useApiQuery } from "@/hooks/useApi"
 
 interface ObservabilityPageProps {
   params: Promise<{ agentid: string }>
@@ -36,24 +35,24 @@ export default function EnhancedObservabilityPage({ params, searchParams }: Obse
 
   // Build query filters based on whether we have sessionId or agentId
   const queryFilters = sessionId 
-    ? [{ column: "id", operator: "eq", value: sessionId }]
-    : [{ column: "agent_id", operator: "eq", value: resolvedParams.agentid }]
+    ? [{ column: "id", operator: "eq" as const, value: sessionId }]
+    : [{ column: "agent_id", operator: "eq" as const, value: resolvedParams.agentid }]
 
-  const { data: callData, loading: callLoading, error: callError } = useSupabaseQuery("pype_voice_call_logs", {
+  const { data: callData, loading: callLoading, error: callError } = useApiQuery("pype_voice_call_logs", {
     select: "id, call_id, agent_id, recording_url, customer_number, call_started_at, call_ended_reason, duration_seconds, metadata",
     filters: queryFilters,
     orderBy: { column: "created_at", ascending: false },
     limit: 1
   })
 
-  const { data: agentData, loading: agentLoading, error: agentError } = useSupabaseQuery("pype_voice_agents", {
+  const { data: agentData, loading: agentLoading, error: agentError } = useApiQuery("pype_voice_agents", {
     select: "id, name, agent_type, configuration, vapi_api_key_encrypted, vapi_project_key_encrypted",
     filters: [{ column: "id", operator: "eq", value: resolvedParams.agentid }],
     limit: 1
   })
 
   // Get conversation turns for transcript
-  const { data: conversationTurns, loading: turnsLoading } = useSupabaseQuery("pype_voice_metrics_logs", {
+  const { data: conversationTurns, loading: turnsLoading } = useApiQuery("pype_voice_metrics_logs", {
     select: "id, turn_id, user_transcript, agent_response, unix_timestamp, created_at",
     filters: sessionId 
       ? [{ column: "session_id", operator: "eq", value: sessionId }]
@@ -122,7 +121,7 @@ export default function EnhancedObservabilityPage({ params, searchParams }: Obse
         <ObservabilityStats
           sessionId={sessionId}
           agentId={resolvedParams.agentid}
-          callData={callData}
+          callData={callData || undefined}
           agent={agent}
         />
       )}

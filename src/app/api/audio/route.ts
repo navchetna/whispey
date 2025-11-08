@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import AWS from 'aws-sdk'
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
-const s3 = new AWS.S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  region: process.env.AWS_REGION
+const s3Client = new S3Client({
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
+  },
+  region: process.env.AWS_REGION || 'us-east-1'
 })
 
 function parseS3Url(inputUrl: string): { bucket?: string; key?: string } {
@@ -55,11 +58,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Generate presigned URL (valid for 1 hour)
-    const signedUrl = await s3.getSignedUrlPromise('getObject', {
+    const command = new GetObjectCommand({
       Bucket: bucket,
       Key: key,
-      Expires: 3600 // 1 hour
     })
+    
+    const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 })
 
     return NextResponse.json({ url: signedUrl, bucket, key })
   } catch (error) {

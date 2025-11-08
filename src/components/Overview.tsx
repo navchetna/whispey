@@ -35,7 +35,6 @@ import {
   Cell
 } from 'recharts'
 import { useOverviewQuery } from '../hooks/useOverviewQuery'
-import { getUserProjectRole } from '@/services/getUserRole'
 import { 
   DropdownMenu,
   DropdownMenuContent,
@@ -46,13 +45,13 @@ import { Loader2, MoreHorizontal, Trash2, Download } from 'lucide-react'
 import { EnhancedChartBuilder, ChartProvider } from './EnhancedChartBuilder'
 import { FloatingActionMenu } from './FloatingActionMenu'
 import { useDynamicFields } from '../hooks/useDynamicFields'
-import { useUser } from "@clerk/nextjs"
+import { useLocalUser } from "../lib/local-auth"
 import CustomTotalsBuilder from './CustomTotalBuilds'
 import { CustomTotalsService } from '@/services/customTotalService'
 import { CustomTotalConfig, CustomTotalResult } from '../types/customTotals'
 import { Card, CardContent } from './ui/card'
 import { Button } from './ui/button'
-import { supabase } from '@/lib/supabase'
+import { DatabaseService } from "@/lib/database"
 import Papa from 'papaparse'
 import { useTheme } from 'next-themes'
 import { useMobile } from '@/hooks/use-mobile'
@@ -176,8 +175,8 @@ const Overview: React.FC<OverviewProps> = ({
   const [loadingCustomTotals, setLoadingCustomTotals] = useState(false)
   const [roleLoading, setRoleLoading] = useState(true)
 
-  const { user } = useUser()
-  const userEmail = user?.emailAddresses?.[0]?.emailAddress
+  const { user } = useLocalUser()
+  const userEmail = user?.email
 
   // Data fetching - only run when we have agent data
   const { data: analytics, loading: analyticsLoading, error } = useOverviewQuery({
@@ -199,7 +198,9 @@ const Overview: React.FC<OverviewProps> = ({
       const getUserRole = async () => {
         setRoleLoading(true)
         try {
-          const userRole = await getUserProjectRole(userEmail, project.id)
+          const response = await fetch(`/api/user/role?email=${encodeURIComponent(userEmail)}&projectId=${encodeURIComponent(project.id)}`)
+          if (!response.ok) throw new Error('Failed to fetch role')
+          const userRole = await response.json()
           setRole(userRole.role)
         } catch (error) {
           console.error('Failed to load user role:', error)
@@ -340,48 +341,29 @@ const Overview: React.FC<OverviewProps> = ({
 
   const handleDownloadCustomTotal = async (config: CustomTotalConfig) => {
     try {
-      let query = supabase
-        .from('pype_voice_call_logs')
-        .select('id,agent_id,customer_number,call_id,call_ended_reason,call_started_at,call_ended_at,duration_seconds,metadata,transcription_metrics,avg_latency,created_at')
-        .order('created_at', { ascending: false })
-        .limit(2000)
-
       const { andFilters, orString } = buildFiltersForDownload(config, agent.id, dateRange?.from, dateRange?.to)
-      for (const f of andFilters) {
-        switch (f.operator) {
-          case 'eq':
-            query = query.eq(f.column, f.value)
-            break
-          case 'ilike':
-            query = query.ilike(f.column, f.value)
-            break
-          case 'gte':
-            query = query.gte(f.column, f.value)
-            break
-          case 'lte':
-            query = query.lte(f.column, f.value)
-            break
-          case 'gt':
-            query = query.gt(f.column, f.value)
-            break
-          case 'lt':
-            query = query.lt(f.column, f.value)
-            break
-          case 'not.is':
-            query = query.not(f.column, 'is', f.value)
-            break
-          case 'neq':
-            query = query.neq(f.column, f.value)
-            break
-        }
-      }
-      if (orString) {
-        query = query.or(orString)
+      
+      // Use API instead of Supabase
+      const response = await fetch('/api/call-logs/download', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          andFilters,
+          orString,
+          limit: 2000
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch logs')
       }
 
-      const { data, error } = await query
+      const { data, error } = await response.json()
+      
       if (error) {
-        alert(`Failed to fetch logs: ${error.message}`)
+        alert(`Failed to fetch logs: ${error}`)
         return
       }
       

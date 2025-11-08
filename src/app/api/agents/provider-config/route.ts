@@ -1,11 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { auth } from '@clerk/nextjs/server'
-
-// Create Supabase client for server-side operations
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+import { query } from "@/lib/postgres"
+import { auth } from '@/lib/auth-server'
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,19 +25,19 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if agent exists and get current configuration
-    const { data: existingAgent, error: fetchError } = await supabase
-      .from('pype_voice_agents')
-      .select('*')
-      .eq('id', agentId)
-      .eq('user_id', userId) // Ensure user owns this agent
-      .single()
+    const existingAgentResult = await query(
+      'SELECT * FROM pype_voice_agents WHERE id = $1 AND user_id = $2',
+      [agentId, userId]
+    )
 
-    if (fetchError || !existingAgent) {
+    if (existingAgentResult.rows.length === 0) {
       return NextResponse.json(
         { error: 'Agent not found or you do not have permission to modify it' },
         { status: 404 }
       )
     }
+
+    const existingAgent = existingAgentResult.rows[0]
 
     // Prepare the updated configuration
     const currentConfig = existingAgent.configuration || {}
@@ -57,24 +52,20 @@ export async function POST(request: NextRequest) {
     }
 
     // Update the agent configuration
-    const { data, error } = await supabase
-      .from('pype_voice_agents')
-      .update({
-        configuration: updatedConfig,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', agentId)
-      .eq('user_id', userId)
-      .select()
-      .single()
+    const updateResult = await query(
+      'UPDATE pype_voice_agents SET configuration = $1, updated_at = $2 WHERE id = $3 AND user_id = $4 RETURNING *',
+      [JSON.stringify(updatedConfig), new Date().toISOString(), agentId, userId]
+    )
 
-    if (error) {
-      console.error('Error updating agent configuration:', error)
+    if (updateResult.rows.length === 0) {
+      console.error('Error updating agent configuration')
       return NextResponse.json(
         { error: 'Failed to save configuration' },
         { status: 500 }
       )
     }
+
+    const data = updateResult.rows[0]
 
     return NextResponse.json({
       success: true,
@@ -109,26 +100,19 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const { data, error } = await supabase
-      .from('pype_voice_agents')
-      .select('*')
-      .eq('id', agentId)
-      .eq('is_active', true)
-      .single()
+    const result = await query(
+      'SELECT * FROM pype_voice_agents WHERE id = $1 AND is_active = true',
+      [agentId]
+    )
 
-    if (error) {
-      if (error.code === 'PGRST116') { // No rows found
-        return NextResponse.json(
-          { error: 'Agent not found' },
-          { status: 404 }
-        )
-      }
-      console.error('Error fetching agent:', error)
+    if (result.rows.length === 0) {
       return NextResponse.json(
-        { error: 'Failed to fetch agent configuration' },
-        { status: 500 }
+        { error: 'Agent not found' },
+        { status: 404 }
       )
     }
+
+    const data = result.rows[0]
 
     // Extract provider configuration from the agent's configuration
     const providerConfig = data.configuration?.provider_config || null

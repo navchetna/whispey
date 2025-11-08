@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
+import { query } from '../lib/postgres'
 
 interface DynamicFields {
   metadataFields: string[]
@@ -22,19 +22,14 @@ export const useDynamicFields = (agentId: string, limit: number = 100): DynamicF
       setError(null)
 
       try {
-        // Fetch recent call logs to extract dynamic fields
-        const { data: calls, error: fetchError } = await supabase
-          .from('pype_voice_call_logs')
-          .select('metadata, transcription_metrics')
-          .eq('agent_id', agentId)
-          .not('metadata', 'is', null)
-          .not('transcription_metrics', 'is', null)
-          .limit(limit)
-          .order('created_at', { ascending: false })
-
-        if (fetchError) {
-          throw fetchError
+        // Fetch recent call logs to extract dynamic fields via API
+        const response = await fetch(`/api/call-logs?agentId=${agentId}&limit=${limit}&orderBy=created_at&order=desc`)
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch call logs')
         }
+
+        const { data: calls } = await response.json()
 
         if (!calls || calls.length === 0) {
           setMetadataFields([])

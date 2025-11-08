@@ -1,8 +1,8 @@
 'use client'
 
 import React, { useState, useEffect, useMemo } from 'react'
-import { useSupabaseQuery } from '@/hooks/useSupabase'
 import { useParams, useRouter } from 'next/navigation'
+import { useApiQuery } from '@/hooks/useApi'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
@@ -315,8 +315,8 @@ export default function AgentConfig() {
 
   const [isTestingBotsOpen, setIsTestingBotsOpen] = useState(false)
 
-  // Get agent data from Supabase
-  const { data: agentDataResponse, loading: agentLoading } = useSupabaseQuery("pype_voice_agents", {
+  // Get agent data from API
+  const { data: agentDataResponse, loading: agentLoading } = useApiQuery("pype_voice_agents", {
     select: "id, name, agent_type, configuration, vapi_api_key_encrypted, vapi_project_key_encrypted",
     filters: [{ column: "id", operator: "eq", value: agentid }],
     limit: 1

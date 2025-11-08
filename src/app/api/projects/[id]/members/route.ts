@@ -1,12 +1,7 @@
 // src/app/api/projects/[id]/members/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { auth, currentUser } from '@clerk/nextjs/server'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+import { query } from "@/lib/postgres"
+import { auth, currentUser } from "@/lib/auth-server"
 
 export async function POST(
   request: NextRequest,
@@ -41,23 +36,18 @@ export async function POST(
     console.log("userEmail", userEmail)
     
     // Check current user access to project - handle case where no rows exist
-    const { data: userProject, error: userProjectError } = await supabase
-      .from('pype_voice_email_project_mapping')
-      .select('role')
-      .eq('email', userEmail)
-      .eq('project_id', projectId)
-      .maybeSingle() // Use maybeSingle() instead of single() to handle 0 rows
-
-    if (userProjectError) {
-      console.error('Error checking user project access:', userProjectError)
-      return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
-    }
+    const userProjectResult = await query(
+      `SELECT role FROM pype_voice_email_project_mapping 
+       WHERE email = $1 AND project_id = $2`,
+      [userEmail, projectId]
+    )
 
     let hasAdminAccess = false
 
-    console.log("userProject", userProject)
+    console.log("userProject", userProjectResult.rows[0])
 
-    if (userProject && ['admin', 'owner'].includes(userProject.role)) {
+    if (userProjectResult.rows.length > 0 && 
+        ['admin', 'owner'].includes(userProjectResult.rows[0].role)) {
       hasAdminAccess = true
     } 
 
@@ -69,51 +59,34 @@ export async function POST(
     }
 
     // Check if already added by email
-    const { data: existingMapping, error: existingMappingError } = await supabase
-      .from('pype_voice_email_project_mapping')
-      .select('id')
-      .eq('email', email.trim())
-      .eq('project_id', projectId)
-      .maybeSingle()
+    const existingMappingResult = await query(
+      `SELECT id FROM pype_voice_email_project_mapping 
+       WHERE email = $1 AND project_id = $2`,
+      [email.trim(), projectId]
+    )
 
-    if (existingMappingError) {
-      console.error('Error checking existing mapping:', existingMappingError)
-      return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
-    }
-
-    if (existingMapping) {
+    if (existingMappingResult.rows.length > 0) {
       return NextResponse.json({ error: 'Email already added to project' }, { status: 400 })
     }
 
     // Check if user already exists in users table
-    const { data: existingUser, error: existingUserError } = await supabase
-      .from('pype_voice_users')
-      .select('clerk_id')
-      .eq('email', email.trim())
-      .maybeSingle()
+    const existingUserResult = await query(
+      `SELECT clerk_id FROM pype_voice_users WHERE email = $1`,
+      [email.trim()]
+    )
 
-    if (existingUserError) {
-      console.error('Error checking existing user:', existingUserError)
-      return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
-    }
-
+    const existingUser = existingUserResult.rows[0]
     const permissions = getPermissionsByRole(role)
 
     if (existingUser?.clerk_id) {
       // If the user exists, check if they're already mapped
-      const { data: existingUserProject, error: existingUserProjectError } = await supabase
-        .from('pype_voice_email_project_mapping')
-        .select('id')
-        .eq('clerk_id', existingUser.clerk_id)
-        .eq('project_id', projectId)
-        .maybeSingle()
+      const existingUserProjectResult = await query(
+        `SELECT id FROM pype_voice_email_project_mapping 
+         WHERE clerk_id = $1 AND project_id = $2`,
+        [existingUser.clerk_id, projectId]
+      )
 
-      if (existingUserProjectError) {
-        console.error('Error checking existing user project:', existingUserProjectError)
-        return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
-      }
-
-      if (existingUserProject) {
+      if (existingUserProjectResult.rows.length > 0) {
         return NextResponse.json(
           { error: 'User is already a member of this project' },
           { status: 400 }
@@ -121,51 +94,42 @@ export async function POST(
       }
 
       // Insert mapping using clerk_id
-      const { data: newMapping, error } = await supabase
-        .from('pype_voice_email_project_mapping')
-        .insert({
-          clerk_id: existingUser.clerk_id,
-          email: email.trim(),
-          project_id: projectId,
-          role,
-          permissions,
-          added_by_clerk_id: userId,
-          is_active: true,
-        })
-        .select()
-        .single()
+      const newMappingResult = await query(
+        `INSERT INTO pype_voice_email_project_mapping 
+         (clerk_id, email, project_id, role, permissions, added_by_clerk_id, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING *`,
+        [existingUser.clerk_id, email.trim(), projectId, role, JSON.stringify(permissions), userId, true]
+      )
 
-      if (error) {
-        console.error('Error inserting new mapping:', error)
+      if (newMappingResult.rows.length === 0) {
+        console.error('Error inserting new mapping: No rows returned')
         return NextResponse.json({ error: 'Failed to add member' }, { status: 500 })
-
       }
 
-      return NextResponse.json({ message: 'User added to project', member: newMapping }, { status: 201 })
+      return NextResponse.json({ 
+        message: 'User added to project', 
+        member: newMappingResult.rows[0] 
+      }, { status: 201 })
     } else {
       // Create pending email-based invite
-      const { data: mapping, error } = await supabase
-        .from('pype_voice_email_project_mapping')
-        .insert({
-          email: email.trim(),
-          project_id: projectId,
-          role,
-          permissions,
-          added_by_clerk_id: userId,
-          is_active: true,
-        })
-        .select()
-        .single()
+      const mappingResult = await query(
+        `INSERT INTO pype_voice_email_project_mapping 
+         (email, project_id, role, permissions, added_by_clerk_id, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING *`,
+        [email.trim(), projectId, role, JSON.stringify(permissions), userId, true]
+      )
 
-      if (error) {
-        console.error('Insert error:', error)
+      if (mappingResult.rows.length === 0) {
+        console.error('Insert error: No rows returned')
         return NextResponse.json({ error: 'Member must be logged in.' }, { status: 500 })
       }
 
       return NextResponse.json(
         {
           message: 'Email added to project successfully. User will be added when they sign up.',
-          member: mapping,
+          member: mappingResult.rows[0],
           type: 'email_mapping'
         },
         { status: 201 }
@@ -190,46 +154,36 @@ export async function GET(
     const { id: projectId } = await params // Properly await params
 
     // Use maybeSingle() instead of single() to handle case where user has no access
-    const { data: accessCheck, error: accessError } = await supabase
-      .from('pype_voice_email_project_mapping')
-      .select('id')
-      .eq('clerk_id', userId)
-      .eq('project_id', projectId)
-      .eq('is_active', true)
-      .maybeSingle()
+    const accessCheckResult = await query(
+      `SELECT id FROM pype_voice_email_project_mapping 
+       WHERE clerk_id = $1 AND project_id = $2 AND is_active = true`,
+      [userId, projectId]
+    )
 
-    if (accessError) {
-      console.error("Access error:", accessError)
-      return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
-    }
-
-    if (!accessCheck) {
+    if (accessCheckResult.rows.length === 0) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
-    const { data: members, error } = await supabase
-      .from('pype_voice_email_project_mapping')
-      .select(`
-        id,
-        clerk_id,
-        email,
-        role,
-        permissions,
-        is_active,
-        added_by_clerk_id,
-        user:pype_voice_users!fk_mail_id(*)
-      `)
-      .eq('project_id', projectId)
-      .eq('is_active', true)
+    const membersResult = await query(
+      `SELECT 
+        m.id, m.clerk_id, m.email, m.role, m.permissions, 
+        m.is_active, m.added_by_clerk_id,
+        json_build_object(
+          'clerk_id', u.clerk_id,
+          'email', u.email,
+          'first_name', u.first_name,
+          'last_name', u.last_name,
+          'profile_image_url', u.profile_image_url
+        ) as user
+       FROM pype_voice_email_project_mapping m
+       LEFT JOIN pype_voice_users u ON m.clerk_id = u.clerk_id
+       WHERE m.project_id = $1 AND m.is_active = true`,
+      [projectId]
+    )
 
-    if (error) {
-      console.error("Error fetching members:", error)
-      return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
-    }
+    console.log("members", membersResult.rows)
 
-    console.log("members", members)
-
-    return NextResponse.json({ members: members || [] }, { status: 200 })
+    return NextResponse.json({ members: membersResult.rows || [] }, { status: 200 })
   } catch (error) {
     console.error('Unexpected error fetching members:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

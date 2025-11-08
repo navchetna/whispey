@@ -2,10 +2,11 @@
 "use client"
 
 import { useState, useMemo, useEffect, useRef } from "react"
+import { useSupabaseQuery } from "../../hooks/useApi"
 import { Badge } from "@/components/ui/badge"
 import { Clock, CheckCircle, XCircle, AlertTriangle, Wrench, TrendingUp, Brain, Mic, Volume2, Activity, UserCheck, Bot } from "lucide-react"
 import { OTelSpan } from "@/types/openTelemetry";
-import { useSupabaseQuery } from "../../hooks/useSupabase"
+import { query } from "../../lib/postgres"
 import TraceDetailSheet from "./TraceDetailSheet/TraceDetailSheet"
 import { cn } from "@/lib/utils"
 import { useSessionSpans, useSessionTrace } from "@/hooks/useSessionTrace"
@@ -620,7 +621,7 @@ const handleRowClick = (trace: TraceLog) => {
     return (
       <div className="flex items-center justify-center h-full bg-white dark:bg-gray-900">
         <div className="text-center text-red-600 dark:text-red-400 text-sm">
-          Error loading traces: {error}
+          Error loading traces: {error?.message || 'An error occurred'}
         </div>
       </div>
     )

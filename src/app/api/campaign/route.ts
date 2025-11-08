@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-
-// Create Supabase client for server-side operations
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+import { query } from "@/lib/postgres"
 
 export async function POST(request: NextRequest) {
   try {
@@ -48,28 +43,22 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify project exists
-    const { data: project, error: projectError } = await supabase
-      .from('pype_voice_projects')
-      .select('id')
-      .eq('id', projectId)
-      .single()
+    const projectResult = await query(
+      'SELECT id FROM pype_voice_projects WHERE id = $1',
+      [projectId]
+    )
 
-    if (projectError || !project) {
+    if (projectResult.rows.length === 0) {
       return NextResponse.json({ error: 'Invalid project ID' }, { status: 400 })
     }
 
     console.log(`Starting campaign creation for project: ${projectId}`)
 
     // Step 1: Update project with retry configuration
-    const { error: projectUpdateError } = await supabase
-      .from('pype_voice_projects')
-      .update({ retry_configuration: retryConfig })
-      .eq('id', projectId)
-
-    if (projectUpdateError) {
-      console.error('Error updating project retry config:', projectUpdateError)
-      return NextResponse.json({ error: 'Failed to update project configuration' }, { status: 500 })
-    }
+    await query(
+      'UPDATE pype_voice_projects SET retry_configuration = $1 WHERE id = $2',
+      [JSON.stringify(retryConfig), projectId]
+    )
 
     console.log('Updated project retry configuration')
 

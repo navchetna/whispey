@@ -30,9 +30,8 @@ import Overview from './Overview'
 import CallLogs from './calls/CallLogs'
 import CampaignLogs from './campaigns/CampaignLogs'
 import Header from '@/components/shared/Header'
-import { useSupabaseQuery } from '../hooks/useSupabase'
 import FieldExtractorDialog from './FieldExtractorLogs'
-import { supabase } from '../lib/supabase'
+import { DatabaseService } from '../lib/database'
 import { AlertTriangle, Link as LinkIcon } from 'lucide-react'
 import { 
   Tooltip,
@@ -42,6 +41,7 @@ import {
 } from '@/components/ui/tooltip'
 import QuickStartGuide from './QuickStartGuide'
 import { useMobile } from '@/hooks/use-mobile'
+import { useApiQuery } from '@/hooks/useApi'
 
 interface DashboardProps {
   agentId: string
@@ -146,27 +146,27 @@ const Dashboard: React.FC<DashboardProps> = ({ agentId }) => {
   }, [quickFilter, dateRange, isCustomRange])
 
   // Data fetching - now happens in parallel with UI rendering
-  const { data: agents, loading: agentLoading, error: agentError, refetch: refetchAgent } = useSupabaseQuery('pype_voice_agents', {
+  const { data: agents, loading: agentLoading, error: agentError, refetch: refetchAgent } = useApiQuery('pype_voice_agents', {
     select: 'id, name, agent_type, configuration, environment, created_at, is_active, project_id,field_extractor_prompt,field_extractor',
     filters: [{ column: 'id', operator: 'eq', value: agentId }]
   })
 
   const agent = agents?.[0]
 
-  const { data: projects, loading: projectLoading, error: projectError } = useSupabaseQuery('pype_voice_projects', 
+  const { data: projects, loading: projectLoading, error: projectError } = useApiQuery('pype_voice_projects', 
     agent?.project_id ? {
       select: 'id, name, description, environment, created_at, is_active',
       filters: [{ column: 'id', operator: 'eq', value: agent.project_id }]
-    } : null
+    } : {}
   )
 
   // Check if agent has any calls
-  const { data: callsCheck, loading: callsCheckLoading } = useSupabaseQuery('pype_voice_call_logs',
+  const { data: callsCheck, loading: callsCheckLoading } = useApiQuery('pype_voice_call_logs',
     agent?.id ? {
       select: 'id',
       filters: [{ column: 'agent_id', operator: 'eq', value: agent.id }],
       limit: 1
-    } : null
+    } : {}
   )
 
   const hasCalls = callsCheck && callsCheck.length > 0
@@ -382,7 +382,7 @@ const Dashboard: React.FC<DashboardProps> = ({ agentId }) => {
               <AlertCircle className="w-6 h-6 text-red-500 dark:text-red-400" />
             </div>
             <h2 className={`${isMobile ? 'text-base' : 'text-lg'} font-semibold text-gray-900 dark:text-gray-100 mb-2`}>Agent not found</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{agentError}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{agentError?.message}</p>
             <Button onClick={handleBack} variant="outline" className="w-full border-gray-200 dark:border-gray-700">
               <ChevronLeft className="h-4 w-4 mr-2" />
               Go Back
@@ -560,15 +560,24 @@ const Dashboard: React.FC<DashboardProps> = ({ agentId }) => {
                         initialData={JSON.parse(agent?.field_extractor_prompt || '[]')}
                         isEnabled={!!agent?.field_extractor}
                         onSave={async (data, enabled) => {
-                          const { error } = await supabase
-                            .from('pype_voice_agents')
-                            .update({ field_extractor_prompt: JSON.stringify(data), field_extractor: enabled })
-                            .eq('id', agent.id)
-                          if (!error) {
-                            alert('Saved field extractor config.')
-                            refetchAgent()
-                          } else {
-                            alert('Error saving config: ' + error.message)
+                          try {
+                            const response = await fetch(`/api/agents/${agent.id}`, {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                field_extractor_prompt: JSON.stringify(data),
+                                field_extractor: enabled
+                              })
+                            })
+                            if (response.ok) {
+                              alert('Saved field extractor config.')
+                              refetchAgent()
+                            } else {
+                              const error = await response.json()
+                              alert('Error saving config: ' + (error.error || 'Unknown error'))
+                            }
+                          } catch (error) {
+                            alert('Error saving config: ' + (error instanceof Error ? error.message : 'Unknown error'))
                           }
                         }}
                       />
@@ -661,15 +670,24 @@ const Dashboard: React.FC<DashboardProps> = ({ agentId }) => {
                     initialData={JSON.parse(agent?.field_extractor_prompt || '[]')}
                     isEnabled={!!agent?.field_extractor}
                     onSave={async (data, enabled) => {
-                      const { error } = await supabase
-                        .from('pype_voice_agents')
-                        .update({ field_extractor_prompt: JSON.stringify(data), field_extractor: enabled })
-                        .eq('id', agent.id)
-                      if (!error) {
-                        alert('Saved field extractor config.')
-                        refetchAgent()
-                      } else {
-                        alert('Error saving config: ' + error.message)
+                      try {
+                        const response = await fetch(`/api/agents/${agent.id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            field_extractor_prompt: JSON.stringify(data),
+                            field_extractor: enabled
+                          })
+                        })
+                        if (response.ok) {
+                          alert('Saved field extractor config.')
+                          refetchAgent()
+                        } else {
+                          const error = await response.json()
+                          alert('Error saving config: ' + (error.error || 'Unknown error'))
+                        }
+                      } catch (error) {
+                        alert('Error saving config: ' + (error instanceof Error ? error.message : 'Unknown error'))
                       }
                     }}
                   />

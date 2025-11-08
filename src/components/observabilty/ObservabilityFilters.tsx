@@ -2,7 +2,8 @@
 "use client"
 
 import { BarChart3 } from "lucide-react"
-import { useSupabaseQuery } from "../../hooks/useSupabase"
+import { query } from "../../lib/postgres"
+import { useSupabaseQuery } from "../../hooks/useApi"
 import { useMemo } from "react"
 
 interface ObservabilityFiltersProps {

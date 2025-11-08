@@ -86,8 +86,8 @@ const ProjectSelection: React.FC<ProjectSelectionProps> = ({ isAuthLoaded = fals
     try {
       const res = await fetch('/api/projects')
       if (!res.ok) throw new Error('Failed to fetch projects')
-      const data = await res.json()
-      setProjects(data)
+      const response = await res.json()
+      setProjects(response.data || [])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {

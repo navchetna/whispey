@@ -1,12 +1,7 @@
 // app/api/evaluations/jobs/[id]/diagnose/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { auth } from '@clerk/nextjs/server'
-
-// Create Supabase client for server-side operations
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
+import { query } from '@/lib/postgres'
+import { auth } from '@/lib/auth-server'
 
 export async function GET(
   request: NextRequest,
@@ -32,31 +27,35 @@ export async function GET(
     }
 
     // Get job details
-    const { data: job, error: jobError } = await supabase
-      .from('pype_voice_evaluation_jobs')
-      .select('*')
-      .eq('id', jobId)
-      .single()
+    const jobResult = await query(
+      'SELECT * FROM pype_voice_evaluation_jobs WHERE id = $1',
+      [jobId]
+    )
 
-    if (jobError || !job) {
+    if (jobResult.rows.length === 0) {
       return NextResponse.json(
-        { error: 'Job not found', details: jobError?.message },
+        { error: 'Job not found' },
         { status: 404 }
       )
     }
 
+    const job = jobResult.rows[0]
+
     // Step 1: Check all call logs for this agent
-    const { data: allCallLogs, error: allLogsError } = await supabase
-      .from('pype_voice_call_logs')
-      .select('id, agent_id, call_ended_reason, created_at, duration_seconds')
-      .eq('agent_id', job.agent_id)
+    const allLogsResult = await query(
+      'SELECT id, agent_id, call_ended_reason, created_at, duration_seconds FROM pype_voice_call_logs WHERE agent_id = $1',
+      [job.agent_id]
+    )
+    const allCallLogs = allLogsResult.rows
 
     // Step 2: Check call logs with completion filter
-    const { data: completedFiltered, error: completedError } = await supabase
-      .from('pype_voice_call_logs')
-      .select('id, agent_id, call_ended_reason, created_at, duration_seconds')
-      .eq('agent_id', job.agent_id)
-      .in('call_ended_reason', ['completed', 'ended', 'finished', 'success'])
+    const completedResult = await query(
+      `SELECT id, agent_id, call_ended_reason, created_at, duration_seconds 
+       FROM pype_voice_call_logs 
+       WHERE agent_id = $1 AND call_ended_reason = ANY($2::text[])`,
+      [job.agent_id, ['completed', 'ended', 'finished', 'success']]
+    )
+    const completedFiltered = completedResult.rows
 
     // Step 3: For call logs with completion status, check if they have transcript data in metrics table
     let callLogsWithTranscripts: any[] = []
@@ -65,10 +64,11 @@ export async function GET(
     for (const callLog of (completedFiltered || [])) {
       try {
         // Check for transcript data in metrics logs
-        const { data: transcriptTurns, error: transcriptError } = await supabase
-          .from('pype_voice_metrics_logs')
-          .select('user_transcript, agent_response, turn_id')
-          .eq('session_id', callLog.id)
+        const transcriptResult = await query(
+          'SELECT user_transcript, agent_response, turn_id FROM pype_voice_metrics_logs WHERE session_id = $1',
+          [callLog.id]
+        )
+        const transcriptTurns = transcriptResult.rows
 
         const hasValidTranscript = transcriptTurns && transcriptTurns.length > 0 && 
           transcriptTurns.some((turn: any) => turn.user_transcript || turn.agent_response)
@@ -99,11 +99,11 @@ export async function GET(
     }
 
     // Check agent details
-    const { data: agent, error: agentError } = await supabase
-      .from('pype_voice_agents')
-      .select('id, name, project_id')
-      .eq('id', job.agent_id)
-      .single()
+    const agentResult = await query(
+      'SELECT id, name, project_id FROM pype_voice_agents WHERE id = $1',
+      [job.agent_id]
+    )
+    const agent = agentResult.rows.length > 0 ? agentResult.rows[0] : null
 
     const diagnostics = {
       job: {
@@ -134,11 +134,6 @@ export async function GET(
           transcript_turns: log.transcript_data?.length || 0,
           created_at: log.created_at
         })) || []
-      },
-      errors: {
-        allLogsError: allLogsError?.message,
-        completedError: completedError?.message,
-        agentError: agentError?.message
       }
     }
 

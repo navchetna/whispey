@@ -1,7 +1,6 @@
-// hooks/useSupabase.ts - COMPLETE FIXED VERSION
+// hooks/useSupabase.ts - COMPLETE API-BASED VERSION
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { supabase } from '../lib/supabase'
 
 export const useInfiniteScroll = (table: string, options: any = {}) => {
   const [data, setData] = useState<any[]>([])
@@ -38,28 +37,35 @@ export const useInfiniteScroll = (table: string, options: any = {}) => {
     try {
       const offset = reset ? 0 : offsetRef.current
       
-      let query = supabase
-        .from(table)
-        .select(safeOptions.select || '*') // FIXED: Use safeOptions
-        .range(offset, offset + limit - 1)
+      // Build API endpoint URL
+      let apiUrl = `/api/${table.replace('pype_voice_', '')}`
+      
+      // Build query parameters
+      const searchParams = new URLSearchParams()
+      searchParams.append('limit', limit.toString())
+      searchParams.append('offset', offset.toString())
       
       // Apply filters if provided
-      if (safeOptions.filters) { // FIXED: Use safeOptions
+      if (safeOptions.filters && safeOptions.filters.length > 0) {
         safeOptions.filters.forEach((filter: any) => {
-          query = query.filter(filter.column, filter.operator, filter.value)
+          searchParams.append(filter.column, filter.value)
         })
       }
       
-      // Apply ordering
-      if (safeOptions.orderBy) { // FIXED: Use safeOptions
-        query = query.order(safeOptions.orderBy.column, { ascending: safeOptions.orderBy.ascending })
+      // Add ordering parameters
+      if (safeOptions.orderBy) {
+        searchParams.append('orderBy', safeOptions.orderBy.column)
+        searchParams.append('order', safeOptions.orderBy.ascending ? 'asc' : 'desc')
       }
       
-      const { data: newData, error } = await query
+      // Make API call
+      const response = await fetch(`${apiUrl}?${searchParams}`)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
       
-      if (error) throw error
-      
-      const fetchedData = newData || []
+      const result = await response.json()
+      const fetchedData = result.data || []
       
       if (reset) {
         setData(fetchedData)
@@ -117,7 +123,7 @@ export const useInfiniteScroll = (table: string, options: any = {}) => {
   return { data, loading, hasMore, error, loadMore, refresh }
 }
 
-// Keep the existing useSupabaseQuery unchanged
+// Convert to API-based useSupabaseQuery
 export const useSupabaseQuery = (table: string, options: any = {}) => {
   const [data, setData] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -128,29 +134,35 @@ export const useSupabaseQuery = (table: string, options: any = {}) => {
     setError(null)
     
     try {
-      let query = supabase
-        .from(table)
-        .select(options.select || '*')
+      // Build API endpoint URL
+      let apiUrl = `/api/${table.replace('pype_voice_', '')}`
+      
+      // Build query parameters
+      const searchParams = new URLSearchParams()
       
       if (options.filters) {
         options.filters.forEach((filter: any) => {
-          query = query.filter(filter.column, filter.operator, filter.value)
+          searchParams.append(filter.column, filter.value)
         })
       }
       
       if (options.orderBy) {
-        query = query.order(options.orderBy.column, { ascending: options.orderBy.ascending })
+        searchParams.append('orderBy', options.orderBy.column)
+        searchParams.append('order', options.orderBy.ascending ? 'asc' : 'desc')
       }
       
       if (options.limit) {
-        query = query.limit(options.limit)
+        searchParams.append('limit', options.limit.toString())
       }
       
-      const { data, error } = await query
+      // Make API call
+      const response = await fetch(`${apiUrl}?${searchParams}`)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
       
-      if (error) throw error
-      
-      setData(data || [])
+      const result = await response.json()
+      setData(result.data || [])
     } catch (err: any) {
       setError(err.message)
     } finally {

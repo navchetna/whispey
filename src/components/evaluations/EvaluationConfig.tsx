@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { useSupabaseQuery } from '../../hooks/useApi'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -12,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { AlertCircle, Plus, Settings, Play, MoreHorizontal, Edit2, Trash2, Copy, Eye, Brain, CheckCircle, Clock, XCircle, RefreshCw, Bug } from 'lucide-react'
-import { useSupabaseQuery } from '@/hooks/useSupabase'
+import { query } from "../../lib/postgres"
 
 // Utility functions
 const getProviderDisplayName = (provider: string) => {

@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-
-// Create Supabase client for server-side operations
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+import { query } from "@/lib/postgres"
 
 export async function POST(request: NextRequest) {
   try {
@@ -31,26 +26,19 @@ export async function POST(request: NextRequest) {
       type: 'service_provider_config'
     }
     
-    // Update the agent configuration in Supabase
-    const { data, error } = await supabase
-      .from('pype_voice_agents')
-      .update({
-        configuration: serviceProviderConfig,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', agentId)
-      .select()
+    // Update the agent configuration in database
+    const updateResult = await query(
+      'UPDATE pype_voice_agents SET configuration = $1, updated_at = $2 WHERE id = $3 RETURNING *',
+      [JSON.stringify(serviceProviderConfig), new Date().toISOString(), agentId]
+    )
     
-    if (error) {
-      console.error('❌ Supabase error:', error)
-      throw new Error(`Failed to save to database: ${error.message}`)
-    }
-    
-    if (!data || data.length === 0) {
+    if (updateResult.rows.length === 0) {
       throw new Error('Agent not found or no changes made')
     }
     
-    console.log('✅ Service provider configuration saved successfully to Supabase:', data[0]?.id)
+    const data = updateResult.rows[0]
+    
+    console.log('✅ Service provider configuration saved successfully to database:', data.id)
     
     return NextResponse.json({
       success: true,

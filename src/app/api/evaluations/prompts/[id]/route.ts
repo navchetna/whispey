@@ -1,12 +1,7 @@
 // app/api/evaluations/prompts/[id]/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { auth } from '@clerk/nextjs/server'
-
-// Create Supabase client for server-side operations
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
+import { query } from "@/lib/postgres"
+import { auth } from '@/lib/auth-server'
 
 export async function PUT(
   request: NextRequest,
@@ -51,18 +46,19 @@ export async function PUT(
     }
 
     // First, check if the prompt exists and belongs to the user
-    const { data: existingPrompt, error: fetchError } = await supabase
-      .from('pype_voice_evaluation_prompts')
-      .select('id, created_by')
-      .eq('id', promptId)
-      .single()
+    const existingResult = await query(
+      'SELECT id, created_by FROM pype_voice_evaluation_prompts WHERE id = $1',
+      [promptId]
+    )
 
-    if (fetchError || !existingPrompt) {
+    if (existingResult.rows.length === 0) {
       return NextResponse.json(
         { error: 'Prompt not found' },
         { status: 404 }
       )
     }
+
+    const existingPrompt = existingResult.rows[0]
 
     // Check if user has permission to edit this prompt
     if (existingPrompt.created_by !== userId) {
@@ -73,50 +69,44 @@ export async function PUT(
     }
 
     // Update the evaluation prompt record
-    const { data, error } = await supabase
-      .from('pype_voice_evaluation_prompts')
-      .update({
+    const updateResult = await query(
+      `UPDATE pype_voice_evaluation_prompts SET
+        project_id = $1, name = $2, description = $3, evaluation_type = $4,
+        prompt_template = $5, llm_provider = $6, model = $7, api_url = $8,
+        api_key = $9, scoring_output_type = $10, success_criteria = $11,
+        temperature = $12, max_tokens = $13, expected_output_format = $14,
+        scoring_criteria = $15, updated_at = $16
+       WHERE id = $17
+       RETURNING *`,
+      [
         project_id,
-        name: name.trim(),
-        description: description?.trim() || '',
-        evaluation_type: evaluation_type || 'custom',
+        name.trim(),
+        description?.trim() || '',
+        evaluation_type || 'custom',
         prompt_template,
         llm_provider,
         model,
-        api_url: api_url || '',
-        api_key: api_key || '', // Note: In production, encrypt this
-        scoring_output_type: scoring_output_type || 'float',
-        success_criteria: success_criteria || 'higher_is_better',
-        temperature: temperature || 0.0,
-        max_tokens: max_tokens || 1000,
-        expected_output_format: expected_output_format || {},
-        scoring_criteria: scoring_criteria || {},
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', promptId)
-      .select()
-      .single()
+        api_url || '',
+        api_key || '',
+        scoring_output_type || 'float',
+        success_criteria || 'higher_is_better',
+        temperature || 0.0,
+        max_tokens || 1000,
+        JSON.stringify(expected_output_format || {}),
+        JSON.stringify(scoring_criteria || {}),
+        new Date().toISOString(),
+        promptId
+      ]
+    )
 
-    if (error) {
-      console.error('Database error:', error)
-      
-      // Handle specific database errors
-      if (error.code === 'PGRST205') {
-        return NextResponse.json(
-          { 
-            error: 'Evaluation tables not found. Please run the database migration first.',
-            details: 'The evaluation system tables need to be created. Please run the evaluation-schema.sql script in your Supabase SQL Editor.',
-            migrationFile: 'evaluation-schema.sql'
-          },
-          { status: 500 }
-        )
-      }
-      
+    if (updateResult.rows.length === 0) {
       return NextResponse.json(
-        { error: 'Failed to update evaluation prompt', details: error.message },
+        { error: 'Failed to update evaluation prompt' },
         { status: 500 }
       )
     }
+
+    const data = updateResult.rows[0]
 
     return NextResponse.json({
       success: true,
@@ -156,35 +146,29 @@ export async function DELETE(
     }
 
     // Check if prompt exists and belongs to user
-    const { data: existingPrompt, error: fetchError } = await supabase
-      .from('pype_voice_evaluation_prompts')
-      .select('id, name')
-      .eq('id', promptId)
-      .single()
+    const promptCheckResult = await query(
+      'SELECT id, name FROM pype_voice_evaluation_prompts WHERE id = $1',
+      [promptId]
+    )
 
-    if (fetchError || !existingPrompt) {
+    if (promptCheckResult.rows.length === 0) {
       return NextResponse.json(
         { error: 'Prompt not found' },
         { status: 404 }
       )
     }
 
-    // Check if prompt is being used in any active jobs
-    const { data: activeJobs, error: jobsError } = await supabase
-      .from('pype_voice_evaluation_jobs')
-      .select('id, name, prompt_ids')
-      .in('status', ['pending', 'running'])
+    const existingPrompt = promptCheckResult.rows[0]
 
-    if (jobsError) {
-      console.error('Error checking active jobs:', jobsError)
-      return NextResponse.json(
-        { error: 'Failed to check for active jobs' },
-        { status: 500 }
-      )
-    }
+    // Check if prompt is being used in any active jobs
+    const activeJobsResult = await query(
+      `SELECT id, name, prompt_ids FROM pype_voice_evaluation_jobs 
+       WHERE status = ANY($1::text[])`,
+      [['pending', 'running']]
+    )
 
     // Filter jobs that contain this prompt ID
-    const jobsUsingPrompt = activeJobs?.filter(job => {
+    const jobsUsingPrompt = activeJobsResult.rows.filter(job => {
       try {
         const promptIds = job.prompt_ids
         return Array.isArray(promptIds) && promptIds.includes(promptId)
@@ -192,7 +176,7 @@ export async function DELETE(
         console.error('Error parsing prompt_ids for job:', job.id, error)
         return false
       }
-    }) || []
+    })
 
     if (jobsUsingPrompt.length > 0) {
       return NextResponse.json(
@@ -205,18 +189,10 @@ export async function DELETE(
     }
 
     // Delete the prompt
-    const { error: deleteError } = await supabase
-      .from('pype_voice_evaluation_prompts')
-      .delete()
-      .eq('id', promptId)
-
-    if (deleteError) {
-      console.error('Database error:', deleteError)
-      return NextResponse.json(
-        { error: 'Failed to delete prompt' },
-        { status: 500 }
-      )
-    }
+    await query(
+      'DELETE FROM pype_voice_evaluation_prompts WHERE id = $1',
+      [promptId]
+    )
 
     return NextResponse.json({
       success: true,
@@ -256,26 +232,19 @@ export async function GET(
     }
 
     // Get prompt details
-    const { data: prompt, error } = await supabase
-      .from('pype_voice_evaluation_prompts')
-      .select('*')
-      .eq('id', promptId)
-      .single()
+    const promptResult = await query(
+      'SELECT * FROM pype_voice_evaluation_prompts WHERE id = $1',
+      [promptId]
+    )
 
-    if (error) {
-      console.error('Database error:', error)
-      return NextResponse.json(
-        { error: 'Failed to fetch prompt details' },
-        { status: 500 }
-      )
-    }
-
-    if (!prompt) {
+    if (promptResult.rows.length === 0) {
       return NextResponse.json(
         { error: 'Prompt not found' },
         { status: 404 }
       )
     }
+
+    const prompt = promptResult.rows[0]
 
     return NextResponse.json({
       success: true,

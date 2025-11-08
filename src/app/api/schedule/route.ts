@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-
-// Create Supabase client for server-side operations
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+import { query } from "@/lib/postgres"
 
 export async function POST(request: NextRequest) {
   try {
@@ -52,14 +47,15 @@ export async function POST(request: NextRequest) {
 
       const campaign_config = {endDate: end_date, startDate: start_date, dailyEndTime: end_time, dailyStartTime: start_time}
       
-      
-      const { error: projectUpdateError } = await supabase
-        .from('pype_voice_projects')
-        .update({ retry_configuration: retry_config, campaign_config:campaign_config })
-        .eq('id', project_id)
+      const updateResult = await query(
+        `UPDATE pype_voice_projects 
+         SET retry_configuration = $1, campaign_config = $2 
+         WHERE id = $3`,
+        [JSON.stringify(retry_config), JSON.stringify(campaign_config), project_id]
+      )
 
-      if (projectUpdateError) {
-        console.error('Error updating project retry configuration:', projectUpdateError)
+      if (updateResult.rowCount === 0) {
+        console.error('Error updating project retry configuration: No rows updated')
         return NextResponse.json({ error: 'Failed to update project retry configuration' }, { status: 500 })
       }
       

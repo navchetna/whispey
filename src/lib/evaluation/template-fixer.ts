@@ -1,29 +1,23 @@
-import { createClient } from '@supabase/supabase-js'
+import { DatabaseService } from "@/lib/database"
+import { query } from "@/lib/postgres"
 
 // This utility function can be used to fix existing prompt templates
 // that don't include the {{transcript}} variable
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
 export async function fixPromptTemplates() {
   console.log('🔧 Starting prompt template fix process...')
   
   try {
     // Get all prompts that don't have the transcript variable
-    const { data: problematicPrompts, error: fetchError } = await supabase
-      .from('pype_voice_evaluation_prompts')
-      .select('*')
-      .not('prompt_template', 'like', '%{{transcript}}%')
+    const result = await query(
+      `SELECT * FROM pype_voice_evaluation_prompts 
+       WHERE prompt_template NOT LIKE '%{{transcript}}%'`
+    )
     
-    if (fetchError) {
-      throw new Error(`Failed to fetch prompts: ${fetchError.message}`)
-    }
+    const problematicPrompts = result.rows
+    console.log(`Found ${problematicPrompts.length} prompts missing transcript variable`)
     
-    console.log(`Found ${problematicPrompts?.length || 0} prompts missing transcript variable`)
-    
-    if (!problematicPrompts || problematicPrompts.length === 0) {
+    if (problematicPrompts.length === 0) {
       console.log('✅ All prompts already have transcript variable')
       return { fixed: 0, total: 0 }
     }
@@ -40,13 +34,15 @@ export async function fixPromptTemplates() {
 
 Please evaluate the above conversation based on the criteria specified above and provide your analysis in the required format.`
       
-      const { error: updateError } = await supabase
-        .from('pype_voice_evaluation_prompts')
-        .update({ prompt_template: fixedTemplate })
-        .eq('id', prompt.id)
+      const updateResult = await query(
+        `UPDATE pype_voice_evaluation_prompts 
+         SET prompt_template = $1 
+         WHERE id = $2`,
+        [fixedTemplate, prompt.id]
+      )
       
-      if (updateError) {
-        console.error(`❌ Failed to fix prompt ${prompt.id}:`, updateError)
+      if (updateResult.rowCount === 0) {
+        console.error(`❌ Failed to fix prompt ${prompt.id}`)
       } else {
         console.log(`✅ Fixed prompt: ${prompt.name}`)
         fixedCount++
@@ -58,7 +54,7 @@ Please evaluate the above conversation based on the criteria specified above and
     return { 
       fixed: fixedCount, 
       total: problematicPrompts.length,
-      prompts: problematicPrompts.map(p => ({ id: p.id, name: p.name }))
+      prompts: problematicPrompts.map((p: any) => ({ id: p.id, name: p.name }))
     }
     
   } catch (error) {
@@ -103,28 +99,30 @@ Please evaluate the above conversation and provide your analysis.`
 // Function to validate and optionally fix a single prompt template
 export async function validateAndFixPrompt(promptId: string, autoFix: boolean = false) {
   try {
-    const { data: prompt, error: fetchError } = await supabase
-      .from('pype_voice_evaluation_prompts')
-      .select('*')
-      .eq('id', promptId)
-      .single()
+    const result = await query(
+      'SELECT * FROM pype_voice_evaluation_prompts WHERE id = $1',
+      [promptId]
+    )
     
-    if (fetchError || !prompt) {
-      throw new Error(`Prompt not found: ${fetchError?.message || 'No data'}`)
+    if (result.rows.length === 0) {
+      throw new Error('Prompt not found')
     }
     
+    const prompt = result.rows[0]
     const validation = validatePromptTemplate(prompt.prompt_template)
     
     if (!validation.isValid && autoFix && validation.fixed) {
       console.log(`🔧 Auto-fixing prompt: ${prompt.name}`)
       
-      const { error: updateError } = await supabase
-        .from('pype_voice_evaluation_prompts')
-        .update({ prompt_template: validation.fixed })
-        .eq('id', promptId)
+      const updateResult = await query(
+        `UPDATE pype_voice_evaluation_prompts 
+         SET prompt_template = $1 
+         WHERE id = $2`,
+        [validation.fixed, promptId]
+      )
       
-      if (updateError) {
-        throw new Error(`Failed to update prompt: ${updateError.message}`)
+      if (updateResult.rowCount === 0) {
+        throw new Error('Failed to update prompt')
       }
       
       console.log(`✅ Successfully fixed prompt: ${prompt.name}`)

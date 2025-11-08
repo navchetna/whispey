@@ -7,16 +7,14 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Phone, Clock, CheckCircle, XCircle, Loader2, AlertCircle, RefreshCw } from "lucide-react"
-import { useInfiniteScroll } from "../../hooks/useSupabase"
+import { useInfiniteScroll } from "../../hooks/useApi"
 import CallFilter, { FilterRule } from "../CallFilter"
 import ColumnSelector from "../shared/ColumnSelector"
 import { cn } from "@/lib/utils"
 import { CostTooltip } from "../tool-tip/costToolTip"
 import { CallLog } from "../../types/logs"
-import { supabase } from "../../lib/supabase"
 import Papa from 'papaparse'
-import { useUser } from "@clerk/nextjs"
-import { getUserProjectRole } from "@/services/getUserRole"
+import { useLocalUser } from "../../lib/local-auth"
 import { useRouter } from "next/navigation"
 
 interface CallLogsProps {
@@ -319,8 +317,8 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
     )
   }, [role])
 
-  const { user } = useUser()
-  const userEmail = user?.emailAddresses?.[0]?.emailAddress
+  const { user } = useLocalUser()
+  const userEmail = user?.email
 
   // Load user role first
   useEffect(() => {
@@ -328,7 +326,9 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
       const getUserRole = async () => {
         setRoleLoading(true)
         try {
-          const userRole = await getUserProjectRole(userEmail, project.id)
+          const response = await fetch(`/api/user/role?email=${encodeURIComponent(userEmail)}&projectId=${encodeURIComponent(project.id)}`)
+          if (!response.ok) throw new Error('Failed to fetch role')
+          const userRole = await response.json()
           setRole(userRole.role)
         } catch (error) {
           console.error('Failed to load user role:', error)
@@ -356,10 +356,18 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
   }, [role, getFilteredBasicColumns])
 
   // Convert FilterRule[] to Supabase filter format
-  const convertToSupabaseFilters = (filters: FilterRule[]) => {
+  const convertToSupabaseFilters = (filters: FilterRule[]): Array<{
+    column: string
+    operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'ilike' | 'in'
+    value: any
+  }> => {
     if (!agent?.id) return []
     
-    const supabaseFilters = [{ column: "agent_id", operator: "eq", value: agent.id }]
+    const supabaseFilters: Array<{
+      column: string
+      operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'ilike' | 'in'
+      value: any
+    }> = [{ column: "agent_id", operator: "eq", value: agent.id }]
     
     filters.forEach(filter => {
       const getColumnName = (forTextOperation = false) => {
@@ -482,7 +490,7 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
         case 'json_exists':
           supabaseFilters.push({ 
             column: getColumnName(false),
-            operator: 'not.is', 
+            operator: 'neq', 
             value: null 
           })
           break
@@ -497,7 +505,7 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
   }
 
   const queryOptions = useMemo(() => {
-    if (!agent?.id || !role) return null
+    if (!agent?.id || !role) return undefined
 
     // Build select clause based on role permissions
     let selectColumns = [
@@ -526,6 +534,8 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
     if (isColumnVisibleForRole('total_llm_cost', role)) {
       selectColumns.push('total_llm_cost', 'total_tts_cost', 'total_stt_cost')
     }
+
+    if (!agent?.id) return {}
 
     return {
       select: selectColumns.join(','),
@@ -606,67 +616,21 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
     ];
 
     try {
-      let query = supabase
-        .from("pype_voice_call_logs")
-        .select(selectColumns.join(','));
+      // Fetch all data using the API
+      const params = new URLSearchParams()
+      params.append('agent_id', agent.id)
+      params.append('limit', '10000') // Large limit to get all data
+      params.append('orderBy', 'created_at')
+      params.append('order', 'desc')
 
-      const filters = convertToSupabaseFilters(activeFilters);
+      const response = await fetch(`/api/call-logs?${params}`)
       
-      for (const filter of filters) {
-        switch (filter.operator) {
-          case 'eq':
-            query = query.eq(filter.column, filter.value);
-            break;
-          case 'ilike':
-            query = query.ilike(filter.column, filter.value);
-            break;
-          case 'gte':
-            query = query.gte(filter.column, filter.value);
-            break;
-          case 'lte':
-            query = query.lte(filter.column, filter.value);
-            break;
-          case 'gt':
-            query = query.gt(filter.column, filter.value);
-            break;
-          case 'lt':
-            query = query.lt(filter.column, filter.value);
-            break;
-          case 'not.is':
-            query = query.not(filter.column, 'is', filter.value);
-            break;
-          default:
-            console.warn(`Unknown operator: ${filter.operator}`);
-        }
+      if (!response.ok) {
+        throw new Error('Failed to fetch data for export')
       }
 
-      query = query.order('created_at', { ascending: false });
-
-      let allData: CallLog[] = [];
-      let page = 0;
-      const pageSize = 1000;
-      let hasMoreData = true;
-
-      while (hasMoreData) {
-        const { data, error } = await query.range(page * pageSize, (page + 1) * pageSize - 1);
-        
-        if (error) {
-          alert("Failed to fetch data for export: " + error.message);
-          return;
-        }
-
-        if (data && data.length > 0) {
-          allData = allData.concat(data as unknown as CallLog[]);
-          
-          if (data.length < pageSize) {
-            hasMoreData = false;
-          } else {
-            page += 1;
-          }
-        } else {
-          hasMoreData = false;
-        }
-      }
+      const result = await response.json()
+      const allData: CallLog[] = result.data || []
 
       if (allData.length === 0) {
         alert("No data found to export");
@@ -832,7 +796,7 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
           <div className="text-center space-y-4">
             <AlertCircle className="w-12 h-12 text-red-500 dark:text-red-400 mx-auto" />
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Unable to load calls</h3>
-            <p className="text-gray-600 dark:text-gray-400">{error}</p>
+            <p className="text-gray-600 dark:text-gray-400">{error?.message}</p>
           </div>
         </div>
       </div>

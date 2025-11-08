@@ -2,8 +2,9 @@
 "use client"
 
 import { useMemo } from "react"
+import { useSupabaseQuery } from "../../hooks/useApi"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { useSupabaseQuery } from "../../hooks/useSupabase"
+import { query } from "../../lib/postgres"
 import { cn } from "@/lib/utils"
 import { Clock, MessageSquare, AlertTriangle, Activity, Mic, Brain, Volume2, Radio } from "lucide-react"
 

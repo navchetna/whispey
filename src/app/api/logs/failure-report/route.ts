@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '../../../../lib/supabase';
+import { query } from '../../../../lib/postgres';
 import { verifyToken } from '../../../../lib/auth';
 import { FailureReportRequest } from '../../../../types/logs';
 
@@ -62,19 +62,31 @@ export async function POST(request: NextRequest) {
       created_at: new Date().toISOString()
     };
 
-    const { data: insertedLog, error: insertError } = await supabase
-      .from('pype_voice_call_logs')
-      .insert(failureData)
-      .select()
-      .single();
+    const insertResult = await query(
+      `INSERT INTO pype_voice_call_logs 
+       (call_id, call_ended_reason, transcript_type, transcript_json, metadata, environment, created_at) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7) 
+       RETURNING *`,
+      [
+        failureData.call_id,
+        failureData.call_ended_reason,
+        failureData.transcript_type,
+        JSON.stringify(failureData.transcript_json),
+        JSON.stringify(failureData.metadata),
+        failureData.environment,
+        failureData.created_at
+      ]
+    )
 
-    if (insertError) {
-      console.error('Database insert error:', insertError);
+    if (insertResult.rows.length === 0) {
+      console.error('Database insert error: No rows returned');
       return NextResponse.json(
         { success: false, error: 'Failed to save failure report' },
         { status: 500 }
       );
     }
+
+    const insertedLog = insertResult.rows[0]
 
     return NextResponse.json({
       success: true,

@@ -16,7 +16,8 @@ import {
   ConnectionState,
   DisconnectReason,
   LocalTrackPublication,
-  DataPacket_Kind
+  DataPacket_Kind,
+  ConnectionQuality
 } from 'livekit-client'
 
 interface VoiceAgentConfig {
@@ -350,7 +351,7 @@ export function useVoiceAgent({
       }
     })
 
-    liveKitRoom.on(RoomEvent.TrackUnsubscribed, (
+    voiceRoom.on(RoomEvent.TrackUnsubscribed, (
       track: RemoteTrack, 
       publication: RemoteTrackPublication, 
       participant: RemoteParticipant
@@ -359,7 +360,7 @@ export function useVoiceAgent({
     })
 
     // Transcription events
-    liveKitRoom.on(RoomEvent.TranscriptionReceived, (
+    voiceRoom.on(RoomEvent.TranscriptionReceived, (
       segments: TranscriptionSegment[], 
       participant?: Participant, 
       publication?: TrackPublication
@@ -399,7 +400,7 @@ export function useVoiceAgent({
     })
 
     // Data messages for agent state
-    liveKitRoom.on(RoomEvent.DataReceived, (
+    voiceRoom.on(RoomEvent.DataReceived, (
       payload: Uint8Array, 
       participant?: RemoteParticipant, 
       kind?: DataPacket_Kind,
@@ -425,20 +426,20 @@ export function useVoiceAgent({
     })
 
     // Local track events
-    liveKitRoom.on(RoomEvent.LocalTrackPublished, (publication: LocalTrackPublication) => {
+    voiceRoom.on(RoomEvent.LocalTrackPublished, (publication: LocalTrackPublication) => {
       console.log('📤 Local track published:', publication.kind)
       if (publication.kind === Track.Kind.Audio) {
         setIsMuted(publication.isMuted)
       }
     })
 
-    liveKitRoom.on(RoomEvent.LocalTrackUnpublished, (publication: LocalTrackPublication) => {
+    voiceRoom.on(RoomEvent.LocalTrackUnpublished, (publication: LocalTrackPublication) => {
       console.log('📤 Local track unpublished:', publication.kind)
     })
 
     // Connection quality events
-    liveKitRoom.on(RoomEvent.ConnectionQualityChanged, (quality, participant) => {
-      if (participant === liveKitRoom.localParticipant) {
+    voiceRoom.on(RoomEvent.ConnectionQualityChanged, (quality: ConnectionQuality, participant: Participant) => {
+      if (participant === voiceRoom.localParticipant) {
         console.log('📶 Local connection quality:', quality)
       }
     })

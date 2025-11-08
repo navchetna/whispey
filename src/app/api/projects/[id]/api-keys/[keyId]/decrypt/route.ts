@@ -1,13 +1,8 @@
 // src/app/api/projects/[id]/api-keys/[keyId]/decrypt/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
-import { createClient } from '@supabase/supabase-js'
+import { auth } from '@/lib/auth-server'
+import { query } from "@/lib/postgres"
 import { decryptWithWhispeyKey } from '@/lib/whispey-crypto'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
 
 export async function POST(
   request: NextRequest,
@@ -22,16 +17,18 @@ export async function POST(
     const { id: projectId, keyId } = await params
 
     // Get the encrypted key
-    const { data: apiKey, error } = await supabase
-      .from('pype_voice_api_keys')
-      .select('token_hash_master, project_id')
-      .eq('id', keyId)
-      .eq('project_id', projectId)
-      .single()
+    const result = await query(
+      `SELECT token_hash_master, project_id FROM pype_voice_api_keys 
+       WHERE id = $1 AND project_id = $2 
+       LIMIT 1`,
+      [keyId, projectId]
+    )
 
-    if (error || !apiKey) {
+    if (result.rows.length === 0) {
       return NextResponse.json({ error: 'API key not found' }, { status: 404 })
     }
+
+    const apiKey = result.rows[0]
 
     // Decrypt and return
     const decryptedKey = decryptWithWhispeyKey(apiKey.token_hash_master)

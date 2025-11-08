@@ -7,5 +7,5 @@ interface WebpagesPageProps {
 
 export default function WebpagesPage({ params }: WebpagesPageProps) {
   const resolvedParams = use(params)
-  return <WebpagesView projectId={resolvedParams.projectid} />
+  return <WebpagesView />
 }

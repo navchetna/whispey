@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import AWS from 'aws-sdk'
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 
-const s3 = new AWS.S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  region: process.env.AWS_REGION
+const s3Client = new S3Client({
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
+  },
+  region: process.env.AWS_REGION || 'us-east-1'
 })
 
 export async function GET(request: NextRequest) {
@@ -18,17 +20,19 @@ export async function GET(request: NextRequest) {
     }
 
     // Get the audio file directly from S3
-    const s3Response = await s3.getObject({
+    const command = new GetObjectCommand({
       Bucket: process.env.AWS_S3_BUCKET!,
       Key: s3Key,
-    }).promise()
+    })
+    
+    const s3Response = await s3Client.send(command)
 
     if (!s3Response.Body) {
       return NextResponse.json({ error: 'Audio file not found' }, { status: 404 })
     }
 
     // Convert the S3 response body to a buffer
-    const audioBuffer = s3Response.Body as Buffer
+    const audioBuffer = Buffer.from(await s3Response.Body.transformToByteArray())
 
     // Create response headers for download
     const headers = new Headers()

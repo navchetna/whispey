@@ -1,12 +1,7 @@
 // app/api/evaluations/jobs/[id]/debug/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { auth } from '@clerk/nextjs/server'
-
-// Create Supabase client for server-side operations
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
+import { query } from '@/lib/postgres'
+import { auth } from '@/lib/auth-server'
 
 export async function GET(
   request: NextRequest,
@@ -32,53 +27,57 @@ export async function GET(
     }
 
     // Get job details
-    const { data: job, error: jobError } = await supabase
-      .from('pype_voice_evaluation_jobs')
-      .select('*')
-      .eq('id', jobId)
-      .single()
+    const jobResult = await query(
+      'SELECT * FROM pype_voice_evaluation_jobs WHERE id = $1',
+      [jobId]
+    )
 
-    if (jobError || !job) {
+    if (jobResult.rows.length === 0) {
       return NextResponse.json(
-        { error: 'Job not found', details: jobError?.message },
+        { error: 'Job not found' },
         { status: 404 }
       )
     }
 
+    const job = jobResult.rows[0]
+
     // Get prompts for this job
-    const { data: prompts, error: promptsError } = await supabase
-      .from('pype_voice_evaluation_prompts')
-      .select('*')
-      .in('id', job.prompt_ids)
+    const promptsResult = await query(
+      'SELECT * FROM pype_voice_evaluation_prompts WHERE id = ANY($1::uuid[])',
+      [job.prompt_ids]
+    )
+    const prompts = promptsResult.rows
 
     // Check for call logs that match the job criteria
-    let query = supabase
-      .from('pype_voice_call_logs')
-      .select(`
-        id,
-        call_id,
-        agent_id,
-        call_ended_reason,
-        transcript_json,
-        duration_seconds,
-        created_at,
-        pype_voice_agents!inner(project_id)
-      `)
-      .eq('agent_id', job.agent_id)
-      .eq('pype_voice_agents.project_id', job.project_id)
-
-    const { data: allCallLogs, error: allLogsError } = await query
+    const allLogsResult = await query(
+      `SELECT cl.id, cl.call_id, cl.agent_id, cl.call_ended_reason, cl.transcript_json, 
+              cl.duration_seconds, cl.created_at, a.project_id
+       FROM pype_voice_call_logs cl
+       INNER JOIN pype_voice_agents a ON cl.agent_id = a.id
+       WHERE cl.agent_id = $1 AND a.project_id = $2`,
+      [job.agent_id, job.project_id]
+    )
+    const allCallLogs = allLogsResult.rows
 
     // Check filtered logs (with completion and transcript filters)
-    const { data: filteredCallLogs, error: filteredLogsError } = await query
-      .eq('call_ended_reason', 'completed')
-      .not('transcript_json', 'is', null)
+    const filteredLogsResult = await query(
+      `SELECT cl.id, cl.call_id, cl.agent_id, cl.call_ended_reason, cl.transcript_json, 
+              cl.duration_seconds, cl.created_at, a.project_id
+       FROM pype_voice_call_logs cl
+       INNER JOIN pype_voice_agents a ON cl.agent_id = a.id
+       WHERE cl.agent_id = $1 AND a.project_id = $2 
+         AND cl.call_ended_reason = 'completed' 
+         AND cl.transcript_json IS NOT NULL`,
+      [job.agent_id, job.project_id]
+    )
+    const filteredCallLogs = filteredLogsResult.rows
 
     // Get evaluation results for this job
-    const { data: results, error: resultsError } = await supabase
-      .from('pype_voice_evaluation_results')
-      .select('*')
-      .eq('job_id', jobId)
+    const resultsResult = await query(
+      'SELECT * FROM pype_voice_evaluation_results WHERE job_id = $1',
+      [jobId]
+    )
+    const results = resultsResult.rows
 
     const debugInfo = {
       job: {
@@ -98,7 +97,6 @@ export async function GET(
       },
       prompts: {
         count: prompts?.length || 0,
-        error: promptsError?.message,
         details: prompts?.map(p => ({
           id: p.id,
           name: p.name,
@@ -110,8 +108,6 @@ export async function GET(
       callLogs: {
         total_for_agent: allCallLogs?.length || 0,
         filtered_available: filteredCallLogs?.length || 0,
-        all_logs_error: allLogsError?.message,
-        filtered_logs_error: filteredLogsError?.message,
         sample_logs: filteredCallLogs?.slice(0, 3).map(log => ({
           id: log.id,
           call_id: log.call_id,
@@ -123,7 +119,6 @@ export async function GET(
       },
       evaluationResults: {
         count: results?.length || 0,
-        error: resultsError?.message,
         sample_results: results?.slice(0, 3).map(r => ({
           id: r.id,
           prompt_id: r.prompt_id,

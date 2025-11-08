@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { useSupabaseQuery } from '../../hooks/useApi'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -12,8 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { AlertCircle, Plus, Settings, MoreHorizontal, Edit2, Trash2, Copy, Eye, Brain, TrendingUp, BarChart3, Activity, CheckCircle, Clock, Users, Target } from 'lucide-react'
-import { useSupabaseQuery } from '@/hooks/useSupabase'
-import { supabase } from '@/lib/supabase'
+import { query } from "../../lib/postgres"
+import { DatabaseService } from "@/lib/database"
 
 // Utility functions
 const getProviderDisplayName = (provider: string) => {
@@ -382,17 +383,15 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
       console.log('📡 [DEBUG] Step 1: Fetching call log entry...')
 
       // Step 1: First get the call log entry to get the internal ID
-      const { data: callLogData, error: callLogError } = await supabase
-        .from('pype_voice_call_logs')
-        .select('id, call_id')
-        .eq('call_id', callId)
-        .limit(1)
-
-      if (callLogError) {
-        console.error('❌ [ERROR] Database error fetching call log:', callLogError)
-        setSelectedTranscript({ callId, transcript: 'Database Error: ' + callLogError.message })
+      const callLogResponse = await fetch(`/api/call-logs?call_id=${callId}&limit=1`)
+      
+      if (!callLogResponse.ok) {
+        console.error('❌ [ERROR] API error fetching call log')
+        setSelectedTranscript({ callId, transcript: 'API Error: Failed to fetch call log' })
         return
       }
+
+      const { data: callLogData } = await callLogResponse.json()
 
       if (!callLogData || callLogData.length === 0) {
         setSelectedTranscript({ 
@@ -405,17 +404,15 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
       const callLogId = callLogData[0].id
 
       // Step 2: Get transcript data from metrics logs using the call log ID as session_id
-      const { data: transcriptTurns, error: transcriptError } = await supabase
-        .from('pype_voice_metrics_logs')
-        .select('user_transcript, agent_response, turn_id, created_at, unix_timestamp')
-        .eq('session_id', callLogId)
-        .order('unix_timestamp', { ascending: true })
-
-      if (transcriptError) {
-        console.error('❌ [ERROR] Database error fetching transcript:', transcriptError)
-        setSelectedTranscript({ callId, transcript: 'Transcript Database Error: ' + transcriptError.message })
+      const metricsResponse = await fetch(`/api/metrics-logs?session_id=${callLogId}&orderBy=unix_timestamp&order=asc`)
+      
+      if (!metricsResponse.ok) {
+        console.error('❌ [ERROR] API error fetching transcript')
+        setSelectedTranscript({ callId, transcript: 'Transcript API Error: Failed to fetch metrics logs' })
         return
       }
+
+      const { data: transcriptTurns } = await metricsResponse.json()
 
       if (transcriptTurns && transcriptTurns.length > 0) {
         // Format the transcript data
@@ -490,7 +487,7 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
         </div>
 
         {/* Metrics Dashboard */}
-        {!promptsLoading && !resultsLoading && !jobsLoading && (evaluationResults?.length > 0 || evaluationJobs?.length > 0) && (
+        {!promptsLoading && !resultsLoading && !jobsLoading && ((evaluationResults?.length ?? 0) > 0 || (evaluationJobs?.length ?? 0) > 0) && (
           <div className="mb-8">
             <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <BarChart3 className="w-5 h-5 text-blue-600" />
@@ -498,7 +495,7 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
             </h2>
             
             {(() => {
-              const metrics = calculateMetrics(evaluationResults, evaluationSummaries, prompts, evaluationJobs)
+              const metrics = calculateMetrics(evaluationResults || [], evaluationSummaries || [], prompts || [], evaluationJobs || [])
               return (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 mb-6">
                   <Card>
@@ -660,7 +657,7 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
                   <Settings className="w-5 h-5 text-gray-600" />
                   Evaluation Prompts
                 </h2>
-                <span className="text-sm text-gray-500">{prompts.length} prompt{prompts.length !== 1 ? 's' : ''} configured</span>
+                <span className="text-sm text-gray-500">{prompts?.length ?? 0} prompt{(prompts?.length ?? 0) !== 1 ? 's' : ''} configured</span>
               </div>
               <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {prompts?.map((prompt: EvaluationPrompt) => (

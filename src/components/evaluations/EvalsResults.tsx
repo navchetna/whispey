@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { useSupabaseQuery } from '../../hooks/useApi'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -30,8 +31,8 @@ import {
   Bug,
   Trash2
 } from 'lucide-react'
-import { useSupabaseQuery } from '@/hooks/useSupabase'
-import { supabase } from '@/lib/supabase'
+import { query } from "../../lib/postgres"
+import { DatabaseService } from "@/lib/database"
 
 // Helper function to get scoring output type information
 const getScoringOutputTypeInfo = (type: string) => {
@@ -326,17 +327,15 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
       }
 
       // Step 1: First get the call log entry to get the internal ID
-      const { data: callLogData, error: callLogError } = await supabase
-        .from('pype_voice_call_logs')
-        .select('id, call_id')
-        .eq('call_id', callId)
-        .limit(1)
-
-      if (callLogError) {
-        console.error('❌ [ERROR] Database error fetching call log:', callLogError)
-        setSelectedTranscript({ callId, transcript: 'Database Error: ' + callLogError.message })
+      const callLogResponse = await fetch(`/api/call-logs?call_id=${callId}&limit=1`)
+      
+      if (!callLogResponse.ok) {
+        console.error('❌ [ERROR] API error fetching call log')
+        setSelectedTranscript({ callId, transcript: 'API Error: Failed to fetch call log' })
         return
       }
+
+      const { data: callLogData } = await callLogResponse.json()
 
       if (!callLogData || callLogData.length === 0) {
         setSelectedTranscript({ 
@@ -349,17 +348,15 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
       const callLogId = callLogData[0].id
 
       // Step 2: Get transcript data from metrics logs using the call log ID as session_id
-      const { data: transcriptTurns, error: transcriptError } = await supabase
-        .from('pype_voice_metrics_logs')
-        .select('user_transcript, agent_response, turn_id, created_at, unix_timestamp')
-        .eq('session_id', callLogId)
-        .order('unix_timestamp', { ascending: true })
-
-      if (transcriptError) {
-        console.error('❌ [ERROR] Database error fetching transcript:', transcriptError)
-        setSelectedTranscript({ callId, transcript: 'Transcript Database Error: ' + transcriptError.message })
+      const metricsResponse = await fetch(`/api/metrics-logs?session_id=${callLogId}&orderBy=unix_timestamp&order=asc`)
+      
+      if (!metricsResponse.ok) {
+        console.error('❌ [ERROR] API error fetching transcript')
+        setSelectedTranscript({ callId, transcript: 'Transcript API Error: Failed to fetch metrics logs' })
         return
       }
+
+      const { data: transcriptTurns } = await metricsResponse.json()
 
       if (transcriptTurns && transcriptTurns.length > 0) {
         // Format the transcript data

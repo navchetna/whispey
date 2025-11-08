@@ -131,10 +131,16 @@ OPENAI_API_KEY=your_openai_api_key_here
 ⚠️ **Important**: The default password `whispey123` is used for initial setup. Change it in production:
 1. Update the database user password: `ALTER USER whispey_user PASSWORD 'new_secure_password';`
 2. Update your `.env.local` file with the new password
-
+3. To generate a JWT secret, use:
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+   ```
 ### 4. Build and Start
 
 ```bash
+## Install the packages
+npm install
+
 # Build the application
 npm run build
 

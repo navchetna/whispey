@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { query } from "@/lib/postgres"
 import { sendResponse } from '../../../../lib/response';
 import { verifyToken } from '../../../../lib/auth';
 import { totalCostsINR } from '../../../../lib/calculateCost';
@@ -8,9 +8,6 @@ import { CallLogRequest, TranscriptWithMetrics, UsageData, TelemetryAnalytics, T
 import { gunzipSync } from 'zlib';
 
 // Create server-side Supabase client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 // Decompression function for compressed data
 function decompressData(compressedData: string): any {
@@ -241,19 +238,46 @@ export async function POST(request: NextRequest) {
       call_ended_at: logData.call_ended_at
     });
     
-    const { data: insertedLog, error: insertError } = await supabase
-      .from('pype_voice_call_logs')
-      .insert(logData)
-      .select()
-      .single();
+    const insertResult = await query(
+      `INSERT INTO pype_voice_call_logs 
+       (call_id, agent_id, call_started_at, call_ended_at, call_ended_reason, duration_seconds,
+        customer_number, transcript_json, transcript_type, metadata, avg_latency, dynamic_variables,
+        environment, recording_url, voice_recording_url, complete_configuration,
+        telemetry_data, telemetry_analytics, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+       RETURNING *`,
+      [
+        logData.call_id,
+        logData.agent_id,
+        logData.call_started_at,
+        logData.call_ended_at,
+        logData.call_ended_reason,
+        logData.duration_seconds,
+        logData.customer_number,
+        JSON.stringify(logData.transcript_json),
+        logData.transcript_type,
+        JSON.stringify(logData.metadata),
+        logData.avg_latency,
+        JSON.stringify(logData.dynamic_variables),
+        logData.environment,
+        logData.recording_url,
+        logData.voice_recording_url,
+        JSON.stringify(logData.complete_configuration),
+        JSON.stringify(logData.telemetry_data),
+        JSON.stringify(logData.telemetry_analytics),
+        logData.created_at
+      ]
+    )
 
-    if (insertError) {
-      console.error('Database insert error:', insertError);
+    if (insertResult.rows.length === 0) {
+      console.error('Database insert error: No rows returned');
       return NextResponse.json(
         { success: false, error: 'Failed to save call log' },
         { status: 500 }
       );
     }
+
+    const insertedLog = insertResult.rows[0]
 
     console.log("✅ Successfully inserted log:", {
       id: insertedLog.id,
@@ -266,23 +290,28 @@ export async function POST(request: NextRequest) {
     if (telemetry_data && (telemetry_data as any).session_traces && (telemetry_data as any).session_traces.length > 0) {
       const traceKey = `session_${insertedLog.id}`;
 
-      const { data: insertedTrace, error: traceError } = await supabase
-        .from('pype_voice_session_traces')
-        .insert({
-          session_id: insertedLog.id,
-          trace_key: traceKey,
-          total_spans: (telemetry_data as any).session_traces.length,
-          performance_summary: (telemetry_data as any).performance_metrics || {},
-          span_summary: (telemetry_data as any).span_summary || {},
-          session_start_time: call_started_at,
-          session_end_time: call_ended_at,
-          total_duration_ms: duration_seconds ? duration_seconds * 1000 : null,
-          created_at: new Date().toISOString()
-        })
-        .select()
-        .single();
+      const traceResult = await query(
+        `INSERT INTO pype_voice_session_traces 
+         (session_id, trace_key, total_spans, performance_summary, span_summary, 
+          session_start_time, session_end_time, total_duration_ms, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING *`,
+        [
+          insertedLog.id,
+          traceKey,
+          (telemetry_data as any).session_traces.length,
+          JSON.stringify((telemetry_data as any).performance_metrics || {}),
+          JSON.stringify((telemetry_data as any).span_summary || {}),
+          call_started_at,
+          call_ended_at,
+          duration_seconds ? duration_seconds * 1000 : null,
+          new Date().toISOString()
+        ]
+      )
+      
+      const insertedTrace = traceResult.rows[0]
 
-      if (!traceError && insertedTrace) {
+      if (traceResult.rows.length > 0 && insertedTrace) {
         const spanInserts = (telemetry_data as any).session_traces.map((span: any) => ({
           trace_key: traceKey,
           span_id: span.span_id || span.context?.span_id,
@@ -304,16 +333,42 @@ export async function POST(request: NextRequest) {
           request_id_source: span.request_id_source
         }));
 
-        const { error: spansError } = await supabase
-          .from('pype_voice_spans')
-          .insert(spanInserts)
-          .select('id');
-
-        if (spansError) {
+        try {
+          // Build bulk insert query for spans
+          const spanValues = spanInserts.map((_: any, idx: number) => {
+            const base = idx * 13
+            return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12}, $${base + 13})`
+          }).join(', ')
+          
+          const spanParams = spanInserts.flatMap((span: any) => [
+            span.trace_key,
+            span.span_id,
+            span.trace_id,
+            span.name,
+            span.operation_type,
+            span.start_time_ns,
+            span.end_time_ns,
+            span.duration_ms,
+            span.duration_ns,
+            JSON.stringify(span.status),
+            JSON.stringify(span.attributes),
+            JSON.stringify(span.events),
+            JSON.stringify(span.metadata)
+          ])
+          
+          await query(
+            `INSERT INTO pype_voice_spans 
+             (trace_key, span_id, trace_id, name, operation_type, start_time_ns, end_time_ns,
+              duration_ms, duration_ns, status, attributes, events, metadata)
+             VALUES ${spanValues}
+             RETURNING id`,
+            spanParams
+          )
+        } catch (spansError) {
           console.error('SPANS INSERT ERROR:', spansError);
         }
-      } else if (traceError) {
-        console.error('SESSION TRACE INSERT ERROR:', traceError);
+      } else {
+        console.error('SESSION TRACE INSERT ERROR: No trace inserted');
       }
     }
 
@@ -364,14 +419,56 @@ export async function POST(request: NextRequest) {
         };
       });
 
-      const { error: turnsError } = await supabase
-        .from('pype_voice_metrics_logs')
-        .insert(conversationTurns);
-
-      if (turnsError) {
+      try {
+        // Build bulk insert - need to handle large number of fields
+        if (conversationTurns.length > 0) {
+          // Insert in batches to avoid parameter limit
+          const batchSize = 50
+          for (let i = 0; i < conversationTurns.length; i += batchSize) {
+            const batch = conversationTurns.slice(i, i + batchSize)
+            const valueStrings = batch.map((_: any, idx: number) => {
+              const base = idx * 21
+              return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12}, $${base + 13}, $${base + 14}, $${base + 15}, $${base + 16}, $${base + 17}, $${base + 18}, $${base + 19}, $${base + 20}, $${base + 21})`
+            }).join(', ')
+            
+            const params = batch.flatMap((turn: any) => [
+              turn.session_id,
+              turn.turn_id,
+              turn.trace_id,
+              turn.user_transcript,
+              turn.agent_response,
+              JSON.stringify(turn.stt_metrics),
+              JSON.stringify(turn.llm_metrics),
+              JSON.stringify(turn.tts_metrics),
+              JSON.stringify(turn.eou_metrics),
+              JSON.stringify(turn.otel_spans),
+              turn.trace_duration_ms,
+              turn.trace_cost_usd,
+              turn.phone_number,
+              turn.call_duration,
+              turn.call_success,
+              turn.lesson_completed,
+              turn.created_at,
+              turn.unix_timestamp,
+              JSON.stringify(turn.turn_configuration),
+              turn.bug_report,
+              JSON.stringify(turn.tool_calls)
+            ])
+            
+            await query(
+              `INSERT INTO pype_voice_metrics_logs 
+               (session_id, turn_id, trace_id, user_transcript, agent_response,
+                stt_metrics, llm_metrics, tts_metrics, eou_metrics, otel_spans,
+                trace_duration_ms, trace_cost_usd, phone_number, call_duration, call_success,
+                lesson_completed, created_at, unix_timestamp, turn_configuration, bug_report, tool_calls)
+               VALUES ${valueStrings}`,
+              params
+            )
+          }
+          console.log(`Inserted ${conversationTurns.length} conversation turns`)
+        }
+      } catch (turnsError) {
         console.error('Error inserting conversation turns:', turnsError);
-      } else {
-        console.log(`Inserted ${conversationTurns.length} conversation turns`);
       }
     }
 
@@ -391,36 +488,36 @@ export async function POST(request: NextRequest) {
           callStartedAt: call_started_at
         });
 
-      const { error: costError } = await supabase
-        .from('pype_voice_call_logs')
-        .update({
-          total_llm_cost: total_llm_cost_inr,
-          total_tts_cost: total_tts_cost_inr,
-          total_stt_cost: total_stt_cost_inr
-        })
-        .eq('id', insertedLog.id);
-
-      if (costError) {
-        console.log("Total cost insertion error:", costError);
-      } else {
+      try {
+        await query(
+          `UPDATE pype_voice_call_logs 
+           SET total_llm_cost = $1, total_tts_cost = $2, total_stt_cost = $3 
+           WHERE id = $4`,
+          [total_llm_cost_inr, total_tts_cost_inr, total_stt_cost_inr, insertedLog.id]
+        )
+        
         console.log("✅ Costs updated:", {
           total_llm_cost_inr,
           total_tts_cost_inr,
           total_stt_cost_inr
         });
+      } catch (costError) {
+        console.log("Total cost insertion error:", costError);
       }
     }
 
     // Process transcript with field extraction
-    const { data: agentConfig, error: agentError } = await supabase
-      .from('pype_voice_agents')
-      .select('field_extractor, field_extractor_prompt')
-      .eq('id', agent_id)
-      .single();
+    const agentResult = await query(
+      'SELECT field_extractor, field_extractor_prompt FROM pype_voice_agents WHERE id = $1 LIMIT 1',
+      [agent_id]
+    )
 
-    if (agentError) {
-      console.error('Failed to fetch agent config:', agentError);
-    } else if (agentConfig?.field_extractor && agentConfig?.field_extractor_prompt) {
+    if (agentResult.rows.length === 0) {
+      console.error('Failed to fetch agent config: Agent not found');
+    } else {
+      const agentConfig = agentResult.rows[0]
+      
+      if (agentConfig?.field_extractor && agentConfig?.field_extractor_prompt) {
       try {
         const transcriptToSend = (Array.isArray(transcript_json) && transcript_json.length > 0)
           ? transcript_json
@@ -436,14 +533,12 @@ export async function POST(request: NextRequest) {
             field_extractor_prompt: agentConfig.field_extractor_prompt,
           });
 
-          const { error: insertFpoError } = await supabase
-            .from('pype_voice_call_logs')
-            .update({
-              transcription_metrics: fpoResult?.logData
-            })
-            .eq('id', insertedLog.id);
-
-          if (insertFpoError) {
+          try {
+            await query(
+              'UPDATE pype_voice_call_logs SET transcription_metrics = $1 WHERE id = $2',
+              [JSON.stringify(fpoResult?.logData), insertedLog.id]
+            )
+          } catch (insertFpoError) {
             console.error('Error updating FPO transcript log:', insertFpoError);
           }
 
@@ -455,6 +550,7 @@ export async function POST(request: NextRequest) {
         console.error("❌ FPO processing failed:", fpoError);
       }
     }
+  }
 
     return NextResponse.json({
       success: true,
