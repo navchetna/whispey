@@ -1,0 +1,82 @@
+# dependencies
+node_modules
+.pnp
+.pnp.js
+
+# testing 
+coverage
+*.log
+
+# next js
+.next/
+out/
+build
+dist
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# local env files
+.env
+.env*.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# git
+.git
+.gitignore
+.gitattributes
+
+# docker
+Dockerfile
+Dockerfile.dev
+docker-compose.yml
+docker-compose.dev.yml
+.dockerignore
+
+# docs
+*.md
+README.md
+LICENSE
+docs/
+
+# CI/CD
+.github
+.gitlab-ci.yml
+
+# tmp
+tmp
+temp
+
+# SDK and test files
+sdk/
+supabase/
+
+# Other
+.cursor/
+.source/
+habanalabs-installer-log/
+nltk_data/
+snap/

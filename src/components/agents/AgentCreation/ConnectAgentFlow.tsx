@@ -48,13 +48,6 @@ const PLATFORM_OPTIONS = [
     color: 'blue'
   },
   { 
-    value: 'vapi', 
-    label: 'Vapi Assistant',
-    description: 'Monitor your Vapi assistant calls',
-    icon: Zap,
-    color: 'green'
-  },
-  { 
     value: 'audio_upload', 
     label: 'Audio Upload',
     description: 'Upload audio files for evaluation',
