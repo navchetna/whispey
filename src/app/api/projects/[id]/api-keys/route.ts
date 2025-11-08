@@ -1,11 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
-import { createClient } from '@supabase/supabase-js'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+import { auth, currentUser } from "@/lib/auth-server"
+import { query } from "@/lib/postgres"
 
 export async function GET(
   request: NextRequest,
@@ -33,21 +28,17 @@ export async function GET(
 
     // First, query the new API keys table
     console.log('Querying new API keys table...')
-    const { data: apiKeys, error } = await supabase
-      .from('pype_voice_api_keys')
-      .select('*')
-      .eq('project_id', projectId)
-      .order('created_at', { ascending: false })
+    const apiKeysResult = await query(
+      `SELECT * FROM pype_voice_api_keys 
+       WHERE project_id = $1 
+       ORDER BY created_at DESC`,
+      [projectId]
+    )
 
-    if (error) {
-      console.error('Database error on new table:', error)
-      return NextResponse.json({ error: 'Database error' }, { status: 500 })
-    }
-
-    console.log('New API keys found:', apiKeys?.length || 0)
+    console.log('New API keys found:', apiKeysResult.rows.length || 0)
 
     // Format keys from new system
-    let formattedKeys = (apiKeys || []).map((key: any) => ({
+    let formattedKeys = apiKeysResult.rows.map((key: any) => ({
       id: key.id,
       name: key.name || 'Project API Key',
       masked_key: key.masked_key,
@@ -63,16 +54,16 @@ export async function GET(
     if (formattedKeys.length === 0) {
       console.log('No new keys found, checking for legacy key...')
       
-      const { data: project, error: projectError } = await supabase
-        .from('pype_voice_projects')
-        .select('token_hash, created_at, name')
-        .eq('id', projectId)
-        .single()
+      const projectResult = await query(
+        `SELECT token_hash, created_at, name FROM pype_voice_projects WHERE id = $1`,
+        [projectId]
+      )
 
-      if (projectError) {
-        console.error('Error checking legacy project:', projectError)
+      if (projectResult.rows.length === 0) {
+        console.error('Project not found')
         // Don't fail - just continue with empty keys
-      } else if (project?.token_hash) {
+      } else if (projectResult.rows[0]?.token_hash) {
+        const project = projectResult.rows[0]
         console.log('Legacy key found in projects table')
         
         // Add legacy key with masked display

@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { useUser, SignedIn, useClerk } from '@clerk/nextjs'
+import { useLocalUser, clearLocalUser } from '@/lib/local-auth'
 import { useTheme } from 'next-themes'
 import { useHotkeys } from 'react-hotkeys-hook'
 import Image from 'next/image'
@@ -142,8 +142,7 @@ export default function Sidebar({
   isMobile = false,
   onMobileClose 
 }: SidebarProps) {
-  const { user, isLoaded } = useUser()
-  const { signOut } = useClerk()
+  const { user, isLoaded } = useLocalUser()
   const router = useRouter()
   const searchParams = useSearchParams()
   const { theme, setTheme } = useTheme()
@@ -225,11 +224,10 @@ export default function Sidebar({
   }
 
   const getUserDisplayName = () => {
-    if (user?.fullName) return user.fullName
     if (user?.firstName && user?.lastName) return `${user.firstName} ${user.lastName}`
     if (user?.firstName) return user.firstName
-    if (user?.emailAddresses?.[0]?.emailAddress) {
-      return user.emailAddresses[0].emailAddress.split('@')[0]
+    if (user?.email) {
+      return user.email.split('@')[0]
     }
     return 'User'
   }
@@ -237,7 +235,8 @@ export default function Sidebar({
   const handleSignOut = async () => {
     try {
       setIsSigningOut(true)
-      await signOut({ redirectUrl: '/sign-in' })
+      clearLocalUser()
+      router.push('/')
     } catch (error) {
       console.error('Error signing out:', error)
       setIsSigningOut(false)
@@ -551,7 +550,7 @@ export default function Sidebar({
               )}
             </div>
           ) : (
-            <SignedIn>
+            user && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button className={`w-full flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${
@@ -564,7 +563,7 @@ export default function Sidebar({
                       <div className="min-w-0 flex-1 text-left">
                         <p className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">{getUserDisplayName()}</p>
                         <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                          {user?.emailAddresses?.[0]?.emailAddress}
+                          {user?.email}
                         </p>
                       </div>
                     )}
@@ -578,7 +577,7 @@ export default function Sidebar({
                   <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700">
                     <p className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">{getUserDisplayName()}</p>
                     <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                      {user?.emailAddresses?.[0]?.emailAddress}
+                      {user?.email}
                     </p>
                   </div>
                   <div className="py-1">
@@ -614,7 +613,7 @@ export default function Sidebar({
                   </div>
                 </DropdownMenuContent>
               </DropdownMenu>
-            </SignedIn>
+            )
           )}
         </div>
 

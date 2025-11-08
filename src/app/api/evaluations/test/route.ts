@@ -1,6 +1,6 @@
 // app/api/evaluations/test/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/auth-server'
 import { processEvaluationJobById } from '@/lib/evaluation/processor'
 
 export async function POST(request: NextRequest) {

@@ -9,7 +9,8 @@ import { Progress } from '@/components/ui/progress'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { supabase } from '@/lib/supabase'
+import { DatabaseService } from "@/lib/database"
+import { useApiQuery } from '@/hooks/useApi'
 import { 
   ArrowLeft, 
   BarChart3, 
@@ -30,7 +31,6 @@ import {
   Users,
   Zap
 } from 'lucide-react'
-import { useSupabaseQuery } from '@/hooks/useSupabase'
 
 // Helper function to get scoring output type information
 const getScoringOutputTypeInfo = (type: string) => {
@@ -147,20 +147,20 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
   }, [selectedTranscript])
 
   // Fetch job details
-  const { data: jobData, loading: jobLoading } = useSupabaseQuery('pype_voice_evaluation_jobs', {
+  const { data: jobData, loading: jobLoading } = useApiQuery('pype_voice_evaluation_jobs', {
     select: '*',
     filters: [{ column: 'id', operator: 'eq', value: params.jobid }],
     limit: 1
   })
 
   // Fetch evaluation summaries
-  const { data: summaries, loading: summariesLoading } = useSupabaseQuery('pype_voice_evaluation_summaries', {
+  const { data: summaries, loading: summariesLoading } = useApiQuery('pype_voice_evaluation_summaries', {
     select: '*',
     filters: [{ column: 'job_id', operator: 'eq', value: params.jobid }]
   })
 
   // Fetch prompt details for this job
-  const { data: promptData, loading: promptLoading } = useSupabaseQuery('pype_voice_evaluation_prompts', {
+  const { data: promptData, loading: promptLoading } = useApiQuery('pype_voice_evaluation_prompts', {
     select: `
       id,
       name,
@@ -175,7 +175,7 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
   })
 
   // Fetch detailed results - start with basic data first
-  const { data: results, loading: resultsLoading } = useSupabaseQuery('pype_voice_evaluation_results', {
+  const { data: results, loading: resultsLoading } = useApiQuery('pype_voice_evaluation_results', {
     select: `
       id,
       job_id,
@@ -193,8 +193,8 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
       created_at
     `,
     filters: [
-      { column: 'job_id', operator: 'eq', value: params.jobid },
-      ...(selectedType !== 'all' ? [{ column: 'evaluation_score->>evaluation_type', operator: 'eq', value: selectedType }] : [])
+      { column: 'job_id', operator: 'eq' as const, value: params.jobid },
+      ...(selectedType !== 'all' ? [{ column: 'evaluation_score->>evaluation_type', operator: 'eq' as const, value: selectedType }] : [])
     ],
     orderBy: { 
       column: sortBy === 'score' ? 'created_at' : sortBy === 'date' ? 'created_at' : 'created_at', 
@@ -285,21 +285,18 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
       console.log('📡 [DEBUG] Step 1: Fetching call log entry...')
 
       // Step 1: First get the call log entry to get the internal ID
-      const { data: callLogData, error: callLogError } = await supabase
-        .from('pype_voice_call_logs')
-        .select('id, call_id')
-        .eq('call_id', callId)
-        .limit(1)
+      const callLogResponse = await fetch(`/api/call-logs?call_id=${encodeURIComponent(callId)}&limit=1`)
+      const callLogResult = await callLogResponse.json()
+      const callLogData = callLogResult.data
 
       console.log('📊 [DEBUG] Call log query result:', { 
         data: callLogData, 
-        error: callLogError,
         dataLength: callLogData?.length || 0
       })
 
-      if (callLogError) {
-        console.error('❌ [ERROR] Database error fetching call log:', callLogError)
-        setSelectedTranscript({ callId, transcript: 'Database Error: ' + callLogError.message + '\n\nThis could be due to:\n• Database connection issues\n• Permission problems\n• Table doesn\'t exist' })
+      if (!callLogResponse.ok) {
+        console.error('❌ [ERROR] Database error fetching call log:', callLogResult.error)
+        setSelectedTranscript({ callId, transcript: 'Database Error: ' + callLogResult.error + '\n\nThis could be due to:\n• Database connection issues\n• Permission problems\n• Table doesn\'t exist' })
         return
       }
 
@@ -307,16 +304,15 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
         console.warn('⚠️ [WARNING] No call log found for call_id:', callId)
         
         // Let's try to see what call_ids actually exist
-        const { data: sampleCallLogs } = await supabase
-          .from('pype_voice_call_logs')
-          .select('call_id')
-          .limit(5)
+        const sampleResponse = await fetch('/api/call-logs?limit=5')
+        const sampleResult = await sampleResponse.json()
+        const sampleCallLogs = sampleResult.data
         
-        console.log('📋 [DEBUG] Sample call_ids in database:', sampleCallLogs?.map(log => log.call_id))
+        console.log('📋 [DEBUG] Sample call_ids in database:', sampleCallLogs?.map((log: any) => log.call_id))
         
         setSelectedTranscript({ 
           callId, 
-          transcript: `No call log found for call_id: "${callId}"\n\nPossible reasons:\n• This call_id doesn't exist in the database\n• The call log was not saved properly\n• There's a mismatch between evaluation results and call logs\n\nSample call_ids in database: ${sampleCallLogs?.map(log => log.call_id).join(', ') || 'None found'}` 
+          transcript: `No call log found for call_id: "${callId}"\n\nPossible reasons:\n• This call_id doesn't exist in the database\n• The call log was not saved properly\n• There's a mismatch between evaluation results and call logs\n\nSample call_ids in database: ${sampleCallLogs?.map((log: any) => log.call_id).join(', ') || 'None found'}` 
         })
         return
       }
@@ -327,29 +323,26 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
       console.log('📡 [DEBUG] Step 2: Fetching transcript data from metrics logs...')
 
       // Step 2: Get transcript data from metrics logs using the call log ID as session_id
-      const { data: transcriptTurns, error: transcriptError } = await supabase
-        .from('pype_voice_metrics_logs')
-        .select('user_transcript, agent_response, turn_id, created_at, unix_timestamp')
-        .eq('session_id', callLogId)
-        .order('unix_timestamp', { ascending: true })
+      const metricsResponse = await fetch(`/api/metrics-logs?session_id=${encodeURIComponent(callLogId)}&orderBy=unix_timestamp&order=asc`)
+      const metricsResult = await metricsResponse.json()
+      const transcriptTurns = metricsResult.data
 
       console.log('📊 [DEBUG] Transcript query result:', { 
         data: transcriptTurns, 
-        error: transcriptError,
         dataLength: transcriptTurns?.length || 0,
         session_id: callLogId
       })
 
-      if (transcriptError) {
-        console.error('❌ [ERROR] Database error fetching transcript:', transcriptError)
-        setSelectedTranscript({ callId, transcript: 'Transcript Database Error: ' + transcriptError.message })
+      if (!metricsResponse.ok) {
+        console.error('❌ [ERROR] Database error fetching transcript:', metricsResult.error)
+        setSelectedTranscript({ callId, transcript: 'Transcript Database Error: ' + metricsResult.error })
         return
       }
 
       console.log('📝 [DEBUG] Processing transcript turns...')
 
       if (transcriptTurns && transcriptTurns.length > 0) {
-        console.log('🔍 [DEBUG] Raw transcript turns:', transcriptTurns.map((turn, index) => ({
+        console.log('🔍 [DEBUG] Raw transcript turns:', transcriptTurns.map((turn: any, index: number) => ({
           index,
           user_transcript: turn.user_transcript ? turn.user_transcript.substring(0, 50) + '...' : null,
           agent_response: turn.agent_response ? turn.agent_response.substring(0, 50) + '...' : null,
@@ -393,16 +386,15 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
         console.warn('⚠️ [WARNING] No transcript turns found for session_id:', callLogId)
         
         // Let's check if there's any data in metrics logs at all
-        const { data: sampleMetrics } = await supabase
-          .from('pype_voice_metrics_logs')
-          .select('session_id')
-          .limit(5)
+        const sampleMetricsResponse = await fetch('/api/metrics-logs?limit=5')
+        const sampleMetricsResult = await sampleMetricsResponse.json()
+        const sampleMetrics = sampleMetricsResult.data
         
-        console.log('📋 [DEBUG] Sample session_ids in metrics logs:', sampleMetrics?.map(m => m.session_id))
+        console.log('📋 [DEBUG] Sample session_ids in metrics logs:', sampleMetrics?.map((m: any) => m.session_id))
         
         setSelectedTranscript({ 
           callId, 
-          transcript: `No transcript data found for this call.\n\nDetails:\n• Call log ID: ${callLogId}\n• Call ID: ${callId}\n\nPossible reasons:\n• The conversation was not recorded\n• Transcript processing failed\n• No meaningful exchange occurred\n• Wrong session_id relationship\n\nSample session_ids in metrics: ${sampleMetrics?.map(m => m.session_id).join(', ') || 'None found'}` 
+          transcript: `No transcript data found for this call.\n\nDetails:\n• Call log ID: ${callLogId}\n• Call ID: ${callId}\n\nPossible reasons:\n• The conversation was not recorded\n• Transcript processing failed\n• No meaningful exchange occurred\n• Wrong session_id relationship\n\nSample session_ids in metrics: ${sampleMetrics?.map((m: any) => m.session_id).join(', ') || 'None found'}` 
         })
       }
     } catch (error) {
@@ -459,33 +451,31 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
       let diagnostic = '🔍 Database Diagnostics Results\n\n'
 
       // Check call logs table
-      const { data: callLogs, error: callLogsError } = await supabase
-        .from('pype_voice_call_logs')
-        .select('id, call_id, agent_id, created_at')
-        .limit(5)
+      const callLogsResponse = await fetch('/api/call-logs?limit=5')
+      const callLogsResult = await callLogsResponse.json()
+      const callLogs = callLogsResult.data
 
-      if (callLogsError) {
-        diagnostic += `❌ Call Logs Error: ${callLogsError.message}\n\n`
+      if (!callLogsResponse.ok) {
+        diagnostic += `❌ Call Logs Error: ${callLogsResult.error}\n\n`
       } else {
         diagnostic += `✅ Call Logs Found: ${callLogs?.length || 0} entries\n`
         if (callLogs && callLogs.length > 0) {
-          diagnostic += `Sample call_ids: ${callLogs.map(log => log.call_id).join(', ')}\n\n`
+          diagnostic += `Sample call_ids: ${callLogs.map((log: any) => log.call_id).join(', ')}\n\n`
         }
       }
 
       // Check metrics logs table  
-      const { data: metricsLogs, error: metricsError } = await supabase
-        .from('pype_voice_metrics_logs')
-        .select('session_id, user_transcript, agent_response')
-        .limit(5)
+      const metricsLogsResponse = await fetch('/api/metrics-logs?limit=5')
+      const metricsLogsResult = await metricsLogsResponse.json()
+      const metricsLogs = metricsLogsResult.data
 
-      if (metricsError) {
-        diagnostic += `❌ Metrics Logs Error: ${metricsError.message}\n\n`
+      if (!metricsLogsResponse.ok) {
+        diagnostic += `❌ Metrics Logs Error: ${metricsLogsResult.error}\n\n`
       } else {
         diagnostic += `✅ Metrics Logs Found: ${metricsLogs?.length || 0} entries\n`
         if (metricsLogs && metricsLogs.length > 0) {
-          diagnostic += `Sample session_ids: ${metricsLogs.map(log => log.session_id).join(', ')}\n`
-          diagnostic += `Has transcript data: ${metricsLogs.some(log => log.user_transcript || log.agent_response)}\n\n`
+          diagnostic += `Sample session_ids: ${metricsLogs.map((log: any) => log.session_id).join(', ')}\n`
+          diagnostic += `Has transcript data: ${metricsLogs.some((log: any) => log.user_transcript || log.agent_response)}\n\n`
         }
       }
 
@@ -499,9 +489,9 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
 
       // Try to find a relationship
       if (callLogs && metricsLogs && callLogs.length > 0 && metricsLogs.length > 0) {
-        const callLogIds = callLogs.map(log => log.id)
-        const sessionIds = metricsLogs.map(log => log.session_id)
-        const matches = callLogIds.filter(id => sessionIds.includes(id))
+        const callLogIds = callLogs.map((log: any) => log.id)
+        const sessionIds = metricsLogs.map((log: any) => log.session_id)
+        const matches = callLogIds.filter((id: any) => sessionIds.includes(id))
         diagnostic += `🔗 Found ${matches.length} matching relationships between call_logs.id and metrics_logs.session_id\n`
         if (matches.length > 0) {
           diagnostic += `Matching IDs: ${matches.join(', ')}\n\n`
@@ -509,7 +499,7 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
       }
 
       diagnostic += `\n💡 Recommendations:\n`
-      if (callLogsError || metricsError) {
+      if (!callLogsResponse.ok || !metricsLogsResponse.ok) {
         diagnostic += `• Check database permissions and connection\n`
       }
       if (!callLogs || callLogs.length === 0) {
@@ -520,8 +510,8 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
       }
       if (results && results.length > 0 && callLogs && callLogs.length > 0) {
         const resultCallIds = results.map((r: any) => r.call_id)
-        const logCallIds = callLogs.map(log => log.call_id)
-        const overlap = resultCallIds.filter(id => logCallIds.includes(id))
+        const logCallIds = callLogs.map((log: any) => log.call_id)
+        const overlap = resultCallIds.filter((id: any) => logCallIds.includes(id))
         diagnostic += `• ${overlap.length}/${results.length} evaluation call_ids have matching call logs\n`
       }
 

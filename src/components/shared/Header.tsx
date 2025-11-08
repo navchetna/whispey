@@ -1,13 +1,13 @@
 // src/components/shared/Header.tsx
 "use client"
 
-import { UserButton, SignedIn, useUser } from "@clerk/clerk-react";
+import { useLocalUser, clearLocalUser } from "@/lib/local-auth";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Mic, Bell, Search, Settings, BarChart3, Users, FileText, Zap, ChevronDown, HelpCircle, Command, ChevronRight, Slash, BookOpen, Github } from 'lucide-react';
+import { Mic, Bell, Search, Settings, BarChart3, Users, FileText, Zap, ChevronDown, HelpCircle, Command, ChevronRight, Slash, BookOpen, Github, LogOut } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { useEffect, useState } from "react";
 import { GitHubStarsButton } from "../GithubLink";
@@ -22,7 +22,8 @@ interface HeaderProps {
 
 function Header({ breadcrumb, isLoading }: HeaderProps) {
   const pathname = usePathname();
-  const { user, isLoaded } = useUser();
+  const router = useRouter();
+  const { user, isLoaded } = useLocalUser();
   const [breadcrumbState, setBreadcrumbState] = useState<{
     project?: string;
     item?: string;
@@ -50,11 +51,10 @@ function Header({ breadcrumb, isLoading }: HeaderProps) {
   }, []);
 
   const getUserDisplayName = () => {
-    if (user?.fullName) return user.fullName;
     if (user?.firstName && user?.lastName) return `${user.firstName} ${user.lastName}`;
     if (user?.firstName) return user.firstName;
-    if (user?.emailAddresses?.[0]?.emailAddress) {
-      return user.emailAddresses[0].emailAddress.split('@')[0];
+    if (user?.email) {
+      return user.email.split('@')[0];
     }
     return 'User';
   };
@@ -212,40 +212,41 @@ function Header({ breadcrumb, isLoading }: HeaderProps) {
                   </div>
                 </>
               ) : (
-                // Only show actual content after hydration AND Clerk is loaded
-                <SignedIn>
-                  <div className="hidden sm:flex flex-col items-end">
-                    <p className="text-sm font-semibold text-gray-900 leading-none">{getUserDisplayName()}</p>
-                  </div>
-                  
-                  <div className="relative">
-                    <UserButton 
-                      appearance={{
-                        elements: {
-                          avatarBox: "w-9 h-9 ring-2 ring-gray-100 hover:ring-blue-200 transition-all duration-200 shadow-sm hover:shadow-md",
-                          userButtonPopoverCard: "shadow-2xl border border-gray-100 rounded-2xl backdrop-blur-sm bg-white/95",
-                          userButtonPopoverActionButton: "hover:bg-gray-50 rounded-xl transition-all duration-200 mx-1",
-                          userButtonPopoverActionButtonText: "text-gray-700 font-medium",
-                          userButtonPopoverFooter: "hidden",
-                          userButtonPopoverActions: "p-2"
-                        }
-                      }}
-                      userProfileProps={{
-                        appearance: {
-                          elements: {
-                            card: "shadow-2xl border border-gray-100 rounded-2xl",
-                            navbar: "bg-gray-50/80 rounded-t-2xl border-b border-gray-100",
-                            navbarButton: "text-gray-600 hover:text-gray-900 font-semibold transition-colors",
-                            headerTitle: "text-gray-900 font-bold text-lg",
-                            headerSubtitle: "text-gray-600 font-medium"
-                          }
-                        }
-                      }}
-                    />
-                    {/* Online Status Indicator */}
-                    <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white shadow-sm"></div>
-                  </div>
-                </SignedIn>
+                // Only show actual content after hydration AND auth is loaded
+                user && (
+                  <>
+                    <div className="hidden sm:flex flex-col items-end">
+                      <p className="text-sm font-semibold text-gray-900 leading-none">{getUserDisplayName()}</p>
+                    </div>
+                    
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" className="relative h-9 w-9 rounded-full ring-2 ring-gray-100 hover:ring-blue-200 transition-all duration-200 shadow-sm hover:shadow-md">
+                          <div className="w-9 h-9 bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold">
+                            {user.firstName?.[0] || user.email?.[0]?.toUpperCase() || 'A'}
+                          </div>
+                          <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white shadow-sm"></div>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent className="w-56" align="end" forceMount>
+                        <DropdownMenuItem className="font-normal">
+                          <div className="flex flex-col space-y-1">
+                            <p className="text-sm font-medium leading-none">{getUserDisplayName()}</p>
+                            <p className="text-xs leading-none text-muted-foreground">{user.email}</p>
+                          </div>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => {
+                          clearLocalUser();
+                          router.push('/');
+                        }}>
+                          <LogOut className="mr-2 h-4 w-4" />
+                          Sign out
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </>
+                )
               )}
             </div>
           </div>

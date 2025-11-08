@@ -1,8 +1,9 @@
+import 'server-only'
+
 // lib/user-data.ts
-import { supabase } from '../lib/supabase'
-import { auth, currentUser } from '@clerk/nextjs/server'
-
-
+import { DatabaseService } from '@/lib/database'
+import { auth, currentUser } from '@/lib/auth-server'
+import { query } from '@/lib/postgres'
 
 export interface PyveVoiceUser {
   id?: number
@@ -27,17 +28,16 @@ export async function getCurrentUserProfile(): Promise<{
       return { data: null, error: 'Not authenticated' }
     }
     
-    const { data, error } = await supabase
-      .from('pype_voice_users')
-      .select('*')
-      .eq('clerk_id', userId)
-      .single()
+    const result = await query(
+      'SELECT * FROM pype_voice_users WHERE clerk_id = $1 LIMIT 1',
+      [userId]
+    )
       
-    if (error) {
-      return { data: null, error: error.message }
+    if (result.rows.length === 0) {
+      return { data: null, error: 'User not found' }
     }
     
-    return { data: data as PyveVoiceUser, error: null }
+    return { data: result.rows[0] as PyveVoiceUser, error: null }
   } catch (error) {
     return { 
       data: null, 

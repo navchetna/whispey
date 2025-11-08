@@ -1,14 +1,9 @@
 // src/app/api/projects/[id]/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { auth } from '@clerk/nextjs/server'
+import { query } from "@/lib/postgres"
+import { auth, currentUser } from "@/lib/auth-server"
 import crypto from 'crypto'
 import { createProjectApiKey } from '@/lib/api-key-management'
-
-// Create Supabase client for server-side operations
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 // Generate a secure API token
 function generateApiToken(): string {
@@ -48,25 +43,23 @@ export async function PUT(
       }
 
       // Update the project with new name and description
-      const { data, error } = await supabase
-        .from('pype_voice_projects')
-        .update({ 
-          name: name.trim(),
-          description: description?.trim() || null,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', projectId)
-        .select('*')
-        .single()
+      const result = await query(
+        `UPDATE pype_voice_projects 
+         SET name = $1, description = $2, updated_at = $3 
+         WHERE id = $4 
+         RETURNING *`,
+        [name.trim(), description?.trim() || null, new Date().toISOString(), projectId]
+      )
 
-      if (error) {
-        console.error('Error updating project:', error)
+      if (result.rows.length === 0) {
+        console.error('Error updating project: No rows returned')
         return NextResponse.json(
           { error: 'Failed to update project' },
           { status: 500 }
         )
       }
 
+      const data = result.rows[0]
       console.log(`Successfully updated project "${data.name}"`)
       return NextResponse.json(data, { status: 200 })
     }
@@ -77,20 +70,23 @@ export async function PUT(
       const newHashedToken = hashToken(newApiToken)
 
       // Update the project with the new hashed token
-      const { data, error } = await supabase
-        .from('pype_voice_projects')
-        .update({ token_hash: newHashedToken })
-        .eq('id', projectId)
-        .select('*')
-        .single()
+      const result = await query(
+        `UPDATE pype_voice_projects 
+         SET token_hash = $1 
+         WHERE id = $2 
+         RETURNING *`,
+        [newHashedToken, projectId]
+      )
 
-      if (error) {
-        console.error('Error regenerating project token:', error)
+      if (result.rows.length === 0) {
+        console.error('Error regenerating project token: No rows returned')
         return NextResponse.json(
           { error: 'Failed to regenerate token' },
           { status: 500 }
         )
       }
+
+      const data = result.rows[0]
 
       // Also store/update in new table (dual storage for regeneration)
       try {
@@ -172,21 +168,23 @@ export async function PATCH(
     }
 
     // Update the project with retry configuration
-    const { data, error } = await supabase
-      .from('pype_voice_projects')
-      .update({ retry_configuration })
-      .eq('id', projectId)
-      .select('*')
-      .single()
+    const result = await query(
+      `UPDATE pype_voice_projects 
+       SET retry_configuration = $1 
+       WHERE id = $2 
+       RETURNING *`,
+      [JSON.stringify(retry_configuration), projectId]
+    )
 
-    if (error) {
-      console.error('Error updating project:', error)
+    if (result.rows.length === 0) {
+      console.error('Error updating project: No rows returned')
       return NextResponse.json(
         { error: 'Failed to update project' },
         { status: 500 }
       )
     }
 
+    const data = result.rows[0]
     console.log(`Successfully updated retry configuration for project "${data.name}"`)
     return NextResponse.json(data, { status: 200 })
 
@@ -217,82 +215,48 @@ export async function DELETE(
     console.log(`Starting cascade delete for project: ${projectId}`)
 
     // 1. Get all agents for this project first
-    const { data: agents, error: agentsError } = await supabase
-      .from('pype_voice_agents')
-      .select('id')
-      .eq('project_id', projectId)
+    const agentsResult = await query(
+      'SELECT id FROM pype_voice_agents WHERE project_id = $1',
+      [projectId]
+    )
 
-    if (agentsError) {
-      console.error('Error fetching agents:', agentsError)
-      return NextResponse.json(
-        { error: 'Failed to fetch project agents' },
-        { status: 500 }
-      )
-    }
-
-    const agentIds = agents?.map((agent: { id: string }) => agent.id) || []
+    const agentIds = agentsResult.rows.map((agent: { id: string }) => agent.id)
     console.log(`Found ${agentIds.length} agents to clean up`)
 
     // 2. Delete call logs for all agents in this project
     if (agentIds.length > 0) {
-      const { error: callLogsError } = await supabase
-        .from('pype_voice_call_logs')
-        .delete()
-        .in('agent_id', agentIds)
-
-      if (callLogsError) {
-        console.error('Error deleting call logs:', callLogsError)
-        return NextResponse.json(
-          { error: 'Failed to delete call logs' },
-          { status: 500 }
-        )
-      }
+      const callLogsResult = await query(
+        'DELETE FROM pype_voice_call_logs WHERE agent_id = ANY($1::uuid[])',
+        [agentIds]
+      )
       console.log('Successfully deleted call logs')
 
       // 3. Delete metrics logs (adjust based on your schema relationships)
-      const { error: metricsError } = await supabase
-        .from('pype_voice_metrics_logs')
-        .delete()
-        .in('session_id', agentIds) // Adjust this field based on your actual schema
-
-      // Don't fail if metrics logs have different relationships
-      if (metricsError) {
-        console.warn('Warning: Could not delete metrics logs:', metricsError)
-      } else {
+      try {
+        await query(
+          'DELETE FROM pype_voice_metrics_logs WHERE session_id = ANY($1::uuid[])',
+          [agentIds]
+        )
         console.log('Successfully deleted metrics logs')
+      } catch (metricsError) {
+        console.warn('Warning: Could not delete metrics logs:', metricsError)
       }
     }
 
     console.log('Successfully deleted auth tokens')
 
     // 5. Delete all agents for this project
-    const { error: agentsDeleteError } = await supabase
-      .from('pype_voice_agents')
-      .delete()
-      .eq('project_id', projectId)
-
-    if (agentsDeleteError) {
-      console.error('Error deleting agents:', agentsDeleteError)
-      return NextResponse.json(
-        { error: 'Failed to delete agents' },
-        { status: 500 }
-      )
-    }
+    await query(
+      'DELETE FROM pype_voice_agents WHERE project_id = $1',
+      [projectId]
+    )
     console.log('Successfully deleted agents')
 
     // 6. Finally, delete the project itself (CASCADE will handle pype_voice_api_keys)
-    const { error: projectError } = await supabase
-      .from('pype_voice_projects')
-      .delete()
-      .eq('id', projectId)
-
-    if (projectError) {
-      console.error('Error deleting project:', projectError)
-      return NextResponse.json(
-        { error: 'Failed to delete project' },
-        { status: 500 }
-      )
-    }
+    const projectResult = await query(
+      'DELETE FROM pype_voice_projects WHERE id = $1',
+      [projectId]
+    )
     
     console.log(`Successfully deleted project: ${projectId}`)
 

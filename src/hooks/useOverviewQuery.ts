@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
+import { query } from '../lib/postgres'
 
 interface OverviewData {
   totalCalls: number
@@ -34,50 +34,32 @@ export const useOverviewQuery = ({ agentId, dateFrom, dateTo }: UseOverviewQuery
         setLoading(true)
         setError(null)
     
-        // 🔄 Call the PostgreSQL function to refresh the materialized view
-        const { error: refreshError } = await supabase.rpc('refresh_call_summary')
-        if (refreshError) throw refreshError
-
-    
-        // ✅ Then query the refreshed materialized view
-        const { data: dailyStats, error: queryError } = await supabase
-          .from('call_summary_materialized')
-          .select(`
-            call_date,
-            calls,
-            total_minutes,
-            avg_latency,
-            unique_customers,
-            successful_calls,
-            success_rate,
-            total_cost
-          `)
-          .eq('agent_id', agentId)
-          .gte('call_date', dateFrom)
-          .lte('call_date', dateTo)
-          .order('call_date', { ascending: true })
-            
-
-        if (queryError) throw queryError
-            
+        // Fetch overview data via API
+        const response = await fetch(`/api/overview?agentId=${agentId}&dateFrom=${dateFrom}&dateTo=${dateTo}`)
         
-        const totalCalls = dailyStats?.reduce((sum, day) => sum + day.calls, 0) || 0
-        const successfulCalls = dailyStats?.reduce((sum, day) => sum + day.successful_calls, 0) || 0
-        const totalCost = dailyStats?.reduce((sum, day) => sum + day.total_cost, 0) || 0
+        if (!response.ok) {
+          throw new Error('Failed to fetch overview data')
+        }
+
+        const { data: dailyStats } = await response.json()
+            
+        const totalCalls = dailyStats?.reduce((sum: number, day: any) => sum + day.calls, 0) || 0
+        const successfulCalls = dailyStats?.reduce((sum: number, day: any) => sum + day.successful_calls, 0) || 0
+        const totalCost = dailyStats?.reduce((sum: number, day: any) => sum + day.total_cost, 0) || 0
 
 
     
         const typedData: OverviewData = {
           totalCalls,
           totalCost,
-          totalMinutes: dailyStats?.reduce((sum, day) => sum + day.total_minutes, 0) || 0,
+          totalMinutes: dailyStats?.reduce((sum: number, day: any) => sum + day.total_minutes, 0) || 0,
           successfulCalls,
           successRate: totalCalls > 0 ? (successfulCalls / totalCalls) * 100 : 0,
           averageLatency: dailyStats && dailyStats.length > 0
-            ? dailyStats.reduce((sum, day) => sum + day.avg_latency, 0) / dailyStats.length
+            ? dailyStats.reduce((sum: number, day: any) => sum + day.avg_latency, 0) / dailyStats.length
             : 0,
-          uniqueCustomers: dailyStats?.reduce((sum, day) => sum + day.unique_customers, 0) || 0,
-          dailyData: dailyStats?.map(day => ({
+          uniqueCustomers: dailyStats?.reduce((sum: number, day: any) => sum + day.unique_customers, 0) || 0,
+          dailyData: dailyStats?.map((day: any) => ({
             date: day.call_date,
             dateKey: day.call_date,
             calls: day.calls,

@@ -1,7 +1,7 @@
 // src/app/layout.tsx
 import { type Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
-import { ThemeProvider } from 'next-themes'
+import { ThemeProviderWrapper } from '@/components/ThemeProviderWrapper'
 import { FeatureAccessProvider } from './providers/FeatureAccessProvider'
 import { QueryProvider } from './providers/QueryProvider'
 import './globals.css'
@@ -34,7 +34,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
         suppressHydrationWarning
       >
-        <ThemeProvider
+        <ThemeProviderWrapper
           attribute="class"
           defaultTheme="system"
           enableSystem
@@ -47,7 +47,7 @@ export default function RootLayout({
               </SidebarWrapper>
             </FeatureAccessProvider>
           </QueryProvider>
-        </ThemeProvider>
+        </ThemeProviderWrapper>
       </body>
     </html>
   )

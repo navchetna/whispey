@@ -1,28 +1,23 @@
 // app/api/call-logs/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { query } from "@/lib/postgres"
 import crypto from 'crypto'
-
-// Create Supabase client for server-side operations
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 // Helper function to verify token
 const verifyToken = async (token: string, environment = 'dev') => {
   try {
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex')
 
-    const { data: authToken, error } = await supabase
-      .from('pype_voice_projects')
-      .select('*')
-      .eq('token_hash', tokenHash)
-      .single()
+    const result = await query(
+      'SELECT * FROM pype_voice_projects WHERE token_hash = $1',
+      [tokenHash]
+    )
 
-    if (error || !authToken) {
+    if (result.rows.length === 0) {
       return { valid: false, error: 'Invalid or expired token' }
     }
 
+    const authToken = result.rows[0]
     return { 
       valid: true, 
       token: authToken,
@@ -119,7 +114,7 @@ export async function POST(request: NextRequest) {
 
     console.log("calculated avgLatency", avgLatency)
 
-    // Prepare log data for Supabase
+    // Prepare log data for database
     const logData = {
       call_id,
       agent_id,
@@ -139,26 +134,38 @@ export async function POST(request: NextRequest) {
       created_at: new Date().toISOString()
     }
 
-    // Insert log into Supabase
-    const { data: insertedLog, error: insertError } = await supabase
-      .from('pype_voice_call_logs')
-      .insert(logData)
-      .select()
-      .single()
+    // Insert log into database
+    const insertResult = await query(
+      `INSERT INTO pype_voice_call_logs 
+       (call_id, agent_id, customer_number, call_ended_reason, transcript_type, 
+        transcript_json, avg_latency, metadata, dynamic_variables, environment, 
+        call_started_at, call_ended_at, recording_url, duration_seconds, 
+        voice_recording_url, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+       RETURNING *`,
+      [
+        call_id, agent_id, customer_number, call_ended_reason, transcript_type,
+        JSON.stringify(transcript_json), avgLatency, JSON.stringify(metadata),
+        JSON.stringify(dynamic_variables), environment, call_started_at, call_ended_at,
+        recording_url, duration_seconds, voice_recording_url, logData.created_at
+      ]
+    )
 
-    if (insertError) {
-      console.error('Database insert error:', insertError)
+    if (insertResult.rows.length === 0) {
+      console.error('Database insert error: No rows returned')
       return NextResponse.json(
         { error: 'Failed to save call log' },
         { status: 500 }
       )
     }
 
+    const insertedLog = insertResult.rows[0]
+
     // Process metrics and insert into ClickHouse
     if (transcript_with_metrics && Array.isArray(transcript_with_metrics)) {
 
-      // Also insert into Supabase for backup/compatibility
-      const conversationTurns = transcript_with_metrics.map(turn => ({
+      // Also insert into database for backup/compatibility
+      const conversationTurns = transcript_with_metrics.map((turn: any) => ({
         session_id: insertedLog.id,  
         turn_id: turn.turn_id,
         user_transcript: turn.user_transcript || '',
@@ -176,15 +183,27 @@ export async function POST(request: NextRequest) {
         unix_timestamp: turn.timestamp
       }))
  
-      // Insert all conversation turns to Supabase
-      const { error: turnsError } = await supabase
-        .from('pype_voice_metrics_logs')
-        .insert(conversationTurns)
- 
-      if (turnsError) {
-        console.error('Error inserting conversation turns to Supabase:', turnsError)
-      } else {
-        console.log(`Inserted ${conversationTurns.length} conversation turns to Supabase`)
+      // Insert all conversation turns to database
+      try {
+        for (const turn of conversationTurns) {
+          await query(
+            `INSERT INTO pype_voice_metrics_logs 
+             (session_id, turn_id, user_transcript, agent_response, stt_metrics, 
+              llm_metrics, tts_metrics, eou_metrics, lesson_day, phone_number, 
+              call_duration, call_success, lesson_completed, created_at, unix_timestamp)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+            [
+              turn.session_id, turn.turn_id, turn.user_transcript, turn.agent_response,
+              JSON.stringify(turn.stt_metrics), JSON.stringify(turn.llm_metrics),
+              JSON.stringify(turn.tts_metrics), JSON.stringify(turn.eou_metrics),
+              turn.lesson_day, turn.phone_number, turn.call_duration, turn.call_success,
+              turn.lesson_completed, turn.created_at, turn.unix_timestamp
+            ]
+          )
+        }
+        console.log(`Inserted ${conversationTurns.length} conversation turns to database`)
+      } catch (turnsError) {
+        console.error('Error inserting conversation turns to database:', turnsError)
       }
     }
 

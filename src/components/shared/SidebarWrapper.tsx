@@ -2,15 +2,15 @@
 
 import { usePathname } from 'next/navigation'
 import { ReactNode, useEffect, useState } from 'react'
-import { useUser } from '@clerk/nextjs'
+import { useLocalUser } from '@/lib/local-auth'
 import { useMobile } from '@/hooks/use-mobile'
-import { useSupabaseQuery } from '@/hooks/useSupabase'
-import { canViewApiKeys, getUserProjectRole } from '@/services/getUserRole'
+import { canViewApiKeys } from '@/lib/permissions'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet'
 import { Menu } from 'lucide-react'
 import Sidebar from './Sidebar'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
+import { useApiQuery } from '@/hooks/useApi'
 
 interface SidebarWrapperProps {
   children: ReactNode
@@ -341,40 +341,38 @@ const getSidebarConfig = (
 
 export default function SidebarWrapper({ children }: SidebarWrapperProps) {
   const pathname = usePathname()
-  const { user } = useUser()
+  const { user } = useLocalUser()
   
   const { isMobile, mounted } = useMobile(768)
-  const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(false)
+  // Initialize state from localStorage only on client to avoid hydration mismatch
+  const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const savedState = localStorage.getItem('voice-evals-sidebar-collapsed')
+      return savedState !== null ? JSON.parse(savedState) : false
+    }
+    return false
+  })
   const [userCanViewApiKeys, setUserCanViewApiKeys] = useState<boolean>(false)
   const [permissionsLoading, setPermissionsLoading] = useState<boolean>(true)
   
   const projectId = pathname.match(/^\/([^/]+)/)?.[1]
   const agentId = pathname.match(/^\/[^/]+\/agents\/([^/?]+)/)?.[1]
   
-  const { data: projects } = useSupabaseQuery('pype_voice_projects', 
+  const { data: projects } = useApiQuery('pype_voice_projects', 
     projectId && projectId !== 'sign' && projectId !== 'docs' ? {
       select: 'id, name',
       filters: [{ column: 'id', operator: 'eq', value: projectId }]
-    } : null
+    } : {}
   )
 
-  const { data: agents } = useSupabaseQuery('pype_voice_agents', 
+  const { data: agents } = useApiQuery('pype_voice_agents', 
     agentId && projectId && projectId !== 'sign' && projectId !== 'docs' ? {
       select: 'id, agent_type',
       filters: [{ column: 'id', operator: 'eq', value: agentId }]
-    } : null
+    } : {}
   )
   
-  // Load collapse preference
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const savedState = localStorage.getItem('voice-evals-sidebar-collapsed')
-      if (savedState !== null) {
-        setIsDesktopCollapsed(JSON.parse(savedState))
-      }
-    }
-  }, [])
-
+  // Save collapse preference to localStorage
   const handleDesktopToggle = () => {
     const newState = !isDesktopCollapsed
     setIsDesktopCollapsed(newState)
@@ -386,13 +384,19 @@ export default function SidebarWrapper({ children }: SidebarWrapperProps) {
   // Fetch user role and permissions (keep your existing logic)
   useEffect(() => {
     const fetchUserRole = async () => {
-      if (!user?.emailAddresses?.[0]?.emailAddress || !projectId || projectId === 'sign' || projectId === 'docs') {
+      if (!user?.email || !projectId || projectId === 'sign' || projectId === 'docs') {
         setPermissionsLoading(false)
         return
       }
 
       try {
-        const { role } = await getUserProjectRole(user.emailAddresses[0].emailAddress, projectId)
+        const response = await fetch(`/api/user/role?email=${encodeURIComponent(user.email)}&projectId=${encodeURIComponent(projectId)}`)
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch user role')
+        }
+        
+        const { role } = await response.json()
         setUserCanViewApiKeys(canViewApiKeys(role))
       } catch (error) {
         setUserCanViewApiKeys(false)
@@ -417,8 +421,28 @@ export default function SidebarWrapper({ children }: SidebarWrapperProps) {
   
   const sidebarConfig = getSidebarConfig(pathname, sidebarContext)
 
-  if (!sidebarConfig || !mounted) {
+  if (!sidebarConfig) {
     return <div className="min-h-screen">{children}</div>
+  }
+
+  // Prevent hydration mismatch by rendering consistent content until mounted
+  if (!mounted) {
+    return (
+      <div className="h-screen flex">
+        <div className="relative">
+          <Sidebar 
+            config={sidebarConfig} 
+            currentPath={pathname}
+            isCollapsed={isDesktopCollapsed}
+            onToggleCollapse={handleDesktopToggle}
+            isMobile={false}
+          />
+        </div>
+        <main className="flex-1 overflow-auto">
+          {children}
+        </main>
+      </div>
+    )
   }
 
   return (

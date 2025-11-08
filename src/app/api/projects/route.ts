@@ -1,14 +1,9 @@
 // app/api/projects/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { auth, currentUser } from '@clerk/nextjs/server'
+import { query } from "@/lib/postgres"
+import { auth, currentUser } from '@/lib/auth-server'
 import crypto from 'crypto'
 import { createProjectApiKey } from '@/lib/api-key-management'
-
-// Create Supabase client for server-side operations (use service role for admin operations)
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
 // Generate a secure API token
 function generateApiToken(): string {
@@ -62,24 +57,35 @@ export async function POST(request: NextRequest) {
       environment: 'dev', // Default environment
       is_active: true,
       retry_configuration: {},
-      token_hash: hashedToken,
-      owner_clerk_id: userId // Add owner reference
+      token_hash: hashedToken
     }
 
     // Start a transaction-like approach
-    const { data: project, error: projectError } = await supabase
-      .from('pype_voice_projects')
-      .insert([projectData])
-      .select('*')
-      .single()
+    // For on-premise deployment, owner_user_id can be NULL or we auto-generate it
+    const projectResult = await query(
+      `INSERT INTO pype_voice_projects 
+        (name, description, environment, is_active, retry_configuration, token_hash, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+       RETURNING *`,
+      [
+        projectData.name,
+        projectData.description,
+        projectData.environment,
+        projectData.is_active,
+        JSON.stringify(projectData.retry_configuration),
+        projectData.token_hash
+      ]
+    )
 
-    if (projectError) {
-      console.error('Error creating project:', projectError)
+    if (projectResult.rows.length === 0) {
+      console.error('Error creating project')
       return NextResponse.json(
         { error: 'Failed to create project' },
         { status: 500 }
       )
     }
+
+    const project = projectResult.rows[0]
 
     console.log(`Successfully created project "${project.name}" with ID ${project.id}`)
 
@@ -97,32 +103,9 @@ export async function POST(request: NextRequest) {
       // Continue - the old system still works
     }
 
-    // Add creator to email_project_mapping as owner
-    const userEmail = user.emailAddresses[0]?.emailAddress
-    if (userEmail) {
-      const { error: mappingError } = await supabase
-        .from('pype_voice_email_project_mapping')
-        .insert({
-          email: userEmail,
-          project_id: project.id,
-          role: 'owner',
-          permissions: {
-            read: true,
-            write: true,
-            delete: true,
-            admin: true
-          },
-          added_by_clerk_id: userId
-        })
-
-      if (mappingError) {
-        console.error('Error adding creator to email mapping:', mappingError)
-        // Don't fail the whole operation, just log the error
-        // The user will still be added via the webhook when they sign up
-      } else {
-        console.log(`Added creator ${userEmail} to email mapping for project ${project.id}`)
-      }
-    }
+    // For on-premise deployment, we don't use email_project_mapping
+    // All users have admin access to all projects
+    console.log(`Project ${project.id} created successfully - on-premise mode`)
 
     // Return project data with the unhashed token
     const response = {
@@ -143,51 +126,61 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = new URL(request.url)
+    const projectId = searchParams.get('id')
+    const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined
+    const offset = searchParams.get('offset') ? parseInt(searchParams.get('offset')!) : 0
+    
     const { userId } = await auth()
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const user = await currentUser()
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    // For on-premise deployment, we don't use email-project mapping
+    // Just return all active projects
+
+    // If specific project ID requested
+    if (projectId) {
+      const result = await query(
+        `SELECT id, name, description, environment, is_active, owner_user_id, created_at
+         FROM pype_voice_projects
+         WHERE id = $1 AND is_active = true`,
+        [projectId]
+      )
+      
+      if (result.rows.length === 0) {
+        return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+      }
+      
+      return NextResponse.json({ data: result.rows }, { status: 200 })
     }
 
-    const userEmail = user.emailAddresses[0]?.emailAddress
-    if (!userEmail) {
-      return NextResponse.json({ error: 'User email not found' }, { status: 400 })
-    }
+    // Fetch all active projects
+    const limitClause = limit ? `LIMIT ${limit}` : ''
+    const offsetClause = offset > 0 ? `OFFSET ${offset}` : ''
+    
+    const projectsResult = await query(
+      `SELECT id, name, description, environment, is_active, owner_user_id, created_at
+       FROM pype_voice_projects
+       WHERE is_active = true
+       ORDER BY created_at DESC
+       ${limitClause} ${offsetClause}`,
+      []
+    )
 
-    // Fetch projects linked to user email
-    const { data: projectMappings, error } = await supabase
-      .from('pype_voice_email_project_mapping')
-      .select(`
-        project:pype_voice_projects (
-          id,
-          name,
-          description,
-          environment,
-          is_active,
-          owner_clerk_id,
-          created_at
-        ),
-        role
-      `)
-      .eq('email', userEmail)
+    // Return all active projects with admin role for on-premise
+    const activeProjects = projectsResult.rows.map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      environment: row.environment,
+      is_active: row.is_active,
+      owner_user_id: row.owner_user_id,
+      created_at: row.created_at,
+      user_role: 'admin' // For on-premise, all users are admin
+    }))
 
-    if (error) {
-      console.error('Error fetching projects:', error)
-      return NextResponse.json({ error: 'Failed to fetch projects' }, { status: 500 })
-    }
-
-    // Return only active projects with user role included
-    const activeProjects = projectMappings
-      .map(mapping => ({
-        ...mapping.project,
-        user_role: mapping.role
-      }))
-
-    return NextResponse.json(activeProjects, { status: 200 })
+    return NextResponse.json({ data: activeProjects, count: activeProjects.length }, { status: 200 })
 
   } catch (error) {
     console.error('Unexpected error fetching projects:', error)

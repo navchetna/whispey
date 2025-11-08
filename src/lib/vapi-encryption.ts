@@ -1,10 +1,7 @@
 // src/lib/vapi-encryption.ts
 import crypto from 'crypto'
-import { createClient } from '@supabase/supabase-js'
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+import { DatabaseService } from "@/lib/database"
+import { query } from "@/lib/postgres"
 
 // Get master key from environment
 const VAPI_MASTER_KEY = process.env.VAPI_MASTER_KEY
@@ -140,15 +137,18 @@ export async function getDecryptedVapiKeys(agentId: string): Promise<{
   apiKey: string
   projectApiKey: string
 }> {
-  const { data: agent, error } = await supabase
-    .from('pype_voice_agents')
-    .select('vapi_api_key_encrypted, vapi_project_key_encrypted, project_id')
-    .eq('id', agentId)
-    .single()
+  const result = await query(
+    `SELECT vapi_api_key_encrypted, vapi_project_key_encrypted, project_id 
+     FROM pype_voice_agents 
+     WHERE id = $1`,
+    [agentId]
+  )
 
-  if (error || !agent) {
+  if (result.rows.length === 0) {
     throw new Error('Agent not found')
   }
+
+  const agent = result.rows[0]
 
   if (!agent.vapi_api_key_encrypted || !agent.vapi_project_key_encrypted) {
     throw new Error('Vapi keys not found for this agent')

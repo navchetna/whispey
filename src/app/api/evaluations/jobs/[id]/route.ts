@@ -1,12 +1,7 @@
 // app/api/evaluations/jobs/[id]/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { auth } from '@clerk/nextjs/server'
-
-// Create Supabase client for server-side operations
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
+import { query } from "@/lib/postgres"
+import { auth } from '@/lib/auth-server'
 
 export async function GET(
   request: NextRequest,
@@ -32,26 +27,19 @@ export async function GET(
     }
 
     // Get job details
-    const { data: job, error } = await supabase
-      .from('pype_voice_evaluation_jobs')
-      .select('*')
-      .eq('id', jobId)
-      .single()
+    const jobResult = await query(
+      'SELECT * FROM pype_voice_evaluation_jobs WHERE id = $1',
+      [jobId]
+    )
 
-    if (error) {
-      console.error('Database error:', error)
-      return NextResponse.json(
-        { error: 'Failed to fetch job details' },
-        { status: 500 }
-      )
-    }
-
-    if (!job) {
+    if (jobResult.rows.length === 0) {
       return NextResponse.json(
         { error: 'Job not found' },
         { status: 404 }
       )
     }
+
+    const job = jobResult.rows[0]
 
     return NextResponse.json({
       success: true,
@@ -91,18 +79,19 @@ export async function DELETE(
     }
 
     // Check if job exists and get its status
-    const { data: existingJob, error: fetchError } = await supabase
-      .from('pype_voice_evaluation_jobs')
-      .select('id, name, status')
-      .eq('id', jobId)
-      .single()
+    const jobCheckResult = await query(
+      'SELECT id, name, status FROM pype_voice_evaluation_jobs WHERE id = $1',
+      [jobId]
+    )
 
-    if (fetchError || !existingJob) {
+    if (jobCheckResult.rows.length === 0) {
       return NextResponse.json(
         { error: 'Job not found' },
         { status: 404 }
       )
     }
+
+    const existingJob = jobCheckResult.rows[0]
 
     // Prevent deletion of running jobs
     if (existingJob.status === 'running') {
@@ -116,29 +105,16 @@ export async function DELETE(
     }
 
     // Delete associated evaluation results first (cascade delete)
-    const { error: resultsDeleteError } = await supabase
-      .from('pype_voice_evaluation_results')
-      .delete()
-      .eq('job_id', jobId)
-
-    if (resultsDeleteError) {
-      console.error('Error deleting evaluation results:', resultsDeleteError)
-      // Continue with job deletion even if results deletion fails
-    }
+    await query(
+      'DELETE FROM pype_voice_evaluation_results WHERE job_id = $1',
+      [jobId]
+    )
 
     // Delete the job
-    const { error: deleteError } = await supabase
-      .from('pype_voice_evaluation_jobs')
-      .delete()
-      .eq('id', jobId)
-
-    if (deleteError) {
-      console.error('Database error:', deleteError)
-      return NextResponse.json(
-        { error: 'Failed to delete job' },
-        { status: 500 }
-      )
-    }
+    await query(
+      'DELETE FROM pype_voice_evaluation_jobs WHERE id = $1',
+      [jobId]
+    )
 
     return NextResponse.json({
       success: true,

@@ -48,6 +48,8 @@ function CallbackComponent() {
 // Default export with Suspense boundary
 export default function CallbackPage() {
   return (
-    <CallbackComponent />
+    <Suspense fallback={<div style={{ padding: '2rem' }}>Loading...</div>}>
+      <CallbackComponent />
+    </Suspense>
   );
 }

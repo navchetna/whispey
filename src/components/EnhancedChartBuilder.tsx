@@ -1,6 +1,5 @@
 // Enhanced chart hook - COUNT with multi-line support
 import React, { useState, useEffect, createContext, useContext } from 'react'
-import { supabase } from '../lib/supabase'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -136,60 +135,27 @@ export const useCountChartData = (
         setLoading(true)
         setError(null)
 
-        let query: any
+        // Build API URL with query parameters
+        const params = new URLSearchParams({
+          agentId,
+          dateFrom,
+          dateTo,
+          source: config.source,
+          field: config.field
+        })
 
         if (config.filterValue) {
-          // SINGLE LINE: Filter for specific value, only need created_at
-          query = supabase
-            .from('pype_voice_call_logs')
-            .select('created_at')  // ✅ FIXED: Added .select()
-            .eq('agent_id', agentId)
-            .gte('created_at', `${dateFrom}T00:00:00`)
-            .lte('created_at', `${dateTo}T23:59:59`)
-          
-          if (config.source === 'table') {
-            query = query.eq(config.field, config.filterValue)
-          } else if (config.source === 'metadata') {
-            // Use text extraction for safe comparisons (avoids invalid JSON token errors)
-            query = query.eq(`metadata->>${config.field}`, config.filterValue)
-          } else if (config.source === 'transcription_metrics') {
-            // Use text extraction for safe comparisons
-            query = query.eq(`transcription_metrics->>${config.field}`, config.filterValue)
-          }
-        } else {
-          // MULTI-LINE: Need the actual field data to group by values
-          if (config.source === 'table') {
-            query = supabase
-              .from('pype_voice_call_logs')
-              .select(`created_at, ${config.field}`)  // ✅ FIXED: Added .select()
-              .eq('agent_id', agentId)
-              .gte('created_at', `${dateFrom}T00:00:00`)
-              .lte('created_at', `${dateTo}T23:59:59`)
-          } else if (config.source === 'metadata') {
-            query = supabase
-              .from('pype_voice_call_logs')
-              .select('created_at, metadata')  // ✅ FIXED: Added .select()
-              .eq('agent_id', agentId)
-              .gte('created_at', `${dateFrom}T00:00:00`)
-              .lte('created_at', `${dateTo}T23:59:59`)
-              .not(`metadata->${config.field}`, 'is', null)
-          } else if (config.source === 'transcription_metrics') {
-            query = supabase
-              .from('pype_voice_call_logs')
-              .select('created_at, transcription_metrics')  // ✅ FIXED: Added .select()
-              .eq('agent_id', agentId)
-              .gte('created_at', `${dateFrom}T00:00:00`)
-              .lte('created_at', `${dateTo}T23:59:59`)
-              .not(`transcription_metrics->${config.field}`, 'is', null)
-          }
+          params.append('filterValue', config.filterValue)
         }
 
-        const { data: records, error }: { data: DatabaseRecord[] | null, error: any } = await query
-
-        if (error) {
-          console.error('❌ Query error:', error)
-          throw error
+        // Fetch data from API
+        const response = await fetch(`/api/call-logs/chart-data?${params.toString()}`)
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch chart data')
         }
+
+        const { data: records }: { data: DatabaseRecord[] } = await response.json()
         
         if (!records || records.length === 0) {
           setData([])
@@ -356,38 +322,32 @@ export const useQuickFieldDiscovery = (agentId: string, dateFrom: string, dateTo
         setLoading(true)
 
         // Get transcription fields from agent configuration
-        const { data: agentData } = await supabase
-          .from('pype_voice_agents')
-          .select('field_extractor_keys')
-          .eq('id', agentId)
-          .single()
+        const agentResponse = await fetch(`/api/agents/${agentId}/fields`)
+        
+        if (!agentResponse.ok) {
+          throw new Error('Failed to fetch agent fields')
+        }
 
+        const agentData = await agentResponse.json()
 
         // Get metadata fields from sample data
-        const { data: sampleRecords } = await supabase
-          .from('pype_voice_call_logs')
-          .select('metadata')
-          .eq('agent_id', agentId)
-          .gte('created_at', `${dateFrom}T00:00:00`)
-          .lte('created_at', `${dateTo}T23:59:59`)
-          .not('metadata', 'is', null)
-          .limit(20)
-
-        // Extract metadata field names
-        const metadataKeys = new Set<string>()
-        sampleRecords?.forEach((record:any) => {
-          if (record.metadata && typeof record.metadata === 'object') {
-            Object.keys(record.metadata).forEach(key => {
-              if (key && record.metadata[key] != null) {
-                metadataKeys.add(key)
-              }
-            })
-          }
+        const metadataParams = new URLSearchParams({
+          agentId,
+          dateFrom,
+          dateTo
         })
 
+        const metadataResponse = await fetch(`/api/call-logs/fields?${metadataParams.toString()}`)
+        
+        if (!metadataResponse.ok) {
+          throw new Error('Failed to fetch metadata fields')
+        }
+
+        const metadataData = await metadataResponse.json()
+
         setFields({
-          metadata: Array.from(metadataKeys),
-          transcription_metrics: agentData?.field_extractor_keys || []
+          metadata: metadataData.metadata_fields || [],
+          transcription_metrics: agentData.field_extractor_keys || []
         })
       } catch (error) {
         console.error('Field discovery error:', error)

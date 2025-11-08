@@ -1,6 +1,7 @@
 // app/api/evaluations/fix-templates/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { query } from '@/lib/postgres'
+import { auth } from '@/lib/auth-server'
 import { fixPromptTemplates, validateAndFixPrompt } from '@/lib/evaluation/template-fixer'
 
 export async function POST(request: NextRequest) {

@@ -4,7 +4,8 @@ import React, { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AlertCircle, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useSupabaseQuery } from '../../../hooks/useSupabase'
+import { query } from '../../../lib/postgres'
+import { useSupabaseQuery } from '../../../hooks/useApi'
 import AgentToolbar from './AgentToolbar'
 import AgentList from '../AgentList'
 import AgentDeleteDialog from '../AgentDeleteDialog'
@@ -159,7 +160,7 @@ const AgentSelection: React.FC<AgentSelectionProps> = ({ projectId }) => {
             </div>
             <div>
               <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Unable to Load Monitoring</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1.5">{error}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1.5">{error?.message || 'An error occurred'}</p>
             </div>
             <Button 
               onClick={() => window.location.reload()} 

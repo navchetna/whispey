@@ -1,12 +1,8 @@
-import { createClient } from '@supabase/supabase-js'
+import { DatabaseService } from "@/lib/database"
+import { query } from "@/lib/postgres"
 import OpenAI from 'openai'
 
 // This would typically be run as a background job/worker
-
-// Create Supabase client for server-side operations
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
 // Type definitions
 interface EvaluationJob {
@@ -70,10 +66,8 @@ interface EvaluationResult {
   created_at?: string
 }
 export class EvaluationProcessor {
-  private supabase: any
 
   constructor() {
-    this.supabase = supabase
   }
 
   // Create LLM client based on provider configuration
@@ -263,15 +257,16 @@ export class EvaluationProcessor {
     
     try {
       // Get job details
-      const { data: job, error: jobError } = await this.supabase
-        .from('pype_voice_evaluation_jobs')
-        .select('*')
-        .eq('id', jobId)
-        .single() as { data: EvaluationJob | null, error: any }
+      const jobResult = await query(
+        'SELECT * FROM pype_voice_evaluation_jobs WHERE id = $1',
+        [jobId]
+      )
 
-      if (jobError || !job) {
-        throw new Error(`Failed to fetch job: ${jobError?.message}`)
+      if (jobResult.rows.length === 0) {
+        throw new Error('Failed to fetch job: Job not found')
       }
+
+      const job = jobResult.rows[0] as EvaluationJob
 
       console.log(`Job details:`, {
         id: job.id,
@@ -282,14 +277,16 @@ export class EvaluationProcessor {
       })
 
       // Get prompts for this job
-      const { data: prompts, error: promptsError } = await this.supabase
-        .from('pype_voice_evaluation_prompts')
-        .select('*')
-        .in('id', job.prompt_ids) as { data: EvaluationPrompt[] | null, error: any }
+      const promptsResult = await query(
+        'SELECT * FROM pype_voice_evaluation_prompts WHERE id = ANY($1::uuid[])',
+        [job.prompt_ids]
+      )
 
-      if (promptsError || !prompts) {
-        throw new Error(`Failed to fetch prompts: ${promptsError?.message}`)
+      if (promptsResult.rows.length === 0) {
+        throw new Error('Failed to fetch prompts: No prompts found')
       }
+
+      const prompts = promptsResult.rows as EvaluationPrompt[]
 
       console.log(`Found ${prompts.length} prompts for evaluation`)
       
@@ -312,29 +309,24 @@ export class EvaluationProcessor {
       if (callLogs.length === 0) {
         console.warn(`No call logs found for job ${jobId}. Check filters and data availability.`)
         // Mark job as completed but with zero traces
-        await this.supabase
-          .from('pype_voice_evaluation_jobs')
-          .update({ 
-            status: 'completed', 
-            completed_at: new Date().toISOString(),
-            total_traces: 0,
-            completed_traces: 0
-          })
-          .eq('id', jobId)
+        await query(
+          `UPDATE pype_voice_evaluation_jobs 
+           SET status = $1, completed_at = $2, total_traces = $3, completed_traces = $4
+           WHERE id = $5`,
+          ['completed', new Date().toISOString(), 0, 0, jobId]
+        )
         return []
       }
 
       console.log(`Found ${callLogs.length} call logs to evaluate`)
 
       // Update job status to running
-      await this.supabase
-        .from('pype_voice_evaluation_jobs')
-        .update({ 
-          status: 'running', 
-          started_at: new Date().toISOString(),
-          total_traces: callLogs.length 
-        })
-        .eq('id', jobId)
+      await query(
+        `UPDATE pype_voice_evaluation_jobs 
+         SET status = $1, started_at = $2, total_traces = $3
+         WHERE id = $4`,
+        ['running', new Date().toISOString(), callLogs.length, jobId]
+      )
 
       // Process each call log with each prompt
       const results: EvaluationResult[] = []
@@ -351,13 +343,12 @@ export class EvaluationProcessor {
             
             // Update progress
             if (completedCount % 5 === 0) { // Update every 5 evaluations
-              await this.supabase
-                .from('pype_voice_evaluation_jobs')
-                .update({ 
-                  completed_traces: completedCount,
-                  failed_traces: failedCount
-                })
-                .eq('id', jobId)
+              await query(
+                `UPDATE pype_voice_evaluation_jobs 
+                 SET completed_traces = $1, failed_traces = $2
+                 WHERE id = $3`,
+                [completedCount, failedCount, jobId]
+              )
             }
           } catch (error) {
             console.error('Error evaluating call log:', callLog.id, 'with prompt:', prompt.id, error)
@@ -371,26 +362,24 @@ export class EvaluationProcessor {
       await this.generateEvaluationSummaries(jobId, prompts)
 
       // Mark job as completed
-      await this.supabase
-        .from('pype_voice_evaluation_jobs')
-        .update({ 
-          status: 'completed', 
-          completed_at: new Date().toISOString() 
-        })
-        .eq('id', jobId)
+      await query(
+        `UPDATE pype_voice_evaluation_jobs 
+         SET status = $1, completed_at = $2
+         WHERE id = $3`,
+        ['completed', new Date().toISOString(), jobId]
+      )
 
       return results
     } catch (error) {
       console.error('Error processing evaluation job:', error)
       
       // Mark job as failed
-      await this.supabase
-        .from('pype_voice_evaluation_jobs')
-        .update({ 
-          status: 'failed', 
-          error_message: error instanceof Error ? error.message : 'Unknown error' 
-        })
-        .eq('id', jobId)
+      await query(
+        `UPDATE pype_voice_evaluation_jobs 
+         SET status = $1, error_message = $2
+         WHERE id = $3`,
+        ['failed', error instanceof Error ? error.message : 'Unknown error', jobId]
+      )
       
       throw error
     }
@@ -404,16 +393,15 @@ export class EvaluationProcessor {
       try {
         // Get transcript data from metrics logs table
         // Use the call log ID as session_id to find related transcript turns
-        const { data: transcriptTurns, error: transcriptError } = await this.supabase
-          .from('pype_voice_metrics_logs')
-          .select('user_transcript, agent_response, turn_id, created_at')
-          .eq('session_id', callLog.id)
-          .order('unix_timestamp', { ascending: true })
+        const transcriptResult = await query(
+          `SELECT user_transcript, agent_response, turn_id, created_at 
+           FROM pype_voice_metrics_logs 
+           WHERE session_id = $1 
+           ORDER BY unix_timestamp ASC`,
+          [callLog.id]
+        )
 
-        if (transcriptError) {
-          console.warn(`Error fetching transcript for call ${callLog.id}:`, transcriptError)
-          continue
-        }
+        const transcriptTurns = transcriptResult.rows
 
         // Check if we have meaningful transcript data
         const hasValidTranscript = transcriptTurns && transcriptTurns.length > 0 && 
@@ -468,20 +456,18 @@ export class EvaluationProcessor {
       console.log(`Selected trace IDs:`, job.selected_traces)
       
       // For selected traces, we fetch call logs by their IDs directly
-      const { data: selectedCallLogs, error: selectedError } = await this.supabase
-        .from('pype_voice_call_logs')
-        .select('id, call_id, agent_id, call_ended_reason, created_at, duration_seconds')
-        .in('id', job.selected_traces)
-        .eq('agent_id', job.agent_id) // Ensure they belong to the correct agent
+      const selectedResult = await query(
+        `SELECT id, call_id, agent_id, call_ended_reason, created_at, duration_seconds 
+         FROM pype_voice_call_logs 
+         WHERE id = ANY($1::uuid[]) AND agent_id = $2`,
+        [job.selected_traces, job.agent_id]
+      )
 
-      if (selectedError) {
-        console.error(`Error fetching selected call logs:`, selectedError)
-        throw new Error(`Failed to fetch selected call logs: ${selectedError.message}`)
-      }
+      const selectedCallLogs = selectedResult.rows
 
-      console.log(`✅ Found ${selectedCallLogs?.length || 0} call logs for selected traces`)
+      console.log(`✅ Found ${selectedCallLogs.length} call logs for selected traces`)
       
-      if (!selectedCallLogs || selectedCallLogs.length === 0) {
+      if (selectedCallLogs.length === 0) {
         console.warn(`⚠️ No call logs found for selected traces. This might indicate:`)
         console.warn(`- Selected trace IDs don't exist: ${job.selected_traces}`)
         console.warn(`- Selected traces don't belong to agent ${job.agent_id}`)
@@ -496,14 +482,18 @@ export class EvaluationProcessor {
     console.log(`📊 Using ALL TRACES mode with filters`)
 
     // First, let's check if there are any call logs at all for this agent
-    const { data: allCallLogs, error: allLogsError } = await this.supabase
-      .from('pype_voice_call_logs')
-      .select('id, agent_id, call_ended_reason, created_at, duration_seconds')
-      .eq('agent_id', job.agent_id)
+    const allLogsResult = await query(
+      `SELECT id, agent_id, call_ended_reason, created_at, duration_seconds 
+       FROM pype_voice_call_logs 
+       WHERE agent_id = $1`,
+      [job.agent_id]
+    )
 
-    console.log(`Total call logs for agent ${job.agent_id}:`, allCallLogs?.length || 0)
+    const allCallLogs = allLogsResult.rows
+
+    console.log(`Total call logs for agent ${job.agent_id}:`, allCallLogs.length)
     
-    if (allCallLogs && allCallLogs.length > 0) {
+    if (allCallLogs.length > 0) {
       console.log(`Sample call logs:`, allCallLogs.slice(0, 3).map((log: any) => ({
         id: log.id,
         agent_id: log.agent_id,
@@ -513,40 +503,51 @@ export class EvaluationProcessor {
     }
 
     // Verify agent belongs to project
-    const { data: agent, error: agentError } = await this.supabase
-      .from('pype_voice_agents')
-      .select('project_id')
-      .eq('id', job.agent_id)
-      .single()
+    const agentResult = await query(
+      'SELECT project_id FROM pype_voice_agents WHERE id = $1',
+      [job.agent_id]
+    )
 
-    if (agentError || !agent || agent.project_id !== job.project_id) {
-      console.error(`Agent validation failed:`, { agentError, agent, expectedProjectId: job.project_id })
+    if (agentResult.rows.length === 0 || agentResult.rows[0].project_id !== job.project_id) {
+      console.error(`Agent validation failed:`, { agent: agentResult.rows[0], expectedProjectId: job.project_id })
       return []
     }
 
+    const agent = agentResult.rows[0]
     console.log(`Agent validation passed - agent belongs to project ${job.project_id}`)
 
-    // Step 1: Get call sessions that match our criteria
-    let callLogsQuery = this.supabase
-      .from('pype_voice_call_logs')
-      .select('id, call_id, agent_id, call_ended_reason, created_at, duration_seconds')
-      .eq('agent_id', job.agent_id)
+    // Step 1: Build query conditions
+    let queryConditions = ['agent_id = $1']
+    let queryParams: any[] = [job.agent_id]
+    let paramIndex = 2
 
     // Apply call status filter
     if (job.filter_criteria?.call_status && job.filter_criteria.call_status !== 'all') {
-      callLogsQuery = callLogsQuery.eq('call_ended_reason', job.filter_criteria.call_status)
+      queryConditions.push(`call_ended_reason = $${paramIndex}`)
+      queryParams.push(job.filter_criteria.call_status)
+      paramIndex++
       console.log(`Applied specific call_ended_reason filter: ${job.filter_criteria.call_status}`)
     } else {
       // Apply completion filter - be more flexible with call status (default behavior)
-      callLogsQuery = callLogsQuery.in('call_ended_reason', ['completed', 'ended', 'finished', 'success'])
+      queryConditions.push(`call_ended_reason = ANY($${paramIndex}::text[])`)
+      queryParams.push(['completed', 'ended', 'finished', 'success'])
+      paramIndex++
       console.log(`Applied default call_ended_reason filter: ['completed', 'ended', 'finished', 'success']`)
     }
 
     // Check what call logs exist before applying additional filters
-    const { data: beforeFilters, error: beforeError } = await callLogsQuery.order('created_at', { ascending: false })
-    console.log(`Call logs after completion filter: ${beforeFilters?.length || 0}`)
+    const beforeFiltersQuery = `
+      SELECT id, call_ended_reason, duration_seconds, created_at 
+      FROM pype_voice_call_logs 
+      WHERE ${queryConditions.join(' AND ')}
+      ORDER BY created_at DESC
+    `
+    const beforeFiltersResult = await query(beforeFiltersQuery, queryParams)
+    const beforeFilters = beforeFiltersResult.rows
     
-    if (beforeFilters && beforeFilters.length > 0) {
+    console.log(`Call logs after completion filter: ${beforeFilters.length}`)
+    
+    if (beforeFilters.length > 0) {
       console.log(`Sample call logs before additional filters:`, beforeFilters.slice(0, 3).map((log: any) => ({
         id: log.id,
         call_ended_reason: log.call_ended_reason,
@@ -591,7 +592,9 @@ export class EvaluationProcessor {
       
       if (startDate) {
         try {
-          callLogsQuery = callLogsQuery.gte('created_at', startDate.toISOString())
+          queryConditions.push(`created_at >= $${paramIndex}`)
+          queryParams.push(startDate.toISOString())
+          paramIndex++
           console.log(`Applied start date filter: >= ${startDate.toISOString()}`)
           console.log(`Date filter explanation: Looking for calls newer than ${job.filter_criteria.date_range}`)
         } catch (dateError) {
@@ -601,7 +604,9 @@ export class EvaluationProcessor {
 
       if (endDate) {
         try {
-          callLogsQuery = callLogsQuery.lt('created_at', endDate.toISOString())
+          queryConditions.push(`created_at < $${paramIndex}`)
+          queryParams.push(endDate.toISOString())
+          paramIndex++
           console.log(`Applied end date filter: < ${endDate.toISOString()}`)
         } catch (dateError) {
           console.warn(`End date filter failed, skipping:`, dateError)
@@ -611,7 +616,9 @@ export class EvaluationProcessor {
 
     if (job.filter_criteria?.min_duration && job.filter_criteria.min_duration > 0) {
       try {
-        callLogsQuery = callLogsQuery.gte('duration_seconds', job.filter_criteria.min_duration)
+        queryConditions.push(`duration_seconds >= $${paramIndex}`)
+        queryParams.push(job.filter_criteria.min_duration)
+        paramIndex++
         console.log(`Applied duration filter: >= ${job.filter_criteria.min_duration} seconds`)
         console.log(`Duration filter explanation: Only calls longer than ${job.filter_criteria.min_duration} seconds`)
       } catch (durationError) {
@@ -622,14 +629,16 @@ export class EvaluationProcessor {
     }
 
     // Execute the call logs query
-    const { data: callLogsData, error: callLogsError } = await callLogsQuery.order('created_at', { ascending: false })
+    const finalQuery = `
+      SELECT id, call_id, agent_id, call_ended_reason, created_at, duration_seconds 
+      FROM pype_voice_call_logs 
+      WHERE ${queryConditions.join(' AND ')}
+      ORDER BY created_at DESC
+    `
+    const callLogsResult = await query(finalQuery, queryParams)
+    const callLogsData = callLogsResult.rows
     
-    if (callLogsError) {
-      console.error(`Error fetching call logs:`, callLogsError)
-      throw new Error(`Failed to fetch call logs: ${callLogsError.message}`)
-    }
-
-    console.log(`Raw query returned: ${callLogsData?.length || 0} call logs`)
+    console.log(`Raw query returned: ${callLogsData.length} call logs`)
 
     // If no results, provide helpful debugging information
     if (!callLogsData || callLogsData.length === 0) {
@@ -789,33 +798,36 @@ export class EvaluationProcessor {
       console.log(`📊 [SCORING] Reasoning length: ${reasoning?.length || 0}`)
 
       // Save the result - using correct schema column names
-      const { data: result, error } = await this.supabase
-        .from('pype_voice_evaluation_results')
-        .insert([{
-          job_id: jobId,
-          prompt_id: prompt.id,
-          trace_id: callLog.call_id || callLog.id, // Use call_id from call log as trace_id
-          call_id: callLog.call_id, // For easier querying
-          agent_id: callLog.agent_id,
-          evaluation_score: {
+      const insertResult = await query(
+        `INSERT INTO pype_voice_evaluation_results 
+         (job_id, prompt_id, trace_id, call_id, agent_id, evaluation_score, evaluation_reasoning, 
+          raw_llm_response, execution_time_ms, llm_cost_usd, status) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) 
+         RETURNING *`,
+        [
+          jobId,
+          prompt.id,
+          callLog.call_id || callLog.id, // Use call_id from call log as trace_id
+          callLog.call_id, // For easier querying
+          callLog.agent_id,
+          JSON.stringify({
             overall_score: overallScore,
             parsed_scores: parsedScores,
             evaluation_type: prompt.evaluation_type
-          }, // Store as jsonb
-          evaluation_reasoning: reasoning,
-          raw_llm_response: llmResponse,
-          execution_time_ms: Date.now() - startTime,
-          llm_cost_usd: costUsd,
-          status: 'completed'
-        }])
-        .select()
-        .single()
+          }), // Store as jsonb
+          reasoning,
+          llmResponse,
+          Date.now() - startTime,
+          costUsd,
+          'completed'
+        ]
+      )
 
-      if (error) {
-        throw new Error(`Failed to save evaluation result: ${error.message}`)
+      if (insertResult.rows.length === 0) {
+        throw new Error(`Failed to save evaluation result`)
       }
 
-      return result
+      return insertResult.rows[0]
     } catch (error) {
       console.error(`Error evaluating call log ${callLog.id} with prompt ${prompt.id}:`, {
         error: error instanceof Error ? error.message : error,
@@ -1041,28 +1053,31 @@ export class EvaluationProcessor {
   }
 
   private async recordFailedEvaluation(jobId: string, promptId: string, callLogId: string, error: any) {
-    await this.supabase
-      .from('pype_voice_evaluation_results')
-      .insert([{
-        job_id: jobId,
-        prompt_id: promptId,
-        trace_id: callLogId, // Use as trace_id
-        call_id: callLogId, // Also store as call_id for easier querying
-        evaluation_score: {}, // Empty jsonb object for failed evaluations
-        status: 'failed',
-        error_message: error instanceof Error ? error.message : 'Unknown error',
-        created_at: new Date().toISOString()
-      }])
+    await query(
+      `INSERT INTO pype_voice_evaluation_results 
+       (job_id, prompt_id, trace_id, call_id, evaluation_score, status, error_message, created_at) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        jobId,
+        promptId,
+        callLogId, // Use as trace_id
+        callLogId, // Also store as call_id for easier querying
+        JSON.stringify({}), // Empty jsonb object for failed evaluations
+        'failed',
+        error instanceof Error ? error.message : 'Unknown error',
+        new Date().toISOString()
+      ]
+    )
   }
 
   private async generateEvaluationSummaries(jobId: string, prompts: any[]) {
     for (const prompt of prompts) {
-      const { data: results } = await this.supabase
-        .from('pype_voice_evaluation_results')
-        .select('evaluation_score')
-        .eq('job_id', jobId)
-        .eq('prompt_id', prompt.id)
-        .eq('status', 'completed')
+      const resultsQuery = await query(
+        `SELECT evaluation_score FROM pype_voice_evaluation_results 
+         WHERE job_id = $1 AND prompt_id = $2 AND status = $3`,
+        [jobId, prompt.id, 'completed']
+      )
+      const results = resultsQuery.rows
 
       if (!results || results.length === 0) continue
 
@@ -1088,20 +1103,23 @@ export class EvaluationProcessor {
       const passingScores = scores.filter((s: number) => s > 3.0)
       const passRate = passingScores.length / scores.length
 
-      await this.supabase
-        .from('pype_voice_evaluation_summaries')
-        .insert([{
-          job_id: jobId,
-          evaluation_type: prompt.evaluation_type,
-          avg_score: avgScore,
-          min_score: minScore,
-          max_score: maxScore,
-          total_evaluations: results.length,
-          score_distribution: distribution,
-          pass_rate: passRate,
-          top_issues: [], // TODO: Extract from parsed_scores
-          recommendations: [] // TODO: Generate based on patterns
-        }])
+      await query(
+        `INSERT INTO pype_voice_evaluation_summaries 
+         (job_id, evaluation_type, avg_score, min_score, max_score, total_evaluations, score_distribution, pass_rate) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          jobId,
+          prompt.evaluation_type,
+          avgScore,
+          minScore,
+          maxScore,
+          results.length,
+          JSON.stringify(distribution),
+          passRate
+        ]
+      )
+      // TODO: Extract top_issues from parsed_scores
+      // TODO: Generate recommendations based on patterns
     }
   }
 }

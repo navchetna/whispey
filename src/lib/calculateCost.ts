@@ -1,10 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
+import { DatabaseService } from "@/lib/database"
+import { query } from "@/lib/postgres"
 import { UsageData, CostResult } from '../types/logs';
-
-// Create server-side Supabase client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 // Default fallback if DB misses data
 const FALLBACK = {
@@ -15,29 +11,31 @@ const FALLBACK = {
 
 async function getUsdToInr(onDate: string | Date): Promise<number> {
   const date = new Date(onDate).toISOString().slice(0, 10);
-  const { data, error } = await supabase
-    .from('usd_to_inr_rate')
-    .select('rate')
-    .eq('as_of', date)
-    .single();
+  const result = await query(
+    'SELECT rate FROM usd_to_inr_rate WHERE as_of = $1',
+    [date]
+  );
   
-  if (error || !data?.rate) {
+  if (result.rows.length === 0 || !result.rows[0]?.rate) {
     return 87.56; // Fallback rate
   }
-  return parseFloat(data.rate);
+  return parseFloat(result.rows[0].rate);
 }
 
 export async function fetchRate(pricingColumn: string, table: string, filters: Record<string, any>): Promise<number | null> {
-  const { data, error } = await supabase
-    .from(table)
-    .select(pricingColumn)
-    .match(filters)
-    .single();
+  const filterKeys = Object.keys(filters);
+  const filterValues = Object.values(filters);
+  const whereClause = filterKeys.map((key, index) => `${key} = $${index + 1}`).join(' AND ');
   
-  if (error || data == null || data[pricingColumn as any] == null) {
+  const result = await query(
+    `SELECT ${pricingColumn} FROM ${table} WHERE ${whereClause}`,
+    filterValues
+  );
+  
+  if (result.rows.length === 0 || result.rows[0][pricingColumn] == null) {
     return null;
   }
-  return parseFloat(data[pricingColumn as any]);
+  return parseFloat(result.rows[0][pricingColumn]);
 }
 
 interface TotalCostsParams {
@@ -51,40 +49,43 @@ export async function totalCostsINR({
   modelName = 'gpt-4.1-mini',
   callStartedAt = new Date()
 }: TotalCostsParams): Promise<CostResult> {
-  const [usdToInr, gptRates, ttsUsd, sttUsdSec] = await Promise.all([
+  const [usdToInr, gptRatesResult, ttsUsdResult, sttUsdSecResult] = await Promise.all([
     getUsdToInr(callStartedAt),
-    supabase.from('gpt_api_pricing')
-      .select('input_usd_per_million,output_usd_per_million')
-      .eq('model_name', modelName)
-      .single(),
-    supabase.from('audio_api_pricing')
-      .select('cost_usd_per_unit')
-      .eq('unit', 'character')
-      .eq('provider', 'ElevenLabs')
-      .like('model_or_plan', '%Flash')
-      .single(),
-    supabase.from('audio_api_pricing')
-      .select('cost_inr_per_unit')
-      .eq('unit', 'second')
-      .eq('provider', 'Sarvam AI')
-      .like('model_or_plan', '%transcription%')
-      .single()
+    query(
+      `SELECT input_usd_per_million, output_usd_per_million 
+       FROM gpt_api_pricing 
+       WHERE model_name = $1`,
+      [modelName]
+    ),
+    query(
+      `SELECT cost_usd_per_unit 
+       FROM audio_api_pricing 
+       WHERE unit = 'character' AND provider = 'ElevenLabs' AND model_or_plan LIKE '%Flash%'`
+    ),
+    query(
+      `SELECT cost_inr_per_unit 
+       FROM audio_api_pricing 
+       WHERE unit = 'second' AND provider = 'Sarvam AI' AND model_or_plan LIKE '%transcription%'`
+    )
   ]);
 
-  const gptInUsd = gptRates.error || gptRates.data == null
+  const gptRates = gptRatesResult.rows[0];
+  const gptInUsd = gptRates == null
     ? FALLBACK.gpt.in
-    : parseFloat(gptRates.data.input_usd_per_million);
+    : parseFloat(gptRates.input_usd_per_million);
 
-  const gptOutUsd = gptRates.error || gptRates.data == null
+  const gptOutUsd = gptRates == null
     ? FALLBACK.gpt.out
-    : parseFloat(gptRates.data.output_usd_per_million);
+    : parseFloat(gptRates.output_usd_per_million);
 
-  const ttsUsdPerChar = ttsUsd.error || ttsUsd.data == null
+  const ttsData = ttsUsdResult.rows[0];
+  const ttsUsdPerChar = ttsData == null
     ? FALLBACK.tts
-    : parseFloat(ttsUsd.data.cost_usd_per_unit);
+    : parseFloat(ttsData.cost_usd_per_unit);
 
-  let sttInrPerSec = sttUsdSec.data?.cost_inr_per_unit;
-  if (sttUsdSec.error || sttInrPerSec == null) {
+  const sttData = sttUsdSecResult.rows[0];
+  let sttInrPerSec = sttData?.cost_inr_per_unit;
+  if (sttInrPerSec == null) {
     sttInrPerSec = FALLBACK.sttInrPerSec;
   }
 

@@ -1,12 +1,8 @@
 // app/api/evaluations/jobs/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { auth } from '@clerk/nextjs/server'
-
-// Create Supabase client for server-side operations
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
+import { query } from "@/lib/postgres"
+import { auth } from '@/lib/auth-server'
+import 'server-only'
 
 export async function POST(request: NextRequest) {
   try {
@@ -45,11 +41,14 @@ export async function POST(request: NextRequest) {
       total_traces = selected_traces.length
     } else {
       // Count traces based on filter criteria
-      let countQuery = supabase
-        .from('pype_voice_call_logs')
-        .select('*, pype_voice_agents!inner(project_id)', { count: 'exact', head: true })
-        .eq('pype_voice_agents.project_id', project_id)
-        .eq('agent_id', agent_id)
+      let countQueryText = `
+        SELECT COUNT(*) as count
+        FROM pype_voice_call_logs cl
+        INNER JOIN pype_voice_agents a ON cl.agent_id = a.id
+        WHERE a.project_id = $1 AND cl.agent_id = $2
+      `
+      const queryParams: any[] = [project_id, agent_id]
+      let paramIndex = 3
 
       // Apply date filtering if provided
       if (filter_criteria?.date_range && filter_criteria.date_range !== 'all') {
@@ -59,24 +58,34 @@ export async function POST(request: NextRequest) {
         switch (filter_criteria.date_range) {
           case 'last_7_days':
             filterDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-            countQuery = countQuery.gte('created_at', filterDate.toISOString())
+            countQueryText += ` AND cl.created_at >= $${paramIndex}`
+            queryParams.push(filterDate.toISOString())
+            paramIndex++
             break
           case 'last_30_days':
             filterDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-            countQuery = countQuery.gte('created_at', filterDate.toISOString())
+            countQueryText += ` AND cl.created_at >= $${paramIndex}`
+            queryParams.push(filterDate.toISOString())
+            paramIndex++
             break
           case 'last_90_days':
             filterDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
-            countQuery = countQuery.gte('created_at', filterDate.toISOString())
+            countQueryText += ` AND cl.created_at >= $${paramIndex}`
+            queryParams.push(filterDate.toISOString())
+            paramIndex++
             break
           case 'custom':
             if (filter_criteria.start_date) {
-              countQuery = countQuery.gte('created_at', new Date(filter_criteria.start_date).toISOString())
+              countQueryText += ` AND cl.created_at >= $${paramIndex}`
+              queryParams.push(new Date(filter_criteria.start_date).toISOString())
+              paramIndex++
             }
             if (filter_criteria.end_date) {
               const endDateTime = new Date(filter_criteria.end_date)
               endDateTime.setDate(endDateTime.getDate() + 1)
-              countQuery = countQuery.lt('created_at', endDateTime.toISOString())
+              countQueryText += ` AND cl.created_at < $${paramIndex}`
+              queryParams.push(endDateTime.toISOString())
+              paramIndex++
             }
             break
         }
@@ -84,69 +93,63 @@ export async function POST(request: NextRequest) {
 
       // Apply minimum duration filter
       if (filter_criteria?.min_duration && !isNaN(parseInt(filter_criteria.min_duration))) {
-        countQuery = countQuery.gte('duration_seconds', parseInt(filter_criteria.min_duration))
+        countQueryText += ` AND cl.duration_seconds >= $${paramIndex}`
+        queryParams.push(parseInt(filter_criteria.min_duration))
+        paramIndex++
       }
 
       // Apply call status filter
       if (filter_criteria?.call_status && filter_criteria.call_status !== 'all') {
-        countQuery = countQuery.eq('call_ended_reason', filter_criteria.call_status)
+        countQueryText += ` AND cl.call_ended_reason = $${paramIndex}`
+        queryParams.push(filter_criteria.call_status)
+        paramIndex++
       } else {
-        countQuery = countQuery
-          .eq('call_ended_reason', 'completed')
-          .not('transcript_json', 'is', null)
+        countQueryText += ` AND cl.call_ended_reason = $${paramIndex} AND cl.transcript_json IS NOT NULL`
+        queryParams.push('completed')
+        paramIndex++
       }
 
-      const { count, error: countError } = await countQuery
+      const countResult = await query(countQueryText, queryParams)
 
-      if (countError) {
-        console.error('Count error:', countError)
-        total_traces = 0
+      if (countResult.rows.length > 0) {
+        total_traces = parseInt(countResult.rows[0].count) || 0
       } else {
-        total_traces = count || 0
+        total_traces = 0
       }
     }
 
     // Create the evaluation job record
-    const { data, error } = await supabase
-      .from('pype_voice_evaluation_jobs')
-      .insert({
+    const insertResult = await query(
+      `INSERT INTO pype_voice_evaluation_jobs 
+        (project_id, agent_id, name, description, prompt_ids, selected_traces, filter_criteria, 
+         status, total_traces, completed_traces, failed_traces, created_by, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       RETURNING *`,
+      [
         project_id,
         agent_id,
-        name: name.trim(),
-        description: description?.trim() || '',
+        name.trim(),
+        description?.trim() || '',
         prompt_ids,
-        selected_traces: selected_traces || null,
-        filter_criteria: filter_criteria || {},
-        status: 'pending',
+        selected_traces || null,
+        JSON.stringify(filter_criteria || {}),
+        'pending',
         total_traces,
-        completed_traces: 0,
-        failed_traces: 0,
-        created_by: userId,
-        created_at: new Date().toISOString()
-      })
-      .select()
-      .single()
+        0,
+        0,
+        userId,
+        new Date().toISOString()
+      ]
+    )
 
-    if (error) {
-      console.error('Database error:', error)
-      
-      // Handle specific database errors
-      if (error.code === 'PGRST205') {
-        return NextResponse.json(
-          { 
-            error: 'Evaluation tables not found. Please run the database migration first.',
-            details: 'The evaluation system tables need to be created. Please run the evaluation-schema.sql script in your Supabase SQL Editor.',
-            migrationFile: 'evaluation-schema.sql'
-          },
-          { status: 500 }
-        )
-      }
-      
+    if (insertResult.rows.length === 0) {
       return NextResponse.json(
-        { error: 'Failed to create evaluation job', details: error.message },
+        { error: 'Failed to create evaluation job' },
         { status: 500 }
       )
     }
+
+    const data = insertResult.rows[0]
 
     // TODO: Here you would typically queue the job for processing
     // For now, we'll process the job immediately in the background
@@ -191,54 +194,57 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url)
-    const projectId = searchParams.get('project_id')
-    const agentId = searchParams.get('agent_id')
+    
+    // Build dynamic WHERE clause
+    const conditions: string[] = []
+    const params: any[] = []
+    let paramIndex = 1
 
-    if (!projectId) {
-      return NextResponse.json(
-        { error: 'project_id parameter is required' },
-        { status: 400 }
-      )
+    // Support common filters
+    if (searchParams.get('id')) {
+      conditions.push(`id = $${paramIndex}`)
+      params.push(searchParams.get('id'))
+      paramIndex++
     }
 
-    // Build query
-    let query = supabase
-      .from('pype_voice_evaluation_jobs')
-      .select('*')
-      .eq('project_id', projectId)
-      .order('created_at', { ascending: false })
-
-    // Filter by agent_id if provided
-    if (agentId) {
-      query = query.eq('agent_id', agentId)
+    if (searchParams.get('project_id')) {
+      conditions.push(`project_id = $${paramIndex}`)
+      params.push(searchParams.get('project_id'))
+      paramIndex++
     }
 
-    const { data, error } = await query
-
-    if (error) {
-      console.error('Database error:', error)
-      
-      // Handle specific database errors
-      if (error.code === 'PGRST205') {
-        return NextResponse.json(
-          { 
-            error: 'Evaluation tables not found. Please run the database migration first.',
-            details: 'The evaluation system tables need to be created. Please run the evaluation-schema.sql script in your Supabase SQL Editor.',
-            migrationFile: 'evaluation-schema.sql'
-          },
-          { status: 500 }
-        )
-      }
-      
-      return NextResponse.json(
-        { error: 'Failed to fetch evaluation jobs', details: error.message },
-        { status: 500 }
-      )
+    if (searchParams.get('agent_id')) {
+      conditions.push(`agent_id = $${paramIndex}`)
+      params.push(searchParams.get('agent_id'))
+      paramIndex++
     }
+
+    // Build WHERE clause
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+
+    // Handle ordering
+    const orderBy = searchParams.get('orderBy') || 'created_at'
+    const order = searchParams.get('order') === 'asc' ? 'ASC' : 'DESC'
+
+    // Handle pagination
+    const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined
+    const offset = searchParams.get('offset') ? parseInt(searchParams.get('offset')!) : 0
+
+    const limitClause = limit ? `LIMIT ${limit}` : ''
+    const offsetClause = offset > 0 ? `OFFSET ${offset}` : ''
+
+    // Execute query
+    const result = await query(
+      `SELECT * FROM pype_voice_evaluation_jobs 
+       ${whereClause} 
+       ORDER BY ${orderBy} ${order} 
+       ${limitClause} ${offsetClause}`,
+      params
+    )
 
     return NextResponse.json({
-      success: true,
-      data
+      data: result.rows,
+      count: result.rows.length
     })
 
   } catch (error) {

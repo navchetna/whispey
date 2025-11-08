@@ -1,11 +1,7 @@
 // src/app/api/agents/[id]/vapi/status/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { query } from "@/lib/postgres"
 import { decryptApiKey } from '@/lib/vapi-encryption'
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 export async function GET(
   request: NextRequest,
@@ -16,19 +12,20 @@ export async function GET(
     console.log('🔍 Checking Vapi status for agent:', agentId)
 
     // 1. Get agent data from database
-    const { data: agent, error: agentError } = await supabase
-      .from('pype_voice_agents')
-      .select('id, name, agent_type, configuration, vapi_api_key_encrypted, vapi_project_key_encrypted, project_id')
-      .eq('id', agentId)
-      .single()
+    const result = await query(
+      'SELECT id, name, agent_type, configuration, vapi_api_key_encrypted, vapi_project_key_encrypted, project_id FROM pype_voice_agents WHERE id = $1',
+      [agentId]
+    )
 
-    if (agentError || !agent) {
-      console.error('❌ Agent not found:', agentError)
+    if (result.rows.length === 0) {
+      console.error('❌ Agent not found for ID:', agentId)
       return NextResponse.json(
         { error: 'Agent not found' },
         { status: 404 }
       )
     }
+
+    const agent = result.rows[0]
 
     // 2. Check if this is a Vapi agent
     const isVapiAgent = agent.agent_type === 'vapi' || 

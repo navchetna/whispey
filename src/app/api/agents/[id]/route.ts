@@ -1,11 +1,6 @@
 // src/app/api/agents/[id]/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-
-// Create Supabase client for server-side operations
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+import { query } from '@/lib/postgres'
 
 // ADD THIS GET METHOD to your existing file
 export async function GET(
@@ -16,19 +11,19 @@ export async function GET(
     const { id: agentId } = await params
 
     // Fetch agent data from database
-    const { data: agent, error } = await supabase
-      .from('pype_voice_agents')
-      .select('*')
-      .eq('id', agentId)
-      .single()
+    const result = await query(
+      'SELECT * FROM pype_voice_agents WHERE id = $1',
+      [agentId]
+    )
 
-    if (error) {
-      console.error('❌ Supabase error:', error)
+    if (result.rows.length === 0) {
       return NextResponse.json(
         { error: 'Agent not found' },
         { status: 404 }
       )
     }
+
+    const agent = result.rows[0]
 
     if (!agent) {
       return NextResponse.json(
@@ -88,48 +83,30 @@ export async function DELETE(
     // Start cascade deletion process
 
     // 1. Delete call logs for this agent
-    const { error: callLogsError } = await supabase
-      .from('pype_voice_call_logs')
-      .delete()
-      .eq('agent_id', agentId)
-
-    if (callLogsError) {
-      console.error('Error deleting call logs:', callLogsError)
-      return NextResponse.json(
-        { error: 'Failed to delete call logs' },
-        { status: 500 }
-      )
-    }
+    await query(
+      'DELETE FROM pype_voice_call_logs WHERE agent_id = $1',
+      [agentId]
+    )
     console.log('Successfully deleted call logs')
 
     // 2. Delete metrics logs (adjust based on your schema relationships)
-    const { error: metricsError } = await supabase
-      .from('pype_voice_metrics_logs')
-      .delete()
-      .eq('session_id', agentId) // Adjust this field based on your actual schema
-
-    // Don't fail if metrics logs have different relationships
-    if (metricsError) {
-      console.warn('Warning: Could not delete metrics logs:', metricsError)
-    } else {
+    try {
+      await query(
+        'DELETE FROM pype_voice_metrics_logs WHERE session_id = $1',
+        [agentId]
+      )
       console.log('Successfully deleted metrics logs')
+    } catch (error) {
+      console.warn('Warning: Could not delete metrics logs:', error)
     }
 
     console.log('Successfully deleted auth tokens')
 
     // 4. Finally, delete the agent itself
-    const { error: agentError } = await supabase
-      .from('pype_voice_agents')
-      .delete()
-      .eq('id', agentId)
-
-    if (agentError) {
-      console.error('Error deleting agent:', agentError)
-      return NextResponse.json(
-        { error: 'Failed to delete agent' },
-        { status: 500 }
-      )
-    }
+    await query(
+      'DELETE FROM pype_voice_agents WHERE id = $1',
+      [agentId]
+    )
     
     console.log(`Successfully deleted agent: ${agentId}`)
 

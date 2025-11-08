@@ -1,4 +1,4 @@
-import { useSupabaseQuery } from "./useSupabase";
+import { useSupabaseQuery } from "./useApi"
 
 // hooks/useSessionTrace.ts
 export const useSessionTrace = (sessionId: string | null) => {    
