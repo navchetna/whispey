@@ -6,34 +6,34 @@
 -- ==============================================
 
 -- Create database if it doesn't exist
-SELECT 'CREATE DATABASE whispey'
-WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'whispey')\gexec
+SELECT 'CREATE DATABASE agent_evals'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'agent_evals')\gexec
 
 -- Create user if it doesn't exist
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = 'whispey_user') THEN
-        CREATE USER whispey_user WITH ENCRYPTED PASSWORD 'whispey123';
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = 'admin') THEN
+        CREATE USER admin WITH ENCRYPTED PASSWORD 'admin123';
     END IF;
 END
 $$;
 
 -- Grant necessary permissions
-GRANT ALL PRIVILEGES ON DATABASE whispey TO whispey_user;
+GRANT ALL PRIVILEGES ON DATABASE agent_evals TO admin;
 
--- Connect to the whispey database
-\c whispey
+-- Connect to the agent_evals database
+\c agent_evals
 
 -- Grant schema permissions
-GRANT ALL ON SCHEMA public TO whispey_user;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO whispey_user;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO whispey_user;
-GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO whispey_user;
+GRANT ALL ON SCHEMA public TO admin;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO admin;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO admin;
+GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO admin;
 
 -- Set default privileges for future objects
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO whispey_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO whispey_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO whispey_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO admin;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO admin;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO admin;
 
 -- Enable necessary extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -445,8 +445,8 @@ CREATE TABLE public.pype_voice_evaluation_results (
 );
 
 -- Grant permissions on all newly created tables
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO whispey_user;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO whispey_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO admin;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO admin;
 
 -- ==============================================
 -- INDEXES FOR PERFORMANCE
@@ -567,8 +567,8 @@ JOIN public.pype_voice_evaluation_jobs j ON r.job_id = j.id
 JOIN public.pype_voice_evaluation_prompts p ON r.prompt_id = p.id;
 
 -- Grant permissions on views
-GRANT ALL ON evaluation_results_detailed TO whispey_user;
-GRANT ALL ON call_summary_materialized TO whispey_user;
+GRANT ALL ON evaluation_results_detailed TO admin;
+GRANT ALL ON call_summary_materialized TO admin;
 
 -- ==============================================
 -- UTILITY FUNCTIONS
@@ -1025,7 +1025,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Grant execute permissions on functions
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO whispey_user;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO admin;
 
 -- ==============================================
 -- TRIGGERS
@@ -1050,7 +1050,7 @@ CREATE TRIGGER trigger_update_evaluation_job_completion
 -- Create default admin user (password: admin123)
 -- Note: In production, use a proper password hashing library
 INSERT INTO public.pype_voice_users (email, first_name, last_name, password_hash, is_admin)
-VALUES ('admin@whispey.local', 'Admin', 'User', crypt('admin123', gen_salt('bf')), true)
+VALUES ('admin@agent_evals.local', 'Admin', 'User', crypt('admin123', gen_salt('bf')), true)
 ON CONFLICT (email) DO NOTHING;
 
 -- Refresh the materialized view
@@ -1060,11 +1060,11 @@ REFRESH MATERIALIZED VIEW call_summary_materialized;
 -- FINAL PERMISSIONS
 -- ==============================================
 
--- Grant all permissions to whispey_user on all created objects
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO whispey_user;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO whispey_user;
-GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO whispey_user;
-GRANT ALL ON ALL ROUTINES IN SCHEMA public TO whispey_user;
+-- Grant all permissions to admin on all created objects
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO admin;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO admin;
+GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO admin;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO admin;
 
 -- ==============================================
 -- SETUP COMPLETE
@@ -1074,8 +1074,8 @@ GRANT ALL ON ALL ROUTINES IN SCHEMA public TO whispey_user;
 DO $$
 BEGIN
     RAISE NOTICE 'Whispey database schema setup completed successfully!';
-    RAISE NOTICE 'Default admin user created: admin@whispey.local / admin123';
+    RAISE NOTICE 'Default admin user created: admin@agent_evals.local / admin123';
     RAISE NOTICE 'Please change the default password after first login.';
-    RAISE NOTICE 'Database user: whispey_user';
+    RAISE NOTICE 'Database user: admin';
     RAISE NOTICE 'Remember to update the password in your .env.local file!';
 END $$;

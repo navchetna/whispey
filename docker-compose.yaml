@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database with automatic initialization
+  database:
+    image: postgres:15-alpine
+    container_name: database
+    restart: unless-stopped
+    environment: 
+      POSTGRES_USER: ${DB_USER:-admin}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-admin123}
+      POSTGRES_DB: ${DB_NAME:-agentevals}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # PostgreSQL automatically runs scripts in /docker-entrypoint-initdb.d/ on first startup
+      - ./setup-db.sql:/docker-entrypoint-initdb.d/01-setup-db.sql:ro
+      - ./migrations:/docker-entrypoint-initdb.d/migrations:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-admin} -d ${DB_NAME:-agentevals}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - agent-evals
+  
+  # Next.js Frontend Application
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - NODE_ENV=production
+    image: frontend:latest
+    container_name: frontend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://${DB_USER:-admin}:${DB_PASSWORD:-admin123}@database:${DB_PORT:-5432}/${DB_NAME:-agentevals}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3000}
+      - DB_USER=${DB_USER:-admin}
+      - DB_PASSWORD=${DB_PASSWORD:-admin123}
+      - DB_NAME=${DB_NAME:-agentevals}
+      - DB_HOST=postgres
+      - DB_PORT=${DB_PORT:-5432}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - agent-evals
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  postgres_data:
+    driver: local
+  
+
+networks:
+  agent-evals:
+    driver: bridge

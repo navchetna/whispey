@@ -5,7 +5,14 @@ const withMDX = createMDX();
 
 /** @type {import('next').NextConfig} */
 const config = {
+  // Enable standalone output for Docker
+  output: 'standalone',
+  
   reactStrictMode: true,
+  
+  // Disable telemetry
+  telemetry: false,
+  
   webpack: (config) => {
     config.resolve.alias = {
       ...config.resolve.alias,
@@ -13,9 +20,21 @@ const config = {
     };
     return config;
   },
+  
   compiler:{
-    removeConsole:process.env.NODE_ENV === 'production'
+    removeConsole: process.env.NODE_ENV === 'production'
   },
+  
+  // Environment variables for client side
+  env: {
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+  },
+  
+  // Configure image optimization for Docker
+  images: {
+    unoptimized: process.env.NODE_ENV === 'production',
+  },
+  
   async rewrites() {
     return [
       {
@@ -28,6 +47,7 @@ const config = {
       },
     ];
   },
+  
   skipTrailingSlashRedirect: true,
 };
 

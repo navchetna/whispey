@@ -1,12 +1,11 @@
 // src/app/api/agents/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { query } from "@/lib/postgres"
-import { encryptApiKey } from '@/lib/vapi-encryption'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { name, agent_type, configuration, project_id, environment, platform } = body
+    const { name, agent_type, configuration, project_id, environment } = body
 
     // Validation
     if (!name || !name.trim()) {
@@ -28,16 +27,6 @@ export async function POST(request: NextRequest) {
         { error: 'Project ID is required' },
         { status: 400 }
       )
-    }
-    
-    // Additional validation for Vapi agents
-    if (platform === 'vapi') {
-      if (!configuration?.vapi?.apiKey || !configuration?.vapi?.assistantId || !configuration?.vapi?.projectApiKey) {
-        return NextResponse.json(
-          { error: 'Vapi configuration is incomplete. Required: apiKey, assistantId, projectApiKey' },
-          { status: 400 }
-        )
-      }
     }
 
     // Verify project exists
@@ -76,52 +65,22 @@ export async function POST(request: NextRequest) {
       is_active: true
     }
 
-    // If it's a Vapi agent, encrypt and store the API keys
-    if (platform === 'vapi' && configuration?.vapi) {
-      // Encrypt the API keys with project-specific encryption
-      agentData.vapi_api_key_encrypted = encryptApiKey(
-        configuration.vapi.apiKey, 
-        project_id
-      )
-      agentData.vapi_project_key_encrypted = encryptApiKey(
-        configuration.vapi.projectApiKey, 
-        project_id
-      )
-      
-      // Remove the plain text API keys from configuration before storing
-      const cleanConfiguration = { ...configuration }
-      if (cleanConfiguration.vapi) {
-        delete cleanConfiguration.vapi.apiKey
-        delete cleanConfiguration.vapi.projectApiKey
-        agentData.configuration = cleanConfiguration
-      }
-      
-      console.log('🔐 Vapi API keys encrypted and stored securely')
-    }
-
-    console.log('💾 Inserting agent data:', {
-      ...agentData,
-      vapi_api_key_encrypted: agentData.vapi_api_key_encrypted ? '[ENCRYPTED]' : undefined,
-      vapi_project_key_encrypted: agentData.vapi_project_key_encrypted ? '[ENCRYPTED]' : undefined
-    })
+    console.log('💾 Inserting agent data:', agentData)
 
     // Insert agent into pype_voice_agents
     const insertResult = await query(
       `INSERT INTO pype_voice_agents 
-        (name, agent_type, configuration, project_id, platform, environment, is_active, 
-         vapi_api_key_encrypted, vapi_project_key_encrypted, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+        (name, agent_type, configuration, project_id, environment, is_active, 
+         created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
        RETURNING *`,
       [
         agentData.name,
         agentData.agent_type,
         JSON.stringify(agentData.configuration),
         agentData.project_id,
-        agentData.platform,
         agentData.environment,
-        agentData.is_active,
-        agentData.vapi_api_key_encrypted || null,
-        agentData.vapi_project_key_encrypted || null
+        agentData.is_active
       ]
     )
 
@@ -135,7 +94,7 @@ export async function POST(request: NextRequest) {
 
     const agent = insertResult.rows[0]
 
-    console.log(`✅ Successfully created ${platform} agent "${agent.name}" with ID: ${agent.id}`)
+    console.log(`✅ Successfully created agent "${agent.name}" with ID: ${agent.id}`)
     
     return NextResponse.json(agent, { status: 201 })
 

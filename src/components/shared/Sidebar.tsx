@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { useLocalUser, clearLocalUser } from '@/lib/local-auth'
+import { useLocalUser, signOut } from '@/lib/local-auth'
 import { useTheme } from 'next-themes'
 import { useHotkeys } from 'react-hotkeys-hook'
 import Image from 'next/image'
@@ -235,8 +235,9 @@ export default function Sidebar({
   const handleSignOut = async () => {
     try {
       setIsSigningOut(true)
-      clearLocalUser()
-      router.push('/')
+      await signOut()
+      // Force navigation and refresh to update auth state
+      window.location.href = '/'
     } catch (error) {
       console.error('Error signing out:', error)
       setIsSigningOut(false)
