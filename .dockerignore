@@ -35,7 +35,6 @@ pnpm-debug.log*
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
 
 # IDE
 .vscode
@@ -49,6 +48,7 @@ next-env.d.ts
 .gitignore
 .gitattributes
 
+
 # docker
 Dockerfile
 Dockerfile.dev
@@ -56,11 +56,14 @@ docker-compose.yml
 docker-compose.dev.yml
 .dockerignore
 
-# docs
-*.md
-README.md
-LICENSE
+# Documentation (not content/docs which is needed for MDX)
 docs/
+README.md
+README_ONPREM.md
+LICENSE
+*.md
+!content/**/*.md
+!content/**/*.mdx
 
 # CI/CD
 .github
@@ -80,3 +83,4 @@ supabase/
 habanalabs-installer-log/
 nltk_data/
 snap/
+migrations/

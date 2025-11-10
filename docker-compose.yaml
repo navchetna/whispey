@@ -12,7 +12,7 @@ services:
       POSTGRES_DB: ${DB_NAME:-agentevals}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "${DB_PORT:-5432}:5432"
+      - "${DB_PORT:-5434}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       # PostgreSQL automatically runs scripts in /docker-entrypoint-initdb.d/ on first startup
@@ -33,20 +33,29 @@ services:
       dockerfile: Dockerfile
       args:
         - NODE_ENV=production
+        - http_proxy=${http_proxy}
+        - https_proxy=${https_proxy}
+        - HTTP_PROXY=${HTTP_PROXY}
+        - HTTPS_PROXY=${HTTPS_PROXY}
     image: frontend:latest
     container_name: frontend
     restart: unless-stopped
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=postgresql://${DB_USER:-admin}:${DB_PASSWORD:-admin123}@database:${DB_PORT:-5432}/${DB_NAME:-agentevals}
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3000}
-      - DB_USER=${DB_USER:-admin}
-      - DB_PASSWORD=${DB_PASSWORD:-admin123}
-      - DB_NAME=${DB_NAME:-agentevals}
-      - DB_HOST=postgres
-      - DB_PORT=${DB_PORT:-5432}
+      # PostgreSQL connection - use service name 'database' as hostname
+      - POSTGRES_HOST=database
+      - POSTGRES_PORT=5434
+      - POSTGRES_DATABASE=${DB_NAME:-agentevals}
+      - POSTGRES_USER=${DB_USER:-admin}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-admin123}
+      - POSTGRES_SSL=false
+      # Other required env vars
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+      - JWT_SECRET=${JWT_SECRET:-change-this-in-production}
+      - WHISPEY_MASTER_KEY=${WHISPEY_MASTER_KEY:-change-this-master-key}
+      - VAPI_MASTER_KEY=${VAPI_MASTER_KEY:-change-this-vapi-key}
     ports:
-      - "${APP_PORT:-3000}:3000"
+      - "${APP_PORT:-3001}:3000"
     depends_on:
       database:
         condition: service_healthy

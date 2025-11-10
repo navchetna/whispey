@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 const publicRoutes = [
   '/',
   '/api/auth',
+  '/api/health',
   '/docs',
 ];
 

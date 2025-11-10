@@ -7,6 +7,10 @@ import { QueryProvider } from './providers/QueryProvider'
 import './globals.css'
 import SidebarWrapper from '@/components/shared/SidebarWrapper'
 
+// Force dynamic rendering for all routes to prevent build errors
+export const dynamic = 'force-dynamic';
+export const dynamicParams = true;
+
 const geistSans = Geist({
   variable: '--font-geist-sans',
   subsets: ['latin'],

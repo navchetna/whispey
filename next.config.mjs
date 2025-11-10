@@ -10,14 +10,27 @@ const config = {
   
   reactStrictMode: true,
   
-  // Disable telemetry
-  telemetry: false,
+  // Completely disable static optimization to prevent build errors
+  experimental: {
+    missingSuspenseWithCSRBailout: false,
+  },
   
-  webpack: (config) => {
+  // Force all pages to be dynamic
+  dynamicIO: false,
+  
+  // Skip prerendering during build
+  skipTrailingSlashRedirect: true,
+  
+  // Custom webpack config
+  webpack: (config, { isServer }) => {
     config.resolve.alias = {
       ...config.resolve.alias,
       '@': path.resolve('./src'),
     };
+    // Disable static page generation errors
+    if (isServer) {
+      config.optimization.minimize = false;
+    }
     return config;
   },
   
@@ -47,8 +60,6 @@ const config = {
       },
     ];
   },
-  
-  skipTrailingSlashRedirect: true,
 };
 
 export default withMDX(config);
