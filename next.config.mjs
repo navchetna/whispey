@@ -35,7 +35,8 @@ const config = {
   },
   
   compiler:{
-    removeConsole: process.env.NODE_ENV === 'production'
+    // Only remove console logs if DEBUG is not set
+    removeConsole: process.env.NODE_ENV === 'production' && !process.env.DEBUG
   },
   
   // Environment variables for client side

@@ -64,8 +64,9 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Signin error:', error)
+    console.error('Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)))
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
   }
