@@ -165,70 +165,16 @@ The application will be available at `http://localhost:3000`
 
 ### Using Docker (Recommended)
 
-Create a `docker-compose.yml` file:
-
-```yaml
-version: '3.8'
-
-services:
-  postgres:
-    image: postgres:15
-    environment:
-      POSTGRES_DB: whispey
-      POSTGRES_USER: whispey_user
-      POSTGRES_PASSWORD: your_secure_password
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./database_migration_complete.sql:/docker-entrypoint-initdb.d/init.sql
-    ports:
-      - "5432:5432"
-    restart: unless-stopped
-
-  whispey:
-    build: .
-    environment:
-      - NODE_ENV=production
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
-      - POSTGRES_DATABASE=whispey
-      - POSTGRES_USER=whispey_user
-      - POSTGRES_PASSWORD=your_secure_password
-      - JWT_SECRET=your-super-secure-jwt-secret-key-minimum-32-characters
-    ports:
-      - "3000:3000"
-    depends_on:
-      - postgres
-    restart: unless-stopped
-
-volumes:
-  postgres_data:
+Create a docker image
+```
+docker build --build-arg http_proxy=$http_proxy --build-arg https_proxy=$https_proxy --build-arg HTTP_PROXY=$HTTP_PROXY --build-arg HTTP_PROXY=$HTTPS_PROXY -t voice_evals:latest .
 ```
 
-Create a `Dockerfile`:
-
-```dockerfile
-FROM node:18-alpine
-
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-
-# Install dependencies
-RUN npm ci --only=production
-
-# Copy application code
-COPY . .
-
-# Build the application
-RUN npm run build
-
-# Expose port
-EXPOSE 3000
-
-# Start the application
-CMD ["npm", "start"]
+Run the container 
 ```
+docker run -d -p 3001:3000 -e http_proxy=$http_proxy -e https_proxy=$https_proxy -e HTTP_PROXY=$HTTP_PROXY -e HTTPS_PROXY=$HTTPS_PROXY --name voice-evals-ui voice_evals:latest
+```
+
 
 Deploy with Docker Compose:
 

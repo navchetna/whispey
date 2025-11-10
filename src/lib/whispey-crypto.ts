@@ -1,15 +1,17 @@
 // src/lib/whispey-crypto.ts
 import crypto from 'crypto'
 
-// Get encryption key from environment variable
-const WHISPEY_MASTER_KEY = process.env.WHISPEY_MASTER_KEY
+// Get encryption key from environment variable (lazily evaluated)
+function getEncryptionKey(): Buffer {
+  const WHISPEY_MASTER_KEY = process.env.WHISPEY_MASTER_KEY
 
-if (!WHISPEY_MASTER_KEY) {
-  throw new Error('WHISPEY_MASTER_KEY environment variable is required')
+  if (!WHISPEY_MASTER_KEY) {
+    throw new Error('WHISPEY_MASTER_KEY environment variable is required')
+  }
+
+  // Generate the encryption key using scrypt (same approach as existing crypto.ts)
+  return crypto.scryptSync(WHISPEY_MASTER_KEY, 'whispey_salt', 32)
 }
-
-// Generate the encryption key using scrypt (same approach as existing crypto.ts)
-const key = crypto.scryptSync(WHISPEY_MASTER_KEY, 'whispey_salt', 32)
 
 /**
  * Encrypts a string using AES-256-GCM with WHISPEY_MASTER_KEY
@@ -18,6 +20,8 @@ const key = crypto.scryptSync(WHISPEY_MASTER_KEY, 'whispey_salt', 32)
  */
 export function encryptWithWhispeyKey(text: string): string {
   try {
+    const key = getEncryptionKey()
+    
     // Generate a random initialization vector
     const iv = crypto.randomBytes(16)
     
@@ -46,6 +50,8 @@ export function encryptWithWhispeyKey(text: string): string {
  */
 export function decryptWithWhispeyKey(encryptedText: string): string {
   try {
+    const key = getEncryptionKey()
+    
     // Split the encrypted text into its components
     const parts = encryptedText.split(':')
     

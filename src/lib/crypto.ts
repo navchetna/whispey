@@ -1,15 +1,17 @@
 // src/lib/crypto.ts
 import crypto from 'crypto'
 
-// Get encryption key from environment variable
-const VAPI_MASTER_KEY = process.env.VAPI_MASTER_KEY
+// Get encryption key from environment variable (lazily evaluated)
+function getEncryptionKey(): Buffer {
+  const VAPI_MASTER_KEY = process.env.VAPI_MASTER_KEY
 
-if (!VAPI_MASTER_KEY) {
-  throw new Error('VAPI_MASTER_KEY environment variable is required')
+  if (!VAPI_MASTER_KEY) {
+    throw new Error('VAPI_MASTER_KEY environment variable is required')
+  }
+
+  // Ensure the key is 32 bytes (256 bits) for AES-256
+  return crypto.scryptSync(VAPI_MASTER_KEY, 'salt', 32)
 }
-
-// Ensure the key is 32 bytes (256 bits) for AES-256
-const key = crypto.scryptSync(VAPI_MASTER_KEY, 'salt', 32)
 
 /**
  * Encrypts a string using AES-256-GCM
@@ -18,6 +20,8 @@ const key = crypto.scryptSync(VAPI_MASTER_KEY, 'salt', 32)
  */
 export function encrypt(text: string): string {
   try {
+    const key = getEncryptionKey()
+    
     // Generate a random initialization vector
     const iv = crypto.randomBytes(16)
     
@@ -46,6 +50,8 @@ export function encrypt(text: string): string {
  */
 export function decrypt(encryptedText: string): string {
   try {
+    const key = getEncryptionKey()
+    
     // Split the encrypted text into its components
     const parts = encryptedText.split(':')
     

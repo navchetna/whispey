@@ -3,11 +3,15 @@ import crypto from 'crypto'
 import { DatabaseService } from "@/lib/database"
 import { query } from "@/lib/postgres"
 
-// Get master key from environment
-const VAPI_MASTER_KEY = process.env.VAPI_MASTER_KEY
+// Get master key from environment (lazily evaluated)
+function getVapiMasterKey(): string {
+  const VAPI_MASTER_KEY = process.env.VAPI_MASTER_KEY
 
-if (!VAPI_MASTER_KEY) {
-  throw new Error('VAPI_MASTER_KEY environment variable is required')
+  if (!VAPI_MASTER_KEY) {
+    throw new Error('VAPI_MASTER_KEY environment variable is required')
+  }
+
+  return VAPI_MASTER_KEY
 }
 
 /**
@@ -17,8 +21,8 @@ if (!VAPI_MASTER_KEY) {
  */
 export function generateProjectEncryptionKey(projectId: string): Buffer {
   // Use scrypt like crypto.ts (not pbkdf2) for consistency
-  // VAPI_MASTER_KEY is guaranteed to be defined due to check above
-  return crypto.scryptSync(VAPI_MASTER_KEY!, projectId, 32)
+  const masterKey = getVapiMasterKey()
+  return crypto.scryptSync(masterKey, projectId, 32)
 }
 
 /**
