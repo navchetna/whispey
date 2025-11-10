@@ -9,17 +9,16 @@ services:
     environment: 
       POSTGRES_USER: ${DB_USER:-admin}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-admin123}
-      POSTGRES_DB: ${DB_NAME:-agentevals}
+      POSTGRES_DB: ${DB_NAME:-agent_evals}
       PGDATA: /var/lib/postgresql/data/pgdata
-    ports:
-      - "${DB_PORT:-5434}:5432"
+    # ports: - Not exposing to host, only internal Docker network access
     volumes:
       - postgres_data:/var/lib/postgresql/data
       # PostgreSQL automatically runs scripts in /docker-entrypoint-initdb.d/ on first startup
       - ./setup-db.sql:/docker-entrypoint-initdb.d/01-setup-db.sql:ro
       - ./migrations:/docker-entrypoint-initdb.d/migrations:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-admin} -d ${DB_NAME:-agentevals}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-admin} -d ${DB_NAME:-agent_evals}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -42,20 +41,22 @@ services:
     restart: unless-stopped
     environment:
       - NODE_ENV=production
+      # Enable debug logging (set to false in production after debugging)
+      - DEBUG=true
       # PostgreSQL connection - use service name 'database' as hostname
       - POSTGRES_HOST=database
-      - POSTGRES_PORT=5434
-      - POSTGRES_DATABASE=${DB_NAME:-agentevals}
+      - POSTGRES_PORT=5432
+      - POSTGRES_DATABASE=${DB_NAME:-agent_evals}
       - POSTGRES_USER=${DB_USER:-admin}
       - POSTGRES_PASSWORD=${DB_PASSWORD:-admin123}
       - POSTGRES_SSL=false
       # Other required env vars
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3001}
-      - JWT_SECRET=${JWT_SECRET:-change-this-in-production}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3000/api/}
+      - JWT_SECRET=${JWT_SECRET:-2c2c2e1e5e1491abe5d7e11233a047edf017e509b7b7bca236288e127df85711}
       - WHISPEY_MASTER_KEY=${WHISPEY_MASTER_KEY:-change-this-master-key}
       - VAPI_MASTER_KEY=${VAPI_MASTER_KEY:-change-this-vapi-key}
     ports:
-      - "${APP_PORT:-3001}:3000"
+      - "${APP_PORT:-3000}:3000"
     depends_on:
       database:
         condition: service_healthy

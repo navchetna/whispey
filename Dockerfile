@@ -105,6 +105,9 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 # Copy the static assets (CSS, JS, images)
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# Install missing runtime dependencies that Next.js standalone might miss
+RUN npm install --omit=dev bcryptjs pg
+
 # Switch to the non-root user
 USER nextjs
 

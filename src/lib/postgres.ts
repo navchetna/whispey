@@ -3,15 +3,15 @@ import { Pool, PoolConfig } from 'pg'
 
 // PostgreSQL connection configuration
 const config: PoolConfig = {
-  user: process.env.POSTGRES_USER || 'whispey_user',
-  password: process.env.POSTGRES_PASSWORD || 'whispey123',
+  user: process.env.POSTGRES_USER || 'admin',
+  password: process.env.POSTGRES_PASSWORD || 'admin123',
   host: process.env.POSTGRES_HOST || 'localhost',
   port: parseInt(process.env.POSTGRES_PORT || '5432'),
   database: process.env.POSTGRES_DATABASE || 'whispey',
   max: 10, // maximum number of connections in the pool
   idleTimeoutMillis: 30000, // close idle connections after 30 seconds
   connectionTimeoutMillis: 2000, // return error after 2 seconds if connection could not be established
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+  ssl: process.env.POSTGRES_SSL === 'true' ? { rejectUnauthorized: false } : false
 }
 
 // Create a pool instance

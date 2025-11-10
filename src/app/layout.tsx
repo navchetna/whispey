@@ -1,6 +1,5 @@
 // src/app/layout.tsx
 import { type Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
 import { ThemeProviderWrapper } from '@/components/ThemeProviderWrapper'
 import { FeatureAccessProvider } from './providers/FeatureAccessProvider'
 import { QueryProvider } from './providers/QueryProvider'
@@ -11,15 +10,8 @@ import SidebarWrapper from '@/components/shared/SidebarWrapper'
 export const dynamic = 'force-dynamic';
 export const dynamicParams = true;
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-})
-
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
-})
+// Use system fonts instead of Google Fonts to avoid network issues during build
+const fontVariables = '--font-geist-sans --font-geist-mono'
 
 export const metadata: Metadata = {
   title: 'Whispey - Voice Agent Analytics Platform',
@@ -35,8 +27,9 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
+        className="antialiased bg-background text-foreground font-sans"
         suppressHydrationWarning
+        style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}
       >
         <ThemeProviderWrapper
           attribute="class"
