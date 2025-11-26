@@ -48,6 +48,9 @@ next-env.d.ts
 dist/
 build/
 *.egg-info/
+
+# Audio files directory (uploaded by users)
+audio_files/
 __pycache__/
 *.pyc
 
