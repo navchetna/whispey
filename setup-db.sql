@@ -444,6 +444,24 @@ CREATE TABLE public.pype_voice_evaluation_results (
     created_at timestamp with time zone DEFAULT now()
 );
 
+-- Table for storing uploaded audio files
+CREATE TABLE public.pype_voice_audio_files (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id uuid NOT NULL REFERENCES public.pype_voice_projects(id) ON DELETE CASCADE,
+    agent_id uuid NOT NULL REFERENCES public.pype_voice_agents(id) ON DELETE CASCADE,
+    file_name varchar(255) NOT NULL,
+    file_path text NOT NULL,
+    file_size_bytes bigint,
+    status varchar(20) DEFAULT 'pending' CHECK (status IN ('pending', 'processed', 'failed')),
+    transcript text,
+    upload_date timestamp with time zone DEFAULT now(),
+    processed_at timestamp with time zone,
+    error_message text,
+    metadata jsonb DEFAULT '{}',
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now()
+);
+
 -- Grant permissions on all newly created tables
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO admin;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO admin;
@@ -496,6 +514,13 @@ CREATE INDEX idx_evaluation_results_call_id ON public.pype_voice_evaluation_resu
 CREATE INDEX idx_evaluation_results_agent_id ON public.pype_voice_evaluation_results(agent_id);
 CREATE INDEX idx_evaluation_results_status ON public.pype_voice_evaluation_results(status);
 CREATE INDEX idx_evaluation_results_created_at ON public.pype_voice_evaluation_results(created_at DESC);
+
+-- Audio files indexes
+CREATE INDEX idx_audio_files_project_id ON public.pype_voice_audio_files(project_id);
+CREATE INDEX idx_audio_files_agent_id ON public.pype_voice_audio_files(agent_id);
+CREATE INDEX idx_audio_files_status ON public.pype_voice_audio_files(status);
+CREATE INDEX idx_audio_files_upload_date ON public.pype_voice_audio_files(upload_date DESC);
+CREATE INDEX idx_audio_files_project_agent ON public.pype_voice_audio_files(project_id, agent_id);
 
 -- Composite indexes for common queries
 CREATE INDEX idx_evaluation_results_job_status ON public.pype_voice_evaluation_results(job_id, status);

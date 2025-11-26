@@ -27,83 +27,79 @@ cp .env.example .env.local
 
 ### 2. Database Setup
 
-#### Install PostgreSQL
+The application uses PostgreSQL as its database. Follow these steps to set up the database:
 
-**Ubuntu/Debian:**
+### 1. Install PostgreSQL
+
 ```bash
+# Ubuntu/Debian
 sudo apt update
 sudo apt install postgresql postgresql-contrib
-sudo systemctl start postgresql
-sudo systemctl enable postgresql
+
+# macOS
+brew install postgresql@15
+
+# Start PostgreSQL service
+sudo systemctl start postgresql  # Linux
+brew services start postgresql@15  # macOS
 ```
 
-**CentOS/RHEL:**
+### 2. Run the Database Setup Script
+
 ```bash
-sudo yum install postgresql-server postgresql-contrib
-sudo postgresql-setup initdb
-sudo systemctl start postgresql
-sudo systemctl enable postgresql
+# Switch to postgres user and run the setup script
+sudo -u postgres psql -f setup-db.sql
+
+# Or run directly with postgres user
+psql -U postgres -f setup-db.sql
 ```
 
-**macOS:**
+The script will:
+- Create database: `agent_evals`
+- Create user: `admin` with password: `admin123`
+- Set up all required tables, indexes, and functions
+- Create a default admin user for the application
+
+### 3. Update Environment Variables
+
+Update your `.env.local` file with the database credentials:
+
+```env
+# Database Configuration
+POSTGRES_USER=admin
+POSTGRES_PASSWORD=admin123
+POSTGRES_DB=agent_evals
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+
+# Connection String
+DATABASE_URL=postgresql://admin:admin123@localhost:5432/agent_evals
+```
+
+### 4. Verify Database Connection
+
 ```bash
-brew install postgresql
-brew services start postgresql
+# Test connection
+psql -U admin -d agent_evals -h localhost
+
+# List tables
+psql -U admin -d agent_evals -c "\dt"
 ```
 
-**Windows:**
-Download and install from [PostgreSQL Official Website](https://www.postgresql.org/download/windows/)
+### Default Credentials
 
-#### Create Database and User
+**Database User:**
+- Username: `admin`
+- Password: `admin123`
+- Database: `agent_evals`
 
-**Simple Setup:**
+**Application Admin User:**
+- Email: `admin@agent_evals.local`
+- Password: `admin123`
 
-1. **Run the complete setup script as PostgreSQL superuser:**
-```bash
-# Connect to PostgreSQL as superuser
-sudo -u postgres psql
+⚠️ **Important:** Change these default passwords after first login in production!
 
-# Run the complete setup script (creates database, user, tables, and data)
-\i setup-db.sql
-
-# Exit superuser session
-\q
-```
-
-2. **Verify the setup:**
-```bash
-# Connect to verify everything is working
-psql -h localhost -U whispey_user -d whispey
-
-# Check that tables were created
-\dt
-
-# Exit
-\q
-```
-
-**Default Credentials:**
-- Database: `whispey`
-- Username: `whispey_user`
-- Password: `whispey123`
-
-⚠️ **Security Note**: Change the default password in production! Update both the database user password and your `.env.local` file.
-
-**Troubleshooting Permission Issues:**
-
-If you get "permission denied for schema public" errors, connect as PostgreSQL superuser and run:
-```bash
-sudo -u postgres psql -d whispey
-```
-
-Then run these permission fixes:
-```sql
-GRANT ALL ON SCHEMA public TO whispey_user;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO whispey_user;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO whispey_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO whispey_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO whispey_user;
-```
+...existing code...
 
 ### 3. Environment Configuration
 
@@ -111,11 +107,11 @@ Edit `.env.local` file with your configuration:
 
 ```bash
 # Database Configuration
+POSTGRES_USER=admin
+POSTGRES_PASSWORD=admin123
+POSTGRES_DB=agent_evals
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
-POSTGRES_DATABASE=whispey
-POSTGRES_USER=whispey_user
-POSTGRES_PASSWORD=whispey123
 
 # JWT Secret (IMPORTANT: Change this in production!)
 JWT_SECRET=your-super-secure-jwt-secret-key-minimum-32-characters
@@ -128,13 +124,6 @@ VOICE_EVALS_MASTER_KEY=your-unique-voice-evals-key
 OPENAI_API_KEY=your_openai_api_key_here
 ```
 
-⚠️ **Important**: The default password `whispey123` is used for initial setup. Change it in production:
-1. Update the database user password: `ALTER USER whispey_user PASSWORD 'new_secure_password';`
-2. Update your `.env.local` file with the new password
-3. To generate a JWT secret, use:
-   ```bash
-   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-   ```
 ### 4. Build and Start
 
 ```bash
