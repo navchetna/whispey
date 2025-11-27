@@ -249,6 +249,32 @@ export default function EvaluationConfig({ params }: EvaluationConfigProps) {
     }
   }
 
+  const handleTranscribe = async (audioFileId: string) => {
+    if (!confirm('Generate transcript for this audio file? This may take a few minutes.')) {
+      return
+    }
+
+    try {
+      const response = await fetch('/api/transcribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ audio_file_id: audioFileId })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to generate transcript')
+      }
+
+      alert('Transcript generation started! Refresh the list to see the status.')
+      fetchAudioFiles()
+    } catch (error) {
+      console.error('Error generating transcript:', error)
+      alert(`Failed to generate transcript: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'completed':
@@ -967,15 +993,39 @@ ${diag.sampleCallLogs.all.map((log: any) => `• ${log.id}: ${log.call_ended_rea
                             </div>
                           </div>
                         </div>
-                        <Badge className={`${
-                          file.status === 'processed'
-                            ? 'bg-green-50 text-green-700 border-green-200'
-                            : file.status === 'failed'
-                            ? 'bg-red-50 text-red-700 border-red-200'
-                            : 'bg-yellow-50 text-yellow-700 border-yellow-200'
-                        }`}>
-                          {file.status}
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge className={`${
+                            file.status === 'processed'
+                              ? 'bg-green-50 text-green-700 border-green-200'
+                              : file.status === 'processing'
+                              ? 'bg-blue-50 text-blue-700 border-blue-200'
+                              : file.status === 'failed'
+                              ? 'bg-red-50 text-red-700 border-red-200'
+                              : 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                          }`}>
+                            {file.status}
+                          </Badge>
+                          {file.status === 'pending' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleTranscribe(file.id)}
+                            >
+                              <Play className="w-4 h-4 mr-1" />
+                              Transcribe
+                            </Button>
+                          )}
+                          {file.status === 'processed' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => router.push(`/${params.projectid}/agents/${params.agentid}/observability`)}
+                            >
+                              <Eye className="w-4 h-4 mr-1" />
+                              View
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>

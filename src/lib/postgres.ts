@@ -7,7 +7,7 @@ const config: PoolConfig = {
   password: process.env.POSTGRES_PASSWORD || 'admin123',
   host: process.env.POSTGRES_HOST || 'localhost',
   port: parseInt(process.env.POSTGRES_PORT || '5432'),
-  database: process.env.POSTGRES_DATABASE || 'whispey',
+  database: process.env.POSTGRES_DATABASE || 'agent_evals',
   max: 10, // maximum number of connections in the pool
   idleTimeoutMillis: 30000, // close idle connections after 30 seconds
   connectionTimeoutMillis: 2000, // return error after 2 seconds if connection could not be established

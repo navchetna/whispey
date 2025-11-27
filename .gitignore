@@ -51,6 +51,10 @@ build/
 
 # Audio files directory (uploaded by users)
 audio_files/
+audios/
+
+# Transcription outputs (temporary files from Sarvam AI)
+transcription_outputs/
 __pycache__/
 *.pyc
 
