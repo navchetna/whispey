@@ -315,6 +315,39 @@ const ConnectAgentFlow: React.FC<ConnectAgentFlowProps> = ({
         } catch (webhookError) {
           console.warn('⚠️ Monitoring webhook setup failed, but connection was created')
         }
+      } else if (selectedPlatform === 'audio_upload') {
+        // Upload and process audio files
+        setCurrentStep('connecting')
+        
+        try {
+          const uploadFormData = new FormData()
+          uploadFormData.append('project_id', projectId)
+          uploadFormData.append('agent_id', data.id)
+          
+          if (formData.audioUploadMethod === 'zip' && formData.audioFiles) {
+            uploadFormData.append('upload_type', 'zip')
+            uploadFormData.append('file', formData.audioFiles)
+          } else if (formData.audioUploadMethod === 'link') {
+            uploadFormData.append('upload_type', 'url')
+            uploadFormData.append('url', formData.audioLink)
+          }
+          
+          const uploadResponse = await fetch('/api/audio-upload', {
+            method: 'POST',
+            body: uploadFormData,
+          })
+          
+          if (!uploadResponse.ok) {
+            const errorData = await uploadResponse.json()
+            throw new Error(errorData.error || 'Failed to process audio files')
+          }
+          
+          const uploadResult = await uploadResponse.json()
+          console.log('Audio files processed:', uploadResult)
+        } catch (uploadError) {
+          console.error('Failed to process audio files:', uploadError)
+          throw uploadError
+        }
       }
       
       setCurrentStep('success')
@@ -353,12 +386,15 @@ const ConnectAgentFlow: React.FC<ConnectAgentFlowProps> = ({
         </div>
         
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
-          {currentStep === 'creating' ? 'Setting Up Monitoring' : 'Connecting Monitoring'}
+          {currentStep === 'creating' ? 'Setting Up Monitoring' : 
+           selectedPlatform === 'audio_upload' ? 'Processing Audio Files' : 'Connecting Monitoring'}
         </h3>
         
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
           {currentStep === 'creating' 
             ? 'Configuring observability for your agent...' 
+            : selectedPlatform === 'audio_upload'
+            ? 'Extracting and processing your audio files...'
             : 'Establishing monitoring connection...'}
         </p>
 
@@ -838,9 +874,6 @@ const ConnectAgentFlow: React.FC<ConnectAgentFlowProps> = ({
                   <div className="space-y-2 bg-white/60 dark:bg-gray-900/30 rounded-lg p-4 border border-purple-200 dark:border-purple-800">
                     <label className="block text-sm font-medium text-gray-900 dark:text-gray-100">
                       Upload ZIP File
-                      <Badge variant="outline" className="ml-2 text-xs bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-800">
-                        Static Upload
-                      </Badge>
                     </label>
                     <input
                       type="file"
