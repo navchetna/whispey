@@ -167,11 +167,12 @@ export async function POST(request: NextRequest) {
         
         // Create call log immediately with 'pending' status
         // Status will be updated to 'completed' after transcription completes
+        // call_started_at is set to NOW() - the upload date/time
         const callLogResult = await query(
           `INSERT INTO pype_voice_call_logs 
           (call_id, agent_id, recording_url, voice_recording_url, customer_number, 
-           call_ended_reason, transcript_type, environment, created_at, metadata) 
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9) 
+           call_ended_reason, transcript_type, environment, created_at, call_started_at, metadata) 
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW(), $9) 
           RETURNING *`,
           [
             `uploaded-${audioFileRecord.id}`,

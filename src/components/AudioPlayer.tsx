@@ -83,7 +83,26 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
     setIsLoading(true)
     setError(null)
   
-    // First, try to use the direct URL if provided
+    // First, check if this is a local audio path (uploaded audio files)
+    if (url && (url.startsWith('/audios/') || url.includes('local_path'))) {
+      try {
+        // Use the local audio API endpoint
+        const localUrl = `/api/audio-local?path=${encodeURIComponent(url)}`
+        
+        // Test if the local file is accessible
+        const testResponse = await fetch(localUrl, { method: 'HEAD' })
+        
+        if (testResponse.ok) {
+          setAudioUrl(localUrl)
+          setIsLoading(false)
+          return localUrl
+        }
+      } catch (err) {
+        console.log('Local audio file test failed, trying other methods')
+      }
+    }
+  
+    // Then try to use the direct URL if provided
     if (url) {
       try {
         // Test if the URL is accessible using our proxy API

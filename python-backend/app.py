@@ -184,6 +184,9 @@ def format_diarized_transcript(transcript_data):
     
     Step 1: Merge consecutive turns from the same speaker
     Step 2: Add start_time, end_time, cost (empty), and latency (gap between turns)
+    
+    Latency is calculated as: next_turn.start_time - current_turn.end_time
+    This represents the gap between speakers, excluding the time they are speaking.
     """
     try:
         entries = transcript_data.get('diarized_transcript', {}).get('entries', [])
@@ -237,13 +240,16 @@ def format_diarized_transcript(transcript_data):
         print(f"📊 Merged {len(entries)} entries into {len(merged_entries)} turns")
         
         # Step 2: Format turns with required fields
+        # Latency for turn N is calculated as: turn N start_time - turn N-1 end_time
+        # This measures the gap/response time between consecutive speakers
         turns = []
         for i, entry in enumerate(merged_entries):
             speaker_id = entry['speaker_id']
             # Map speaker IDs: 0 = agent, 1 = user
             role = 'agent' if speaker_id == '0' else 'user'
             
-            # Calculate latency (gap from previous turn's end to this turn's start)
+            # Calculate latency as the gap between this turn's start and previous turn's end
+            # This excludes the speaking duration and only measures the response delay
             latency = None
             if i > 0:
                 prev_end = merged_entries[i - 1]['end_time_seconds']

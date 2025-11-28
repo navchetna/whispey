@@ -48,10 +48,12 @@ export async function GET(request: NextRequest) {
       )
     } catch (viewError) {
       // Fallback: Query directly from call_logs table
+      // Successful calls = 'completed' status (transcription done successfully)
+      // Failed/Pending = 'pending', 'failed', or any other status
       console.log('Materialized view query failed, using direct query')
       result = await query(
         `SELECT 
-          DATE(created_at) as call_date,
+          DATE(COALESCE(call_started_at, created_at)) as call_date,
           COUNT(*) as calls,
           COALESCE(SUM(duration_seconds / 60.0), 0) as total_minutes,
           COALESCE(AVG(avg_latency), 0) as avg_latency,
@@ -61,12 +63,12 @@ export async function GET(request: NextRequest) {
             THEN ROUND(COUNT(CASE WHEN call_ended_reason = 'completed' THEN 1 END)::NUMERIC / COUNT(*) * 100, 2) 
             ELSE 0 
           END as success_rate,
-          COALESCE(SUM(total_llm_cost + total_tts_cost + total_stt_cost), 0) as total_cost
+          COALESCE(SUM(COALESCE(total_llm_cost, 0) + COALESCE(total_tts_cost, 0) + COALESCE(total_stt_cost, 0)), 0) as total_cost
         FROM pype_voice_call_logs
         WHERE agent_id = $1
-          AND DATE(created_at) >= $2
-          AND DATE(created_at) <= $3
-        GROUP BY DATE(created_at)
+          AND DATE(COALESCE(call_started_at, created_at)) >= $2
+          AND DATE(COALESCE(call_started_at, created_at)) <= $3
+        GROUP BY DATE(COALESCE(call_started_at, created_at))
         ORDER BY call_date ASC`,
         [agentId, dateFrom, dateTo]
       )
