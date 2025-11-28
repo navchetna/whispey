@@ -88,7 +88,6 @@ async def transcribe_audio(audio_file_path: str, api_key: str):
             model="saarika:v2.5",
             with_diarization=True,
             num_speakers=2,
-            language_code="en-IN"
         )
         
         # Upload audio file
