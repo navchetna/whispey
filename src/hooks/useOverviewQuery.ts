@@ -7,7 +7,7 @@ interface OverviewData {
   successfulCalls: number
   successRate: number
   averageLatency: number
-  totalCost:number
+  totalCost: number
   uniqueCustomers: number
   dailyData: Array<{
     date: string
@@ -15,12 +15,22 @@ interface OverviewData {
     calls: number
     minutes: number
   }>
+  // Audio upload specific fields
+  isAudioUpload?: boolean
+  audioStats?: {
+    totalAudioFiles: number
+    processedFiles: number
+    pendingFiles: number
+    failedFiles: number
+    totalSizeBytes: number
+  }
 }
 
 interface UseOverviewQueryProps {
   agentId: string
   dateFrom: string // 'YYYY-MM-DD'
   dateTo: string   // 'YYYY-MM-DD'
+  agentType?: string // 'audio_upload' or other types
 }
 
 export const useOverviewQuery = ({ agentId, dateFrom, dateTo }: UseOverviewQueryProps) => {

@@ -2,6 +2,31 @@ import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/postgres'
 import 'server-only'
 
+// Direct query function to get call stats from pype_voice_call_logs
+async function getDirectCallStats(agentId: string, dateFrom: string, dateTo: string) {
+  return await query(
+    `SELECT 
+      DATE(COALESCE(call_started_at, created_at)) as call_date,
+      COUNT(*) as calls,
+      COALESCE(SUM(duration_seconds / 60.0), 0) as total_minutes,
+      COALESCE(AVG(avg_latency), 0) as avg_latency,
+      COUNT(DISTINCT customer_number) as unique_customers,
+      COUNT(CASE WHEN call_ended_reason = 'completed' THEN 1 END) as successful_calls,
+      CASE WHEN COUNT(*) > 0 
+        THEN ROUND(COUNT(CASE WHEN call_ended_reason = 'completed' THEN 1 END)::NUMERIC / COUNT(*) * 100, 2) 
+        ELSE 0 
+      END as success_rate,
+      COALESCE(SUM(COALESCE(total_llm_cost, 0) + COALESCE(total_tts_cost, 0) + COALESCE(total_stt_cost, 0)), 0) as total_cost
+    FROM pype_voice_call_logs
+    WHERE agent_id = $1
+      AND DATE(COALESCE(call_started_at, created_at)) >= $2
+      AND DATE(COALESCE(call_started_at, created_at)) <= $3
+    GROUP BY DATE(COALESCE(call_started_at, created_at))
+    ORDER BY call_date ASC`,
+    [agentId, dateFrom, dateTo]
+  )
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
@@ -17,6 +42,7 @@ export async function GET(request: NextRequest) {
     }
 
     let result;
+    let usedDirectQuery = false;
     
     // Try to use materialized view first
     try {
@@ -46,32 +72,24 @@ export async function GET(request: NextRequest) {
         ORDER BY call_date ASC`,
         [agentId, dateFrom, dateTo]
       )
+      
+      // If materialized view returns empty results, verify against direct query
+      // This handles cases where the view exists but is stale/empty
+      if (result.rows.length === 0) {
+        const directResult = await getDirectCallStats(agentId, dateFrom, dateTo)
+        if (directResult.rows.length > 0) {
+          console.log('Materialized view returned empty, using direct query which has data')
+          result = directResult
+          usedDirectQuery = true
+        }
+      }
     } catch (viewError) {
       // Fallback: Query directly from call_logs table
       // Successful calls = 'completed' status (transcription done successfully)
       // Failed/Pending = 'pending', 'failed', or any other status
       console.log('Materialized view query failed, using direct query')
-      result = await query(
-        `SELECT 
-          DATE(COALESCE(call_started_at, created_at)) as call_date,
-          COUNT(*) as calls,
-          COALESCE(SUM(duration_seconds / 60.0), 0) as total_minutes,
-          COALESCE(AVG(avg_latency), 0) as avg_latency,
-          COUNT(DISTINCT customer_number) as unique_customers,
-          COUNT(CASE WHEN call_ended_reason = 'completed' THEN 1 END) as successful_calls,
-          CASE WHEN COUNT(*) > 0 
-            THEN ROUND(COUNT(CASE WHEN call_ended_reason = 'completed' THEN 1 END)::NUMERIC / COUNT(*) * 100, 2) 
-            ELSE 0 
-          END as success_rate,
-          COALESCE(SUM(COALESCE(total_llm_cost, 0) + COALESCE(total_tts_cost, 0) + COALESCE(total_stt_cost, 0)), 0) as total_cost
-        FROM pype_voice_call_logs
-        WHERE agent_id = $1
-          AND DATE(COALESCE(call_started_at, created_at)) >= $2
-          AND DATE(COALESCE(call_started_at, created_at)) <= $3
-        GROUP BY DATE(COALESCE(call_started_at, created_at))
-        ORDER BY call_date ASC`,
-        [agentId, dateFrom, dateTo]
-      )
+      result = await getDirectCallStats(agentId, dateFrom, dateTo)
+      usedDirectQuery = true
     }
 
     return NextResponse.json({

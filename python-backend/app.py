@@ -264,7 +264,7 @@ def format_diarized_transcript(transcript_data):
                 'content': entry['transcript'].strip(),
                 'start_time': entry['start_time_seconds'],
                 'end_time': entry['end_time_seconds'],
-                'duration': round(entry['end_time_seconds'] - entry['start_time_seconds'], 3),
+                'duration': round(entry['end_time_seconds'] - entry['start_time_seconds']),
                 'cost': None,  # Empty as requested
                 'latency': latency,
             })
