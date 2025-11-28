@@ -1,12 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/postgres'
-import { SarvamAIClient } from 'sarvamai'
-import path from 'path'
 import { existsSync } from 'fs'
-
-const sarvamClient = new SarvamAIClient({
-  apiSubscriptionKey: process.env.SARVAM_API_KEY || ''
-})
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,6 +12,17 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    // Check if API key is configured
+    if (!process.env.SARVAM_API_KEY || process.env.SARVAM_API_KEY === 'your_sarvam_api_key_here') {
+      console.error('❌ SARVAM_API_KEY is not configured')
+      return NextResponse.json(
+        { error: 'SarvamAI API key not configured. Please set SARVAM_API_KEY in .env.local' },
+        { status: 500 }
+      )
+    }
+
+    console.log(`📝 Starting transcription for audio_file_id: ${audio_file_id}`)
 
     // Get the audio file record
     const audioFileResult = await query(
@@ -43,15 +48,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Update status to processing
-    await query(
-      'UPDATE pype_voice_audio_files SET status = $1, updated_at = NOW() WHERE id = $2',
-      ['processing', audio_file_id]
-    )
+    console.log(`🎙️ Audio file found, starting transcription...`)
 
-    // Generate transcript using SarvamAI
+    // Call Python backend for transcription
     try {
-      const transcriptResult = await generateTranscript(filePath)
+      const pythonBackendUrl = process.env.PYTHON_BACKEND_URL || 'http://localhost:5001'
+      const transcriptResult = await callPythonBackend(filePath, pythonBackendUrl, process.env.SARVAM_API_KEY!)
       
       if (transcriptResult.success && transcriptResult.transcript) {
         // Update audio file with transcript
@@ -99,111 +101,38 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function generateTranscript(filePath: string) {
+async function callPythonBackend(filePath: string, backendUrl: string, apiKey: string) {
   try {
-    console.log('Starting transcription for:', filePath)
+    console.log('🐍 Calling Python backend for transcription:', filePath)
+    console.log('🔗 Backend URL:', backendUrl)
     
-    // Create SarvamAI speech-to-text job
-    const job = await sarvamClient.speechToTextJob.createJob({
-      languageCode: 'en-IN',
-      model: 'saarika:v2.5',
-      withDiarization: true,
-      numSpeakers: 2
+    const response = await fetch(`${backendUrl}/transcribe`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        audio_file_path: filePath,
+        api_key: apiKey
+      }),
+      // No timeout - let Python handle the long-running operation
     })
     
-    console.log('Job created:', job.jobId)
-    
-    // Upload audio file
-    await job.uploadFiles([filePath])
-    console.log('File uploaded')
-    
-    // Start the job
-    await job.start()
-    console.log('Job started')
-    
-    // Wait for completion
-    const finalStatus = await job.waitUntilComplete()
-    console.log('Job completed:', finalStatus)
-    
-    // Check if job failed
-    if (await job.isFailed()) {
-      return {
-        success: false,
-        error: 'Transcription job failed',
-        transcript: null
-      }
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || `Backend returned ${response.status}`)
     }
     
-    // Download outputs
-    const outputDir = path.join(process.cwd(), 'transcription_outputs', job.jobId)
-    await job.downloadOutputs(outputDir)
-    console.log('Outputs downloaded to:', outputDir)
+    const result = await response.json()
+    console.log('✅ Python backend completed transcription')
     
-    // Read and parse transcript
-    const transcriptPath = path.join(outputDir, 'transcript.json')
-    if (existsSync(transcriptPath)) {
-      const fs = require('fs').promises
-      const transcriptData = JSON.parse(await fs.readFile(transcriptPath, 'utf-8'))
-      
-      // Format transcript to match call log structure
-      const formattedTranscript = formatTranscript(transcriptData)
-      
-      return {
-        success: true,
-        transcript: formattedTranscript,
-        error: null
-      }
-    } else {
-      return {
-        success: false,
-        error: 'Transcript file not found in output',
-        transcript: null
-      }
-    }
+    return result
     
   } catch (error) {
-    console.error('Transcription error:', error)
+    console.error('❌ Error calling Python backend:', error)
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      transcript: null
-    }
-  }
-}
-
-function formatTranscript(sarvamOutput: any) {
-  const turns: any[] = []
-  
-  // Sarvam AI output typically has diarized segments
-  if (sarvamOutput.segments) {
-    for (const segment of sarvamOutput.segments) {
-      turns.push({
-        speaker: segment.speaker || 'unknown',
-        start_time: segment.start || 0,
-        end_time: segment.end || 0,
-        text: segment.text || '',
-        confidence: segment.confidence || 0
-      })
-    }
-  } else if (sarvamOutput.turns) {
-    // Already in turns format
-    return sarvamOutput
-  }
-  
-  // Calculate metadata
-  const totalDuration = turns.length > 0 
-    ? Math.max(...turns.map(t => t.end_time)) 
-    : 0
-  
-  const speakers = [...new Set(turns.map(t => t.speaker).filter(Boolean))]
-  
-  return {
-    turns,
-    metadata: {
-      total_turns: turns.length,
-      total_duration: totalDuration,
-      speakers,
-      transcription_engine: 'sarvam_ai_saarika_v2.5'
+      error: error instanceof Error ? error.message : 'Unknown error calling Python backend'
     }
   }
 }

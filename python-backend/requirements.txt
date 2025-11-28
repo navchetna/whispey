@@ -1,0 +1,4 @@
+fastapi
+uvicorn[standard]==0.32.0
+sarvamai==0.1.22
+python-dotenv
