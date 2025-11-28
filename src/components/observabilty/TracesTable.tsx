@@ -256,6 +256,11 @@ const TracesTable: React.FC<TracesTableProps> = ({
       return "bug_report"
     }
 
+    // For uploaded audio transcripts, always mark as finished/success
+    if (trace.metadata?.from_uploaded_audio) {
+      return "success"
+    }
+
     const spans = trace.otel_spans || []
     const toolErrors = trace.tool_calls?.some(tool => tool.status === 'error' || tool.success === false)
     const hasLLMError = trace.llm_metrics && Object.keys(trace.llm_metrics).length === 0
