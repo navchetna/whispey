@@ -165,6 +165,8 @@ export async function POST(request: NextRequest) {
         // Use local file path as recording URL
         const localFileUrl = `/audios/${projectId}/${agentId}/${audioFile.file_name}`
         
+        // Create call log immediately with 'pending' status
+        // Status will be updated to 'completed' after transcription completes
         const callLogResult = await query(
           `INSERT INTO pype_voice_call_logs 
           (call_id, agent_id, recording_url, voice_recording_url, customer_number, 
@@ -177,7 +179,7 @@ export async function POST(request: NextRequest) {
             localFileUrl,
             localFileUrl,
             'uploaded',
-            'manual_upload',
+            'pending', // Will be updated to 'completed' after transcription
             'uploaded',
             'production',
             JSON.stringify({ 

@@ -180,41 +180,107 @@ async def transcribe_audio(audio_file_path: str, api_key: str):
         }
 
 def format_diarized_transcript(transcript_data):
-    """Format SarvamAI transcript to match the expected structure"""
+    """Format SarvamAI transcript to match the expected structure.
+    
+    Step 1: Merge consecutive turns from the same speaker
+    Step 2: Add start_time, end_time, cost (empty), and latency (gap between turns)
+    """
     try:
         entries = transcript_data.get('diarized_transcript', {}).get('entries', [])
+        language_code = transcript_data.get('language_code', 'unknown')
         
-        turns = []
+        if not entries:
+            return {
+                'turns': [],
+                'metadata': {
+                    'total_turns': 0,
+                    'total_duration': 0,
+                    'speakers': [],
+                    'language': language_code,
+                    'model': 'saarika:v2.5'
+                }
+            }
+        
+        # Step 1: Merge consecutive turns from the same speaker
+        merged_entries = []
+        current_entry = None
+        
         for entry in entries:
-            speaker_id = entry.get('speaker_id', 0)
+            speaker_id = str(entry.get('speaker_id', '0'))
+            
+            if current_entry is None:
+                # First entry
+                current_entry = {
+                    'speaker_id': speaker_id,
+                    'transcript': entry.get('transcript', ''),
+                    'start_time_seconds': entry.get('start_time_seconds', 0),
+                    'end_time_seconds': entry.get('end_time_seconds', 0),
+                }
+            elif current_entry['speaker_id'] == speaker_id:
+                # Same speaker - merge by appending text and extending end time
+                current_entry['transcript'] += ' ' + entry.get('transcript', '')
+                current_entry['end_time_seconds'] = entry.get('end_time_seconds', current_entry['end_time_seconds'])
+            else:
+                # Different speaker - save current and start new
+                merged_entries.append(current_entry)
+                current_entry = {
+                    'speaker_id': speaker_id,
+                    'transcript': entry.get('transcript', ''),
+                    'start_time_seconds': entry.get('start_time_seconds', 0),
+                    'end_time_seconds': entry.get('end_time_seconds', 0),
+                }
+        
+        # Don't forget the last entry
+        if current_entry:
+            merged_entries.append(current_entry)
+        
+        print(f"📊 Merged {len(entries)} entries into {len(merged_entries)} turns")
+        
+        # Step 2: Format turns with required fields
+        turns = []
+        for i, entry in enumerate(merged_entries):
+            speaker_id = entry['speaker_id']
             # Map speaker IDs: 0 = agent, 1 = user
-            role = 'agent' if speaker_id == 0 else 'user'
+            role = 'agent' if speaker_id == '0' else 'user'
+            
+            # Calculate latency (gap from previous turn's end to this turn's start)
+            latency = None
+            if i > 0:
+                prev_end = merged_entries[i - 1]['end_time_seconds']
+                curr_start = entry['start_time_seconds']
+                latency = round(curr_start - prev_end, 3)
+                # Latency can be negative if there's overlap, set to 0 in that case
+                if latency < 0:
+                    latency = 0
             
             turns.append({
                 'role': role,
-                'speaker': f'Speaker {speaker_id}',
-                'text': entry.get('transcript', ''),
-                'start_time': entry.get('start_time_seconds', 0),
-                'end_time': entry.get('end_time_seconds', 0),
-                'duration': entry.get('end_time_seconds', 0) - entry.get('start_time_seconds', 0)
+                'content': entry['transcript'].strip(),
+                'start_time': entry['start_time_seconds'],
+                'end_time': entry['end_time_seconds'],
+                'duration': round(entry['end_time_seconds'] - entry['start_time_seconds'], 3),
+                'cost': None,  # Empty as requested
+                'latency': latency,
             })
         
         # Calculate metadata
         total_duration = max([t['end_time'] for t in turns]) if turns else 0
-        speakers = list(set([t['speaker'] for t in turns]))
+        speakers = list(set([t['role'] for t in turns]))
         
         return {
             'turns': turns,
             'metadata': {
                 'total_turns': len(turns),
-                'total_duration': total_duration,
+                'total_duration': round(total_duration, 2),
                 'speakers': speakers,
-                'language': 'en-IN',
+                'language': language_code,
                 'model': 'saarika:v2.5'
             }
         }
     except Exception as e:
         print(f"Error formatting transcript: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return {
             'turns': [],
             'metadata': {},

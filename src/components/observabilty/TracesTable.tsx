@@ -74,7 +74,7 @@ const TracesTable: React.FC<TracesTableProps> = ({
   callData
 }) => {
 
-  console.log('🎵 TracesTable props:', { currentAudioTime, isAudioPlaying, hasCallData: !!callData })
+  console.log('🎵 TracesTable props:', { currentAudioTime, isAudioPlaying, hasCallData: !!callData, transcriptType: callData?.transcript_type, hasTranscriptJson: !!callData?.transcript_json })
 
   const [selectedTrace, setSelectedTrace] = useState<TraceLog | null>(null)
   const [isDetailSheetOpen, setIsDetailSheetOpen] = useState(false)
@@ -126,7 +126,7 @@ const TracesTable: React.FC<TracesTableProps> = ({
 
   // Convert transcript_json to trace data format if available
   const transcriptTraceData = useMemo(() => {
-    if (!callData?.transcript_json || !callData?.transcript_type === 'diarized') return null
+    if (!callData?.transcript_json || callData?.transcript_type !== 'diarized') return null
     
     try {
       const transcriptJson = typeof callData.transcript_json === 'string' 
@@ -136,28 +136,54 @@ const TracesTable: React.FC<TracesTableProps> = ({
       if (!transcriptJson?.turns || !Array.isArray(transcriptJson.turns)) return null
       
       // Convert turns to trace format
-      return transcriptJson.turns.map((turn: any, index: number) => ({
-        id: `transcript-turn-${index}`,
-        session_id: sessionId || callData.id,
-        turn_id: `turn-${index}`,
-        user_transcript: turn.speaker === 'Speaker 1' ? turn.text : '',
-        agent_response: turn.speaker === 'Speaker 2' ? turn.text : '',
-        unix_timestamp: (turn.start_time || 0) * 1000, // Convert to ms
-        created_at: new Date(callData.created_at).toISOString(),
-        trace_duration_ms: ((turn.end_time || 0) - (turn.start_time || 0)) * 1000,
-        metadata: {
-          speaker: turn.speaker,
-          start_time: turn.start_time,
-          end_time: turn.end_time,
-          confidence: turn.confidence,
-          from_uploaded_audio: true
+      // Support both old format (speaker/text) and new format (role/content)
+      return transcriptJson.turns.map((turn: any, index: number) => {
+        // Detect format: new format uses 'role' and 'content', old format uses 'speaker' and 'text'
+        const isNewFormat = 'role' in turn && 'content' in turn
+        const isUser = isNewFormat 
+          ? turn.role === 'user' 
+          : turn.speaker === 'Speaker 1' || turn.speaker === 'user'
+        const isAgent = isNewFormat 
+          ? turn.role === 'agent' 
+          : turn.speaker === 'Speaker 2' || turn.speaker === 'agent'
+        const textContent = isNewFormat ? turn.content : turn.text
+        
+        return {
+          id: `transcript-turn-${index}`,
+          session_id: sessionId || callData.id,
+          turn_id: `turn-${index}`,
+          user_transcript: isUser ? textContent : '',
+          agent_response: isAgent ? textContent : '',
+          unix_timestamp: (turn.start_time || 0) * 1000, // Convert to ms
+          created_at: new Date(callData.created_at).toISOString(),
+          trace_duration_ms: turn.duration ? turn.duration * 1000 : ((turn.end_time || 0) - (turn.start_time || 0)) * 1000,
+          latency_ms: turn.latency ? turn.latency * 1000 : null,
+          metadata: {
+            speaker: isNewFormat ? turn.role : turn.speaker,
+            start_time: turn.start_time,
+            end_time: turn.end_time,
+            duration: turn.duration,
+            latency: turn.latency,
+            cost: turn.cost,
+            confidence: turn.confidence,
+            from_uploaded_audio: true
+          }
         }
-      }))
+      })
     } catch (e) {
       console.error('Error parsing transcript_json:', e)
       return null
     }
   }, [callData, sessionId])
+
+  // Debug log for transcript processing
+  console.log('📝 Transcript processing:', { 
+    hasCallData: !!callData, 
+    transcriptType: callData?.transcript_type,
+    hasTranscriptJson: !!callData?.transcript_json,
+    transcriptTraceDataLength: transcriptTraceData?.length || 0,
+    traceDataLength: traceData?.length || 0
+  })
 
   // Use transcript data if available, otherwise use metrics logs
   const finalTraceData = transcriptTraceData || traceData
@@ -215,8 +241,9 @@ const TracesTable: React.FC<TracesTableProps> = ({
     )
   
     filtered.sort((a, b) => {
-      const aTurnNum = parseInt(a.turn_id.replace('turn_', '')) || 0
-      const bTurnNum = parseInt(b.turn_id.replace('turn_', '')) || 0
+      // Support both turn_X and turn-X formats
+      const aTurnNum = parseInt(a.turn_id.replace(/turn[-_]/, '')) || 0
+      const bTurnNum = parseInt(b.turn_id.replace(/turn[-_]/, '')) || 0
       return aTurnNum - bTurnNum
     })
   

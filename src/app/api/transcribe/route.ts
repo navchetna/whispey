@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
 
     // Call Python backend for transcription
     try {
-      const pythonBackendUrl = process.env.PYTHON_BACKEND_URL || 'http://localhost:5001'
+      const pythonBackendUrl = process.env.PYTHON_BACKEND_URL || 'http://localhost:5006'
       const transcriptResult = await callPythonBackend(filePath, pythonBackendUrl, process.env.SARVAM_API_KEY!)
       
       if (transcriptResult.success && transcriptResult.transcript) {
@@ -62,12 +62,22 @@ export async function POST(request: NextRequest) {
           [JSON.stringify(transcriptResult.transcript), 'processed', audio_file_id]
         )
         
-        // Update call log with transcript
+        // Extract duration from transcript metadata
+        const transcriptData = transcriptResult.transcript
+        const totalDuration = transcriptData?.metadata?.total_duration || 
+          (transcriptData?.turns?.length > 0 
+            ? Math.max(...transcriptData.turns.map((t: any) => t.end_time || 0)) 
+            : null)
+        
+        // Update call log with transcript, status and duration
         await query(
           `UPDATE pype_voice_call_logs 
-           SET transcript_json = $1, transcript_type = 'diarized' 
+           SET transcript_json = $1, 
+               transcript_type = 'diarized',
+               call_ended_reason = 'completed',
+               duration_seconds = COALESCE($3, duration_seconds)
            WHERE metadata->>'audio_file_id' = $2`,
-          [JSON.stringify(transcriptResult.transcript), audio_file_id]
+          [JSON.stringify(transcriptResult.transcript), audio_file_id, totalDuration ? Math.round(totalDuration) : null]
         )
         
         return NextResponse.json({
