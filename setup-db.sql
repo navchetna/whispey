@@ -533,12 +533,12 @@ CREATE INDEX idx_evaluation_results_agent_prompt ON public.pype_voice_evaluation
 CREATE MATERIALIZED VIEW call_summary_materialized AS
 SELECT
   agent_id,
-  DATE(created_at) AS call_date,
+  DATE(COALESCE(call_started_at, created_at)) AS call_date,
   COUNT(*) AS calls,
   SUM(duration_seconds) AS total_seconds,
   ROUND(SUM(duration_seconds)::numeric / 60, 0) AS total_minutes,
   AVG(avg_latency) AS avg_latency,
-  COUNT(DISTINCT call_id) AS unique_customers,
+  COUNT(DISTINCT customer_number) AS unique_customers,
   COUNT(*) FILTER (WHERE call_ended_reason = 'completed') AS successful_calls,
   ROUND(
     (COUNT(*) FILTER (WHERE call_ended_reason = 'completed')::numeric / NULLIF(COUNT(*), 0)) * 100,
@@ -556,7 +556,7 @@ SELECT
     + SUM(CEIL(duration_seconds::numeric / 60)) FILTER (WHERE call_ended_reason = 'completed') * 0.70
   )::numeric(16, 2) AS total_cost
 FROM pype_voice_call_logs
-GROUP BY agent_id, DATE(created_at);
+GROUP BY agent_id, DATE(COALESCE(call_started_at, created_at));
 
 CREATE UNIQUE INDEX call_summary_agent_date_idx
   ON call_summary_materialized (agent_id, call_date);
