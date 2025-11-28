@@ -34,6 +34,7 @@ interface TracesTableProps {
   }
   currentAudioTime?: number // Current audio playback time in seconds
   isAudioPlaying?: boolean // Whether audio is currently playing
+  callData?: any // Call log data with transcript_json
 }
 
 interface TraceLog {
@@ -69,10 +70,11 @@ const TracesTable: React.FC<TracesTableProps> = ({
   sessionId, 
   filters, 
   currentAudioTime = 0, 
-  isAudioPlaying = false 
+  isAudioPlaying = false,
+  callData
 }) => {
 
-  console.log('🎵 TracesTable props:', { currentAudioTime, isAudioPlaying })
+  console.log('🎵 TracesTable props:', { currentAudioTime, isAudioPlaying, hasCallData: !!callData })
 
   const [selectedTrace, setSelectedTrace] = useState<TraceLog | null>(null)
   const [isDetailSheetOpen, setIsDetailSheetOpen] = useState(false)
@@ -82,14 +84,17 @@ const TracesTable: React.FC<TracesTableProps> = ({
   const { data: sessionSpans, loading: spansLoading } = useSessionSpans(sessionTrace);
 
 
-  // Get call data to access bug report metadata
-  const { data: callData } = useSupabaseQuery("pype_voice_call_logs", {
+  // Get call data to access bug report metadata (if not provided via props)
+  const { data: callDataFromQuery } = useSupabaseQuery("pype_voice_call_logs", {
     select: "*",
     filters: sessionId 
       ? [{ column: "id", operator: "eq", value: sessionId }]
       : [{ column: "agent_id", operator: "eq", value: agentId }],
     orderBy: { column: "created_at", ascending: false }
   })
+
+  // Use callData from props if available, otherwise use query result
+  const finalCallData = callData ? [callData] : callDataFromQuery
 
   const isVapiAgent = useMemo(() => {
     if (!agent) return false
@@ -119,11 +124,50 @@ const TracesTable: React.FC<TracesTableProps> = ({
     orderBy: { column: "unix_timestamp", ascending: true }
   })
 
+  // Convert transcript_json to trace data format if available
+  const transcriptTraceData = useMemo(() => {
+    if (!callData?.transcript_json || !callData?.transcript_type === 'diarized') return null
+    
+    try {
+      const transcriptJson = typeof callData.transcript_json === 'string' 
+        ? JSON.parse(callData.transcript_json) 
+        : callData.transcript_json
+      
+      if (!transcriptJson?.turns || !Array.isArray(transcriptJson.turns)) return null
+      
+      // Convert turns to trace format
+      return transcriptJson.turns.map((turn: any, index: number) => ({
+        id: `transcript-turn-${index}`,
+        session_id: sessionId || callData.id,
+        turn_id: `turn-${index}`,
+        user_transcript: turn.speaker === 'Speaker 1' ? turn.text : '',
+        agent_response: turn.speaker === 'Speaker 2' ? turn.text : '',
+        unix_timestamp: (turn.start_time || 0) * 1000, // Convert to ms
+        created_at: new Date(callData.created_at).toISOString(),
+        trace_duration_ms: ((turn.end_time || 0) - (turn.start_time || 0)) * 1000,
+        metadata: {
+          speaker: turn.speaker,
+          start_time: turn.start_time,
+          end_time: turn.end_time,
+          confidence: turn.confidence,
+          from_uploaded_audio: true
+        }
+      }))
+    } catch (e) {
+      console.error('Error parsing transcript_json:', e)
+      return null
+    }
+  }, [callData, sessionId])
+
+  // Use transcript data if available, otherwise use metrics logs
+  const finalTraceData = transcriptTraceData || traceData
+  const finalTraceLoading = transcriptTraceData ? false : traceDataLoading
+
   // Extract bug report data from call metadata
   const bugReportData = useMemo(() => {
-    if (!callData?.length) return null
+    if (!finalCallData?.length) return null
     
-    const call = callData[0]
+    const call = finalCallData[0]
     if (!call?.metadata) return null
 
     try {
@@ -135,7 +179,7 @@ const TracesTable: React.FC<TracesTableProps> = ({
     } catch (e) {
       return null
     }
-  }, [callData])
+  }, [finalCallData])
 
   // Check for bug report flags
   const checkBugReportFlags = useMemo(() => {
@@ -151,8 +195,8 @@ const TracesTable: React.FC<TracesTableProps> = ({
     }
 
     // Fallback: Check transcript logs for explicit bug_report flags
-    if (traceData?.length) {
-      traceData.forEach((log: TraceLog) => {
+    if (finalTraceData?.length) {
+      finalTraceData.forEach((log: TraceLog) => {
         if (log.bug_report === true) {
           bugReportTurnIds.add(log.turn_id.toString())
         }
@@ -160,13 +204,13 @@ const TracesTable: React.FC<TracesTableProps> = ({
     }
 
     return bugReportTurnIds
-  }, [traceData, bugReportData])
+  }, [finalTraceData, bugReportData])
 
   // Filter and process data
   const processedTraces = useMemo(() => {
-    if (!traceData?.length) return []
+    if (!finalTraceData?.length) return []
     
-    let filtered = traceData.filter((item: TraceLog) => 
+    let filtered = finalTraceData.filter((item: TraceLog) => 
       item.user_transcript || item.agent_response || item.tool_calls?.length || item.otel_spans?.length
     )
   
@@ -177,7 +221,7 @@ const TracesTable: React.FC<TracesTableProps> = ({
     })
   
     return filtered
-  }, [traceData, filters])
+  }, [finalTraceData, filters])
 
   const getTraceStatus = (trace: TraceLog) => {
     // Check if this turn is flagged for bug reports
@@ -609,7 +653,7 @@ const handleRowClick = (trace: TraceLog) => {
   setIsDetailSheetOpen(true)
 }
 
-  if (traceDataLoading) {
+  if (finalTraceLoading) {
     return (
       <div className="flex items-center justify-center h-full bg-white dark:bg-gray-900">
         <div className="text-sm text-gray-500 dark:text-gray-400">Loading traces...</div>

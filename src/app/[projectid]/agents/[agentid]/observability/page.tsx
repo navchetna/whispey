@@ -40,7 +40,7 @@ export default function ObservabilityPage({ params, searchParams }: Observabilit
     : [{ column: "agent_id", operator: "eq" as const, value: resolvedParams.agentid }]
 
   const { data: callData, loading: callLoading, error: callError } = useApiQuery("pype_voice_call_logs", {
-    select: "id, call_id, agent_id, recording_url, customer_number, call_started_at, call_ended_reason, duration_seconds, metadata",
+    select: "id, call_id, agent_id, recording_url, customer_number, call_started_at, call_ended_reason, duration_seconds, metadata, transcript_json, transcript_type",
     filters: queryFilters,
     orderBy: { column: "created_at", ascending: false },
     limit: 1
@@ -138,6 +138,7 @@ export default function ObservabilityPage({ params, searchParams }: Observabilit
           filters={filters}
           currentAudioTime={currentAudioTime}
           isAudioPlaying={isAudioPlaying}
+          callData={callData && callData.length > 0 ? callData[0] : undefined}
         />
       </div>
     </div>

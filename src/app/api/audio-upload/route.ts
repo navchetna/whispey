@@ -202,9 +202,39 @@ export async function POST(request: NextRequest) {
 
     console.log(`Successfully uploaded ${uploadedCount} audio files to local storage`)
 
+    // Trigger transcription for all uploaded audio files asynchronously
+    if (insertedRecords.length > 0) {
+      console.log(`Starting transcription for ${insertedRecords.length} audio file(s)...`)
+      
+      // Trigger transcription in background - don't await
+      insertedRecords.forEach((record) => {
+        // Call transcription API internally using the request context
+        fetch(`http://localhost:${process.env.PORT || 3000}/api/transcribe`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            audio_file_id: record.audio_file.id
+          })
+        }).then(async (response) => {
+          if (response.ok) {
+            const result = await response.json()
+            console.log(`✅ Transcription completed for: ${record.audio_file.file_name}`)
+          } else {
+            const errorText = await response.text()
+            console.error(`❌ Failed transcription for: ${record.audio_file.file_name}`)
+            console.error(`Status: ${response.status}, Response: ${errorText}`)
+          }
+        }).catch((error) => {
+          console.error(`❌ Error in transcription for ${record.audio_file.file_name}:`, error)
+        })
+      })
+    }
+
     return NextResponse.json({
       success: true,
-      message: `Successfully uploaded ${uploadedCount} audio file(s)`,
+      message: `Successfully uploaded ${uploadedCount} audio file(s). Transcription started in background.`,
       uploaded_count: uploadedCount,
       files: insertedRecords.map(record => ({
         id: record.audio_file.id,

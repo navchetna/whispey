@@ -10,23 +10,23 @@ const config = {
   
   reactStrictMode: true,
   
-  // Completely disable static optimization to prevent build errors
-  experimental: {
-    missingSuspenseWithCSRBailout: false,
-  },
-  
-  // Force all pages to be dynamic
-  dynamicIO: false,
-  
   // Skip prerendering during build
   skipTrailingSlashRedirect: true,
   
   // Custom webpack config
-  webpack: (config, { isServer }) => {
+  webpack: (config, { isServer, dev }) => {
     config.resolve.alias = {
       ...config.resolve.alias,
       '@': path.resolve('./src'),
     };
+    
+    // Exclude directories from file watching in development
+    if (dev) {
+      config.watchOptions = {
+        ignored: ['**/logs/**', '**/node_modules/**', '**/.git/**', '**/audios/**', '**/python-backend/**'],
+      };
+    }
+    
     // Disable static page generation errors
     if (isServer) {
       config.optimization.minimize = false;
