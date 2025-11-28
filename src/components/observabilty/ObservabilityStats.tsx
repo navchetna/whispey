@@ -15,6 +15,16 @@ interface ObservabilityStatsProps {
   agent?: any
 }
 
+interface TranscriptTurn {
+  role: string
+  content: string
+  start_time: number
+  end_time: number
+  duration: number
+  latency: number | null
+  cost: number | null
+}
+
 interface TranscriptLog {
   id: string
   session_id: string
@@ -41,6 +51,62 @@ const ObservabilityStats: React.FC<ObservabilityStatsProps> = ({ sessionId, agen
       : [{ column: "session_id::text", operator: "like", value: `${agentId}%` }],
     orderBy: { column: "unix_timestamp", ascending: true },
   })
+
+  // Calculate metrics from transcript_json (for uploaded audios with diarized transcripts)
+  const transcriptMetrics = useMemo(() => {
+    if (!callData?.length) return null
+    
+    const call = callData[0]
+    if (!call?.transcript_json || call?.transcript_type !== 'diarized') return null
+    
+    try {
+      const transcriptJson = typeof call.transcript_json === 'string' 
+        ? JSON.parse(call.transcript_json) 
+        : call.transcript_json
+      
+      if (!transcriptJson?.turns || !Array.isArray(transcriptJson.turns)) return null
+      
+      const turns = transcriptJson.turns as TranscriptTurn[]
+      const latencies = turns.filter(t => t.latency !== null && t.latency > 0).map(t => t.latency!)
+      const durations = turns.map(t => t.duration || 0)
+      
+      // Calculate stats
+      const calculateStats = (values: number[]) => {
+        if (values.length === 0) return { avg: 0, min: 0, max: 0, count: 0, p50: 0, p75: 0 }
+        
+        const sorted = [...values].sort((a, b) => a - b)
+        const avg = values.reduce((sum, val) => sum + val, 0) / values.length
+        const min = Math.min(...values)
+        const max = Math.max(...values)
+        
+        const getPercentile = (arr: number[], percentile: number) => {
+          const index = Math.ceil((percentile / 100) * arr.length) - 1
+          return arr[Math.max(0, Math.min(index, arr.length - 1))] || 0
+        }
+        
+        const p50 = getPercentile(sorted, 50)
+        const p75 = getPercentile(sorted, 75)
+        
+        return { avg, min, max, count: values.length, p50, p75 }
+      }
+      
+      const totalDuration = transcriptJson.metadata?.total_duration || 
+        (turns.length > 0 ? Math.max(...turns.map(t => t.end_time || 0)) : 0)
+      
+      return {
+        totalTurns: turns.length,
+        totalDuration: totalDuration,
+        latencyStats: calculateStats(latencies),
+        durationStats: calculateStats(durations),
+        speakers: transcriptJson.metadata?.speakers || [],
+        language: transcriptJson.metadata?.language,
+        isUploadedAudio: true
+      }
+    } catch (e) {
+      console.error('Error parsing transcript_json:', e)
+      return null
+    }
+  }, [callData])
 
   const bugReportData = useMemo(() => {
     if (!callData?.length) return null
@@ -219,9 +285,18 @@ const ObservabilityStats: React.FC<ObservabilityStatsProps> = ({ sessionId, agen
     )
   }
 
-  const callDuration = callData?.[0]?.duration_seconds || 0
+  // Use transcriptMetrics duration if available (from audio file), otherwise use call duration
+  const callDuration = transcriptMetrics?.totalDuration || callData?.[0]?.duration_seconds || 0
   const bugCount = Array.isArray(bugReportData) ? bugReportData.length : 0
-  const turnCount = transcriptLogs?.length || 0
+  // Use transcriptMetrics turn count if available (from uploaded audio), otherwise use metrics logs
+  const turnCount = transcriptMetrics?.totalTurns || transcriptLogs?.length || 0
+  const isUploadedAudio = transcriptMetrics?.isUploadedAudio || false
+  // Map status values: pending -> 'Processing', completed -> 'Completed', others stay as-is
+  const callEndedReason = callData?.[0]?.call_ended_reason
+  const callStatus = callEndedReason === 'pending' ? 'Processing' 
+    : callEndedReason === 'completed' ? 'Completed'
+    : callEndedReason === 'manual_upload' ? 'Completed'
+    : callEndedReason || 'Unknown'
 
   return (
     <TooltipProvider>
@@ -229,7 +304,18 @@ const ObservabilityStats: React.FC<ObservabilityStatsProps> = ({ sessionId, agen
         <div className="space-y-3">
           {/* Header */}
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Session Overview</h3>
+            <div className="flex items-center gap-3">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Session Overview</h3>
+              {/* Status Badge */}
+              <div className={cn(
+                "px-2 py-0.5 rounded-full text-xs font-medium",
+                callStatus === 'Completed' ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" :
+                callStatus === 'Processing' ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" :
+                "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
+              )}>
+                {callStatus}
+              </div>
+            </div>
             <div className="flex items-center gap-2">
               <div className="text-xs text-gray-500 dark:text-gray-400">
                 {sessionId ? `Session ${sessionId.slice(0, 8)}...` : `Agent ${agentId.slice(0, 8)}...`}
@@ -271,7 +357,7 @@ const ObservabilityStats: React.FC<ObservabilityStatsProps> = ({ sessionId, agen
                 </div>
               </div>
 
-              {/* Overall P75 Latency */}
+              {/* Overall P75 Latency - use transcriptMetrics for uploaded audio */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <div className="flex items-center gap-2 cursor-help">
@@ -279,19 +365,30 @@ const ObservabilityStats: React.FC<ObservabilityStatsProps> = ({ sessionId, agen
                     <div className="flex items-baseline gap-1">
                       <span className={cn(
                         "text-lg font-bold",
-                        conversationMetrics ? getLatencyColor(conversationMetrics.endToEndStats.p75, "e2e") : "text-gray-900 dark:text-gray-100"
+                        transcriptMetrics?.latencyStats?.p75 
+                          ? getLatencyColor(transcriptMetrics.latencyStats.p75, "e2e")
+                          : conversationMetrics 
+                            ? getLatencyColor(conversationMetrics.endToEndStats.p75, "e2e") 
+                            : "text-gray-900 dark:text-gray-100"
                       )}>
-                        {conversationMetrics?.endToEndStats.p75 > 0 ? formatDuration(conversationMetrics.endToEndStats.p75) : "N/A"}
+                        {transcriptMetrics?.latencyStats?.p75 > 0 
+                          ? formatDuration(transcriptMetrics.latencyStats.p75) 
+                          : conversationMetrics?.endToEndStats.p75 > 0 
+                            ? formatDuration(conversationMetrics.endToEndStats.p75) 
+                            : "N/A"}
                       </span>
-                      <span className="text-xs text-gray-500 dark:text-gray-400">p75</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">p75 latency</span>
                     </div>
                   </div>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100">
                   <div className="text-xs">
-                    <div className="font-medium">75th Percentile End-to-End Latency</div>
+                    <div className="font-medium">75th Percentile Latency</div>
                     <div className="text-gray-400 dark:text-gray-500">75% of responses were faster</div>
-                    {conversationMetrics?.endToEndStats.p50 > 0 && (
+                    {transcriptMetrics?.latencyStats?.p50 > 0 && (
+                      <div className="text-gray-400 dark:text-gray-500">P50: {formatDuration(transcriptMetrics.latencyStats.p50)}</div>
+                    )}
+                    {!transcriptMetrics && conversationMetrics?.endToEndStats.p50 > 0 && (
                       <div className="text-gray-400 dark:text-gray-500">P50: {formatDuration(conversationMetrics.endToEndStats.p50)}</div>
                     )}
                   </div>
@@ -324,8 +421,63 @@ const ObservabilityStats: React.FC<ObservabilityStatsProps> = ({ sessionId, agen
               </div>
             </div>
 
-            {/* Performance Breakdown */}
-            {conversationMetrics && (
+            {/* Performance Breakdown - show simplified metrics for uploaded audio */}
+            {isUploadedAudio && transcriptMetrics && (
+              <div className="flex items-center gap-6 text-xs px-3 py-1.5 rounded-md bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                <div className="flex items-center gap-1">
+                  <Mic className="w-3 h-3 text-green-600 dark:text-green-400" />
+                  <span className="text-green-700 dark:text-green-300 font-medium">Uploaded Audio</span>
+                </div>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center gap-2 cursor-help">
+                      <div className="text-right">
+                        <div className="font-bold text-sm text-gray-900 dark:text-gray-100">
+                          {formatDuration(transcriptMetrics.latencyStats.avg)}
+                        </div>
+                        <div className="text-gray-500 dark:text-gray-400 text-xs">Avg Latency</div>
+                      </div>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100">
+                    <div className="text-xs">
+                      <div className="font-medium">Turn Latency (gap between turns)</div>
+                      <div className="text-gray-400 dark:text-gray-500">Min: {formatDuration(transcriptMetrics.latencyStats.min)}</div>
+                      <div className="text-gray-400 dark:text-gray-500">Max: {formatDuration(transcriptMetrics.latencyStats.max)}</div>
+                      <div className="text-gray-400 dark:text-gray-500">P50: {formatDuration(transcriptMetrics.latencyStats.p50)}</div>
+                      <div className="text-gray-400 dark:text-gray-500">P75: {formatDuration(transcriptMetrics.latencyStats.p75)}</div>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center gap-2 cursor-help">
+                      <div className="text-right">
+                        <div className="font-bold text-sm text-gray-900 dark:text-gray-100">
+                          {formatDuration(transcriptMetrics.durationStats.avg)}
+                        </div>
+                        <div className="text-gray-500 dark:text-gray-400 text-xs">Avg Turn Dur.</div>
+                      </div>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100">
+                    <div className="text-xs">
+                      <div className="font-medium">Turn Duration</div>
+                      <div className="text-gray-400 dark:text-gray-500">Min: {formatDuration(transcriptMetrics.durationStats.min)}</div>
+                      <div className="text-gray-400 dark:text-gray-500">Max: {formatDuration(transcriptMetrics.durationStats.max)}</div>
+                      <div className="text-gray-400 dark:text-gray-500">P50: {formatDuration(transcriptMetrics.durationStats.p50)}</div>
+                      <div className="text-gray-400 dark:text-gray-500">P75: {formatDuration(transcriptMetrics.durationStats.p75)}</div>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+                {transcriptMetrics.language && (
+                  <div className="text-gray-500 dark:text-gray-400">
+                    <span className="font-medium">Lang:</span> {transcriptMetrics.language}
+                  </div>
+                )}
+              </div>
+            )}
+            {!isUploadedAudio && conversationMetrics && (
             <div className="flex items-center gap-8 text-xs">
               {/* Pipeline Metrics Group */}
               <div className="flex items-center gap-6">
