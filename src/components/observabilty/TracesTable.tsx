@@ -316,7 +316,8 @@ const TracesTable: React.FC<TracesTableProps> = ({
   }
 
   const formatLatencyValue = (seconds: number) => {
-    return (seconds).toFixed(6); // Divide by 1000 for display
+    // Format latency in seconds with 2 decimal places
+    return `${seconds.toFixed(2)}s`;
   }
   const formatCost = (cost: number) => {
     if (cost < 0.000001) return "~$0"
@@ -440,28 +441,47 @@ const TracesTable: React.FC<TracesTableProps> = ({
     if (hasActualTimestamps) {
       // Use actual timestamps from uploaded audio transcript
       console.log('🎵 Audio Sync: Using actual timestamps from uploaded audio transcript')
-      return processedTraces.map((trace: TraceLog, index: number) => {
+      
+      // First pass: collect all timestamps
+      const timestamps = processedTraces.map((trace: TraceLog, index: number) => {
         const startTime = trace.metadata?.start_time || 0
         const endTime = trace.metadata?.end_time || startTime
         const duration = endTime - startTime
-        
-        console.log(`🎵 Trace ${index} (${trace.turn_id}): actual timestamps`, {
-          startTime: `${startTime.toFixed(2)}s`,
-          endTime: `${endTime.toFixed(2)}s`,
-          duration: `${duration.toFixed(2)}s`
-        })
         
         return {
           traceId: trace.id,
           turnId: trace.turn_id,
           startTime,
           endTime,
-          latency: trace.metadata?.latency || 0,
+          latency: 0, // Will be calculated in second pass
           audioDuration: duration,
           traceDuration: duration,
           index
         }
       })
+      
+      // Second pass: calculate inter-turn latency (gap before this turn starts)
+      // For turn N, latency = turn N start time - turn N-1 end time
+      // For first turn, latency = turn start time - 0 (gap from beginning)
+      for (let i = 0; i < timestamps.length; i++) {
+        if (i === 0) {
+          // First turn: latency is the gap from 0 to when this turn starts
+          timestamps[i].latency = Math.max(0, timestamps[i].startTime)
+        } else {
+          // Subsequent turns: latency is the gap from previous turn's end to this turn's start
+          const interTurnLatency = timestamps[i].startTime - timestamps[i - 1].endTime
+          timestamps[i].latency = Math.max(0, interTurnLatency) // Ensure non-negative
+        }
+        
+        console.log(`🎵 Trace ${i} (${timestamps[i].turnId}): actual timestamps`, {
+          startTime: `${timestamps[i].startTime.toFixed(2)}s`,
+          endTime: `${timestamps[i].endTime.toFixed(2)}s`,
+          duration: `${timestamps[i].audioDuration.toFixed(2)}s`,
+          interTurnLatency: `${timestamps[i].latency.toFixed(2)}s`
+        })
+      }
+      
+      return timestamps
     }
     
     // Fallback: Calculate cumulative timestamps from latency (for non-uploaded audio)
@@ -614,11 +634,12 @@ const TracesTable: React.FC<TracesTableProps> = ({
 
   // Create a lookup object for easy access to timestamps by trace ID
   const cumulativeTimestamps = useMemo(() => {
-    const lookup: Record<string, { startTime: number; endTime: number }> = {}
+    const lookup: Record<string, { startTime: number; endTime: number; interTurnLatency: number }> = {}
     calculateCumulativeTimestamps.forEach(item => {
       lookup[item.traceId] = {
         startTime: item.startTime,
-        endTime: item.endTime
+        endTime: item.endTime,
+        interTurnLatency: item.latency
       }
     })
     
@@ -857,7 +878,11 @@ const handleRowClick = (trace: TraceLog) => {
                     const toolInfo = getToolCallsInfo(trace.tool_calls)
                     const mainOp = getMainOperation(trace)
                     const metrics = getMetricsInfo(trace)
-                    const latency = getTotalLatency(trace)
+                    // Use inter-turn latency for uploaded audio, otherwise use getTotalLatency
+                    const timestampInfo = cumulativeTimestamps[trace.id]
+                    const latency = trace.metadata?.from_uploaded_audio && timestampInfo?.interTurnLatency !== undefined
+                      ? timestampInfo.interTurnLatency
+                      : getTotalLatency(trace)
                     const hasBugReport = checkBugReportFlags.has(trace.turn_id.toString())
                     const spansLength = trace.otel_spans?.length || 0
                     const isActiveTrace = isAudioPlaying && activeTraceId === trace.id
