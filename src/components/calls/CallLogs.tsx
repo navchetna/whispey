@@ -752,11 +752,11 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
   }
 
   const formatDuration = (seconds: number) => {
-    // Round to 1 decimal place
-    const roundedSeconds = Math.round(seconds * 10) / 10
+    // Round to whole seconds (no decimals)
+    const roundedSeconds = Math.round(seconds)
     const mins = Math.floor(roundedSeconds / 60)
-    const secs = (roundedSeconds % 60).toFixed(1)
-    return `${mins}:${secs.padStart(4, "0")}`
+    const secs = roundedSeconds % 60
+    return `${mins}:${secs.toString().padStart(2, "0")}`
   }
 
   const formatToIndianDateTime = (timestamp: any) => {

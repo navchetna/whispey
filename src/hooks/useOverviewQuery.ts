@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { query } from '../lib/postgres'
 
 interface OverviewData {
   totalCalls: number
@@ -53,27 +52,28 @@ export const useOverviewQuery = ({ agentId, dateFrom, dateTo }: UseOverviewQuery
 
         const { data: dailyStats } = await response.json()
             
-        const totalCalls = dailyStats?.reduce((sum: number, day: any) => sum + day.calls, 0) || 0
-        const successfulCalls = dailyStats?.reduce((sum: number, day: any) => sum + day.successful_calls, 0) || 0
-        const totalCost = dailyStats?.reduce((sum: number, day: any) => sum + day.total_cost, 0) || 0
+        const totalCalls = dailyStats?.reduce((sum: number, day: any) => sum + parseInt(day.calls || 0), 0) || 0
+        const successfulCalls = dailyStats?.reduce((sum: number, day: any) => sum + parseInt(day.successful_calls || 0), 0) || 0
+        const totalCost = dailyStats?.reduce((sum: number, day: any) => sum + parseFloat(day.total_cost || 0), 0) || 0
+        const uniqueCustomers = dailyStats?.reduce((sum: number, day: any) => sum + parseInt(day.unique_customers || 0), 0) || 0
 
 
     
         const typedData: OverviewData = {
           totalCalls,
           totalCost,
-          totalMinutes: dailyStats?.reduce((sum: number, day: any) => sum + day.total_minutes, 0) || 0,
+          totalMinutes: Math.round(dailyStats?.reduce((sum: number, day: any) => sum + parseFloat(day.total_minutes || 0), 0) || 0),
           successfulCalls,
           successRate: totalCalls > 0 ? (successfulCalls / totalCalls) * 100 : 0,
           averageLatency: dailyStats && dailyStats.length > 0
-            ? dailyStats.reduce((sum: number, day: any) => sum + day.avg_latency, 0) / dailyStats.length
+            ? dailyStats.reduce((sum: number, day: any) => sum + parseFloat(day.avg_latency || 0), 0) / dailyStats.length
             : 0,
-          uniqueCustomers: dailyStats?.reduce((sum: number, day: any) => sum + day.unique_customers, 0) || 0,
+          uniqueCustomers,
           dailyData: dailyStats?.map((day: any) => ({
             date: day.call_date,
             dateKey: day.call_date,
-            calls: day.calls,
-            minutes: day.total_minutes,
+            calls: parseInt(day.calls) || 0,
+            minutes: Math.round(parseFloat(day.total_minutes) || 0),
             avg_latency: day.avg_latency
           })) || []
           
