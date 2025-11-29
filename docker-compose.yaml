@@ -91,6 +91,7 @@ services:
       - POSTGRES_PASSWORD=${DB_PASSWORD:-admin123}
       - POSTGRES_SSL=false
       - PYTHON_BACKEND_PORT=8000
+      - SARVAM_API_KEY=sk_rz49n15t_I4hD7T64pkylqwa05rPVTTS3
     ports:
       - "${PYTHON_BACKEND_PORT:-8000}:8000"
     depends_on:
