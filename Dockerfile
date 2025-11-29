@@ -98,6 +98,7 @@ COPY --from=builder /app/public ./public
 
 # Create the .next directory and set ownership
 RUN mkdir .next && chown nextjs:nodejs .next
+RUN mkdir -p /app/audios && chmod -R 777 /app/audios
 
 # Copy the standalone output (includes minimal runtime and dependencies)
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
