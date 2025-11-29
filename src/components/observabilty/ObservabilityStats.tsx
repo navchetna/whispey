@@ -378,10 +378,10 @@ const ObservabilityStats: React.FC<ObservabilityStatsProps> = ({ sessionId, agen
                             ? getLatencyColor(conversationMetrics.endToEndStats.p75, "e2e") 
                             : "text-gray-900 dark:text-gray-100"
                       )}>
-                        {transcriptMetrics?.latencyStats?.p75 > 0 
-                          ? formatDuration(transcriptMetrics.latencyStats.p75) 
-                          : conversationMetrics?.endToEndStats.p75 > 0 
-                            ? formatDuration(conversationMetrics.endToEndStats.p75) 
+                        {(transcriptMetrics?.latencyStats?.p75 ?? 0) > 0 
+                          ? formatDuration(transcriptMetrics!.latencyStats.p75) 
+                          : (conversationMetrics?.endToEndStats?.p75 ?? 0) > 0 
+                            ? formatDuration(conversationMetrics!.endToEndStats.p75) 
                             : "N/A"}
                       </span>
                       <span className="text-xs text-gray-500 dark:text-gray-400">p75 latency</span>
@@ -392,11 +392,11 @@ const ObservabilityStats: React.FC<ObservabilityStatsProps> = ({ sessionId, agen
                   <div className="text-xs">
                     <div className="font-medium">75th Percentile Latency</div>
                     <div className="text-gray-400 dark:text-gray-500">75% of responses were faster</div>
-                    {transcriptMetrics?.latencyStats?.p50 > 0 && (
-                      <div className="text-gray-400 dark:text-gray-500">P50: {formatDuration(transcriptMetrics.latencyStats.p50)}</div>
+                    {(transcriptMetrics?.latencyStats?.p50 ?? 0) > 0 && (
+                      <div className="text-gray-400 dark:text-gray-500">P50: {formatDuration(transcriptMetrics!.latencyStats.p50)}</div>
                     )}
-                    {!transcriptMetrics && conversationMetrics?.endToEndStats.p50 > 0 && (
-                      <div className="text-gray-400 dark:text-gray-500">P50: {formatDuration(conversationMetrics.endToEndStats.p50)}</div>
+                    {!transcriptMetrics && (conversationMetrics?.endToEndStats?.p50 ?? 0) > 0 && (
+                      <div className="text-gray-400 dark:text-gray-500">P50: {formatDuration(conversationMetrics!.endToEndStats.p50)}</div>
                     )}
                   </div>
                 </TooltipContent>

@@ -64,6 +64,18 @@ interface TraceLog {
   metadata?: any
 }
 
+// Type for cumulative timestamp calculation
+interface TimestampItem {
+  traceId: string
+  turnId: string
+  startTime: number
+  endTime: number
+  latency: number
+  audioDuration: number
+  traceDuration: number
+  index: number
+}
+
 const TracesTable: React.FC<TracesTableProps> = ({ 
   agentId, 
   agent, 
@@ -240,7 +252,7 @@ const TracesTable: React.FC<TracesTableProps> = ({
       item.user_transcript || item.agent_response || item.tool_calls?.length || item.otel_spans?.length
     )
   
-    filtered.sort((a, b) => {
+    filtered.sort((a: TraceLog, b: TraceLog) => {
       // Support both turn_X and turn-X formats
       const aTurnNum = parseInt(a.turn_id.replace(/turn[-_]/, '')) || 0
       const bTurnNum = parseInt(b.turn_id.replace(/turn[-_]/, '')) || 0
@@ -622,7 +634,7 @@ const TracesTable: React.FC<TracesTableProps> = ({
       }
     })
     
-    console.log('🎵 Audio Sync: Calculated cumulative timestamps', timestamps.map(t => ({
+    console.log('🎵 Audio Sync: Calculated cumulative timestamps', timestamps.map((t: TimestampItem) => ({
       turn: t.turnId,
       start: `${t.startTime.toFixed(3)}s`,
       end: `${t.endTime.toFixed(3)}s`,
@@ -635,7 +647,7 @@ const TracesTable: React.FC<TracesTableProps> = ({
   // Create a lookup object for easy access to timestamps by trace ID
   const cumulativeTimestamps = useMemo(() => {
     const lookup: Record<string, { startTime: number; endTime: number; interTurnLatency: number }> = {}
-    calculateCumulativeTimestamps.forEach(item => {
+    calculateCumulativeTimestamps.forEach((item: TimestampItem) => {
       lookup[item.traceId] = {
         startTime: item.startTime,
         endTime: item.endTime,
@@ -659,12 +671,12 @@ const TracesTable: React.FC<TracesTableProps> = ({
       return null
     }
     
-    const activeTrace = calculateCumulativeTimestamps.find((trace: any) => 
+    const activeTrace = calculateCumulativeTimestamps.find((trace: TimestampItem) => 
       currentAudioTime >= trace.startTime && currentAudioTime <= trace.endTime
     )
     
     // Debug: Show which traces the current time falls between
-    const relevantTraces = calculateCumulativeTimestamps.map(t => ({
+    const relevantTraces = calculateCumulativeTimestamps.map((t: TimestampItem) => ({
       turn: t.turnId,
       start: t.startTime.toFixed(3),
       end: t.endTime.toFixed(3),
