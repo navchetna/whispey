@@ -40,13 +40,13 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ==============================================
--- CLEANUP EXISTING OBJECTS
+-- CLEANUP EXISTING OBJECTS (Functions and Views only - preserve tables)
 -- ==============================================
 
--- Drop existing materialized views
+-- Drop existing materialized views (will be recreated)
 DROP MATERIALIZED VIEW IF EXISTS call_summary_materialized CASCADE;
 
--- Drop existing functions
+-- Drop existing functions (will be recreated with latest logic)
 DROP FUNCTION IF EXISTS refresh_call_summary() CASCADE;
 DROP FUNCTION IF EXISTS batch_calculate_custom_totals(uuid, jsonb, date, date) CASCADE;
 DROP FUNCTION IF EXISTS get_available_json_fields(uuid, text, integer) CASCADE;
@@ -60,54 +60,43 @@ DROP FUNCTION IF EXISTS create_user_session(uuid, timestamp with time zone) CASC
 DROP FUNCTION IF EXISTS validate_user_session(text) CASCADE;
 DROP FUNCTION IF EXISTS cleanup_expired_sessions() CASCADE;
 
--- Drop existing views
+-- Drop existing views (will be recreated)
 DROP VIEW IF EXISTS evaluation_results_detailed CASCADE;
 
--- Drop existing evaluation tables (in reverse dependency order)
-DROP TABLE IF EXISTS public.pype_voice_evaluation_results CASCADE;
-DROP TABLE IF EXISTS public.pype_voice_evaluation_jobs CASCADE;
-DROP TABLE IF EXISTS public.pype_voice_evaluation_prompts CASCADE;
-
--- Drop existing core tables (in reverse dependency order)
-DROP TABLE IF EXISTS public.pype_voice_call_logs_with_context CASCADE;
-DROP TABLE IF EXISTS public.pype_voice_call_logs_backup CASCADE;
-DROP TABLE IF EXISTS public.pype_voice_spans CASCADE;
-DROP TABLE IF EXISTS public.pype_voice_session_traces CASCADE;
-DROP TABLE IF EXISTS public.pype_voice_custom_totals_configs CASCADE;
-DROP TABLE IF EXISTS public.pype_voice_agent_call_log_views CASCADE;
-DROP TABLE IF EXISTS public.pype_voice_api_keys CASCADE;
-DROP TABLE IF EXISTS public.pype_voice_project_user_mapping CASCADE;
-DROP TABLE IF EXISTS public.pype_voice_user_sessions CASCADE;
-DROP TABLE IF EXISTS public.pype_voice_call_logs CASCADE;
-DROP TABLE IF EXISTS public.pype_voice_metrics_logs CASCADE;
-DROP TABLE IF EXISTS public.pype_voice_agents CASCADE;
-DROP TABLE IF EXISTS public.pype_voice_projects CASCADE;
-DROP TABLE IF EXISTS public.pype_voice_users CASCADE;
-DROP TABLE IF EXISTS public.usd_to_inr_rate CASCADE;
-DROP TABLE IF EXISTS public.gpt_api_pricing_inr CASCADE;
-DROP TABLE IF EXISTS public.gpt_api_pricing CASCADE;
-DROP TABLE IF EXISTS public.audio_api_pricing CASCADE;
+-- NOTE: Tables are NOT dropped - using CREATE TABLE IF NOT EXISTS to preserve existing data
 
 -- ==============================================
 -- CORE SYSTEM TABLES
 -- ==============================================
 
 -- Table for storing user information (local users for on-premise)
-CREATE TABLE public.pype_voice_users (
+CREATE TABLE IF NOT EXISTS public.pype_voice_users (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    clerk_id text UNIQUE, -- For Clerk authentication compatibility (nullable for local users)
     email text UNIQUE NOT NULL,
     first_name text,
     last_name text,
     profile_image_url text,
-    password_hash text NOT NULL,
+    password_hash text, -- Nullable for Clerk users who don't use local auth
     is_active boolean DEFAULT true,
     is_admin boolean DEFAULT false,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now()
 );
 
+-- Add clerk_id column if it doesn't exist (for existing databases)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_schema = 'public' 
+                   AND table_name = 'pype_voice_users' 
+                   AND column_name = 'clerk_id') THEN
+        ALTER TABLE public.pype_voice_users ADD COLUMN clerk_id text UNIQUE;
+    END IF;
+END $$;
+
 -- Table for user sessions (local authentication)
-CREATE TABLE public.pype_voice_user_sessions (
+CREATE TABLE IF NOT EXISTS public.pype_voice_user_sessions (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id uuid NOT NULL REFERENCES public.pype_voice_users(id) ON DELETE CASCADE,
     session_token text UNIQUE NOT NULL,
@@ -116,7 +105,7 @@ CREATE TABLE public.pype_voice_user_sessions (
 );
 
 -- Table for projects
-CREATE TABLE public.pype_voice_projects (
+CREATE TABLE IF NOT EXISTS public.pype_voice_projects (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     name varchar NOT NULL,
     description text,
@@ -131,7 +120,7 @@ CREATE TABLE public.pype_voice_projects (
 );
 
 -- Table for project-user mapping (replace email mapping)
-CREATE TABLE public.pype_voice_project_user_mapping (
+CREATE TABLE IF NOT EXISTS public.pype_voice_project_user_mapping (
     id serial PRIMARY KEY,
     user_id uuid NOT NULL REFERENCES public.pype_voice_users(id) ON DELETE CASCADE,
     project_id uuid NOT NULL REFERENCES public.pype_voice_projects(id) ON DELETE CASCADE,
@@ -143,8 +132,22 @@ CREATE TABLE public.pype_voice_project_user_mapping (
     UNIQUE(user_id, project_id)
 );
 
+-- Table for email-based project mapping (for Clerk auth and email invites)
+CREATE TABLE IF NOT EXISTS public.pype_voice_email_project_mapping (
+    id serial PRIMARY KEY,
+    clerk_id text,
+    email text NOT NULL,
+    project_id uuid NOT NULL REFERENCES public.pype_voice_projects(id) ON DELETE CASCADE,
+    role text DEFAULT 'member',
+    permissions jsonb DEFAULT '{}',
+    added_by_clerk_id text,
+    created_at timestamp with time zone DEFAULT now(),
+    is_active boolean DEFAULT true,
+    UNIQUE(email, project_id)
+);
+
 -- Table for agents
-CREATE TABLE public.pype_voice_agents (
+CREATE TABLE IF NOT EXISTS public.pype_voice_agents (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id uuid NOT NULL REFERENCES public.pype_voice_projects(id) ON DELETE CASCADE,
     name varchar NOT NULL,
@@ -161,7 +164,7 @@ CREATE TABLE public.pype_voice_agents (
 );
 
 -- Table for API keys
-CREATE TABLE public.pype_voice_api_keys (
+CREATE TABLE IF NOT EXISTS public.pype_voice_api_keys (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id uuid NOT NULL REFERENCES public.pype_voice_projects(id) ON DELETE CASCADE,
     user_id uuid NOT NULL REFERENCES public.pype_voice_users(id) ON DELETE CASCADE,
@@ -173,7 +176,7 @@ CREATE TABLE public.pype_voice_api_keys (
 );
 
 -- Table for call logs
-CREATE TABLE public.pype_voice_call_logs (
+CREATE TABLE IF NOT EXISTS public.pype_voice_call_logs (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     call_id varchar,
     agent_id uuid REFERENCES public.pype_voice_agents(id) ON DELETE CASCADE,
@@ -201,7 +204,7 @@ CREATE TABLE public.pype_voice_call_logs (
 );
 
 -- Table for metrics logs
-CREATE TABLE public.pype_voice_metrics_logs (
+CREATE TABLE IF NOT EXISTS public.pype_voice_metrics_logs (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id uuid,
     turn_id text,
@@ -229,7 +232,7 @@ CREATE TABLE public.pype_voice_metrics_logs (
 );
 
 -- Table for agent call log views
-CREATE TABLE public.pype_voice_agent_call_log_views (
+CREATE TABLE IF NOT EXISTS public.pype_voice_agent_call_log_views (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     agent_id uuid REFERENCES public.pype_voice_agents(id) ON DELETE CASCADE,
     name text NOT NULL,
@@ -240,7 +243,7 @@ CREATE TABLE public.pype_voice_agent_call_log_views (
 );
 
 -- Table for custom totals configurations
-CREATE TABLE public.pype_voice_custom_totals_configs (
+CREATE TABLE IF NOT EXISTS public.pype_voice_custom_totals_configs (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id uuid REFERENCES public.pype_voice_projects(id) ON DELETE CASCADE,
     agent_id uuid REFERENCES public.pype_voice_agents(id) ON DELETE CASCADE,
@@ -259,7 +262,7 @@ CREATE TABLE public.pype_voice_custom_totals_configs (
 );
 
 -- Table for session traces
-CREATE TABLE public.pype_voice_session_traces (
+CREATE TABLE IF NOT EXISTS public.pype_voice_session_traces (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id uuid,
     total_spans int4 DEFAULT 0,
@@ -273,7 +276,7 @@ CREATE TABLE public.pype_voice_session_traces (
 );
 
 -- Table for spans
-CREATE TABLE public.pype_voice_spans (
+CREATE TABLE IF NOT EXISTS public.pype_voice_spans (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     span_id text,
     trace_id text,
@@ -297,7 +300,7 @@ CREATE TABLE public.pype_voice_spans (
 );
 
 -- Backup and utility tables
-CREATE TABLE public.pype_voice_call_logs_backup (
+CREATE TABLE IF NOT EXISTS public.pype_voice_call_logs_backup (
     id uuid,
     call_id varchar,
     agent_id uuid,
@@ -324,7 +327,7 @@ CREATE TABLE public.pype_voice_call_logs_backup (
     telemetry_analytics jsonb
 );
 
-CREATE TABLE public.pype_voice_call_logs_with_context (
+CREATE TABLE IF NOT EXISTS public.pype_voice_call_logs_with_context (
     id uuid,
     call_id varchar,
     agent_id uuid,
@@ -346,7 +349,7 @@ CREATE TABLE public.pype_voice_call_logs_with_context (
 );
 
 -- Pricing tables
-CREATE TABLE public.audio_api_pricing (
+CREATE TABLE IF NOT EXISTS public.audio_api_pricing (
     service_type text,
     provider text,
     model_or_plan text,
@@ -356,14 +359,14 @@ CREATE TABLE public.audio_api_pricing (
     source_url text
 );
 
-CREATE TABLE public.gpt_api_pricing (
+CREATE TABLE IF NOT EXISTS public.gpt_api_pricing (
     model_name text,
     input_usd_per_million numeric,
     output_usd_per_million numeric,
     created_at timestamp with time zone DEFAULT now()
 );
 
-CREATE TABLE public.gpt_api_pricing_inr (
+CREATE TABLE IF NOT EXISTS public.gpt_api_pricing_inr (
     model_name text,
     input_inr_per_million numeric,
     output_inr_per_million numeric,
@@ -371,7 +374,7 @@ CREATE TABLE public.gpt_api_pricing_inr (
     created_at timestamp with time zone DEFAULT now()
 );
 
-CREATE TABLE public.usd_to_inr_rate (
+CREATE TABLE IF NOT EXISTS public.usd_to_inr_rate (
     as_of date,
     rate numeric,
     source text
@@ -382,7 +385,7 @@ CREATE TABLE public.usd_to_inr_rate (
 -- ==============================================
 
 -- Table for storing evaluation prompts
-CREATE TABLE public.pype_voice_evaluation_prompts (
+CREATE TABLE IF NOT EXISTS public.pype_voice_evaluation_prompts (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id uuid NOT NULL REFERENCES public.pype_voice_projects(id) ON DELETE CASCADE,
     name varchar(255) NOT NULL,
@@ -406,7 +409,7 @@ CREATE TABLE public.pype_voice_evaluation_prompts (
 );
 
 -- Table for storing evaluation jobs
-CREATE TABLE public.pype_voice_evaluation_jobs (
+CREATE TABLE IF NOT EXISTS public.pype_voice_evaluation_jobs (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id uuid NOT NULL REFERENCES public.pype_voice_projects(id) ON DELETE CASCADE,
     agent_id uuid REFERENCES public.pype_voice_agents(id) ON DELETE CASCADE,
@@ -427,7 +430,7 @@ CREATE TABLE public.pype_voice_evaluation_jobs (
 );
 
 -- Table for storing individual evaluation results
-CREATE TABLE public.pype_voice_evaluation_results (
+CREATE TABLE IF NOT EXISTS public.pype_voice_evaluation_results (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     job_id uuid NOT NULL REFERENCES public.pype_voice_evaluation_jobs(id) ON DELETE CASCADE,
     prompt_id uuid NOT NULL REFERENCES public.pype_voice_evaluation_prompts(id) ON DELETE CASCADE,
@@ -444,8 +447,33 @@ CREATE TABLE public.pype_voice_evaluation_results (
     created_at timestamp with time zone DEFAULT now()
 );
 
+-- Table for storing evaluation summaries (aggregated metrics per job)
+CREATE TABLE IF NOT EXISTS public.pype_voice_evaluation_summaries (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id uuid NOT NULL REFERENCES public.pype_voice_evaluation_jobs(id) ON DELETE CASCADE,
+    prompt_id uuid REFERENCES public.pype_voice_evaluation_prompts(id) ON DELETE CASCADE,
+    project_id uuid REFERENCES public.pype_voice_projects(id) ON DELETE CASCADE,
+    agent_id uuid REFERENCES public.pype_voice_agents(id) ON DELETE CASCADE,
+    evaluation_type varchar(100),
+    avg_score numeric(10,4),
+    min_score numeric(10,4),
+    max_score numeric(10,4),
+    median_score numeric(10,4),
+    std_dev numeric(10,4),
+    total_evaluations integer DEFAULT 0,
+    passed_evaluations integer DEFAULT 0,
+    failed_evaluations integer DEFAULT 0,
+    pass_rate numeric(5,4),
+    score_distribution jsonb DEFAULT '{}',
+    top_issues jsonb DEFAULT '[]',
+    recommendations jsonb DEFAULT '[]',
+    metadata jsonb DEFAULT '{}',
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now()
+);
+
 -- Table for storing uploaded audio files
-CREATE TABLE public.pype_voice_audio_files (
+CREATE TABLE IF NOT EXISTS public.pype_voice_audio_files (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id uuid NOT NULL REFERENCES public.pype_voice_projects(id) ON DELETE CASCADE,
     agent_id uuid NOT NULL REFERENCES public.pype_voice_agents(id) ON DELETE CASCADE,
@@ -467,64 +495,77 @@ GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO admin;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO admin;
 
 -- ==============================================
--- INDEXES FOR PERFORMANCE
+-- INDEXES FOR PERFORMANCE (using IF NOT EXISTS)
 -- ==============================================
 
 -- Core table indexes
-CREATE INDEX idx_users_email ON public.pype_voice_users(email);
-CREATE INDEX idx_users_active ON public.pype_voice_users(is_active) WHERE is_active = true;
-CREATE INDEX idx_user_sessions_token ON public.pype_voice_user_sessions(session_token);
-CREATE INDEX idx_user_sessions_expires ON public.pype_voice_user_sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_users_email ON public.pype_voice_users(email);
+CREATE INDEX IF NOT EXISTS idx_users_clerk_id ON public.pype_voice_users(clerk_id) WHERE clerk_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_users_active ON public.pype_voice_users(is_active) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON public.pype_voice_user_sessions(session_token);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON public.pype_voice_user_sessions(expires_at);
 
-CREATE INDEX idx_projects_owner ON public.pype_voice_projects(owner_user_id);
-CREATE INDEX idx_projects_active ON public.pype_voice_projects(is_active) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_projects_owner ON public.pype_voice_projects(owner_user_id);
+CREATE INDEX IF NOT EXISTS idx_projects_active ON public.pype_voice_projects(is_active) WHERE is_active = true;
 
-CREATE INDEX idx_project_mapping_user ON public.pype_voice_project_user_mapping(user_id);
-CREATE INDEX idx_project_mapping_project ON public.pype_voice_project_user_mapping(project_id);
+CREATE INDEX IF NOT EXISTS idx_project_mapping_user ON public.pype_voice_project_user_mapping(user_id);
+CREATE INDEX IF NOT EXISTS idx_project_mapping_project ON public.pype_voice_project_user_mapping(project_id);
 
-CREATE INDEX idx_agents_project ON public.pype_voice_agents(project_id);
-CREATE INDEX idx_agents_active ON public.pype_voice_agents(is_active) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_email_project_mapping_email ON public.pype_voice_email_project_mapping(email);
+CREATE INDEX IF NOT EXISTS idx_email_project_mapping_clerk ON public.pype_voice_email_project_mapping(clerk_id);
+CREATE INDEX IF NOT EXISTS idx_email_project_mapping_project ON public.pype_voice_email_project_mapping(project_id);
+CREATE INDEX IF NOT EXISTS idx_email_project_mapping_active ON public.pype_voice_email_project_mapping(is_active) WHERE is_active = true;
 
-CREATE INDEX idx_call_logs_agent ON public.pype_voice_call_logs(agent_id);
-CREATE INDEX idx_call_logs_created ON public.pype_voice_call_logs(created_at DESC);
-CREATE INDEX idx_call_logs_call_id ON public.pype_voice_call_logs(call_id);
+CREATE INDEX IF NOT EXISTS idx_agents_project ON public.pype_voice_agents(project_id);
+CREATE INDEX IF NOT EXISTS idx_agents_active ON public.pype_voice_agents(is_active) WHERE is_active = true;
 
-CREATE INDEX idx_metrics_session ON public.pype_voice_metrics_logs(session_id);
-CREATE INDEX idx_metrics_trace ON public.pype_voice_metrics_logs(trace_id);
-CREATE INDEX idx_metrics_created ON public.pype_voice_metrics_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_call_logs_agent ON public.pype_voice_call_logs(agent_id);
+CREATE INDEX IF NOT EXISTS idx_call_logs_created ON public.pype_voice_call_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_call_logs_call_id ON public.pype_voice_call_logs(call_id);
 
-CREATE INDEX idx_spans_trace ON public.pype_voice_spans(trace_id);
-CREATE INDEX idx_spans_trace_key ON public.pype_voice_spans(trace_key);
+CREATE INDEX IF NOT EXISTS idx_metrics_session ON public.pype_voice_metrics_logs(session_id);
+CREATE INDEX IF NOT EXISTS idx_metrics_trace ON public.pype_voice_metrics_logs(trace_id);
+CREATE INDEX IF NOT EXISTS idx_metrics_created ON public.pype_voice_metrics_logs(created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_spans_trace ON public.pype_voice_spans(trace_id);
+CREATE INDEX IF NOT EXISTS idx_spans_trace_key ON public.pype_voice_spans(trace_key);
 
 -- Evaluation system indexes
-CREATE INDEX idx_evaluation_prompts_project_id ON public.pype_voice_evaluation_prompts(project_id);
-CREATE INDEX idx_evaluation_prompts_active ON public.pype_voice_evaluation_prompts(is_active) WHERE is_active = true;
-CREATE INDEX idx_evaluation_prompts_provider ON public.pype_voice_evaluation_prompts(llm_provider);
-CREATE INDEX idx_evaluation_prompts_created_at ON public.pype_voice_evaluation_prompts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_evaluation_prompts_project_id ON public.pype_voice_evaluation_prompts(project_id);
+CREATE INDEX IF NOT EXISTS idx_evaluation_prompts_active ON public.pype_voice_evaluation_prompts(is_active) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_evaluation_prompts_provider ON public.pype_voice_evaluation_prompts(llm_provider);
+CREATE INDEX IF NOT EXISTS idx_evaluation_prompts_created_at ON public.pype_voice_evaluation_prompts(created_at DESC);
 
-CREATE INDEX idx_evaluation_jobs_project_id ON public.pype_voice_evaluation_jobs(project_id);
-CREATE INDEX idx_evaluation_jobs_agent_id ON public.pype_voice_evaluation_jobs(agent_id);
-CREATE INDEX idx_evaluation_jobs_status ON public.pype_voice_evaluation_jobs(status);
-CREATE INDEX idx_evaluation_jobs_created_at ON public.pype_voice_evaluation_jobs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_evaluation_jobs_project_id ON public.pype_voice_evaluation_jobs(project_id);
+CREATE INDEX IF NOT EXISTS idx_evaluation_jobs_agent_id ON public.pype_voice_evaluation_jobs(agent_id);
+CREATE INDEX IF NOT EXISTS idx_evaluation_jobs_status ON public.pype_voice_evaluation_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_evaluation_jobs_created_at ON public.pype_voice_evaluation_jobs(created_at DESC);
 
-CREATE INDEX idx_evaluation_results_job_id ON public.pype_voice_evaluation_results(job_id);
-CREATE INDEX idx_evaluation_results_prompt_id ON public.pype_voice_evaluation_results(prompt_id);
-CREATE INDEX idx_evaluation_results_trace_id ON public.pype_voice_evaluation_results(trace_id);
-CREATE INDEX idx_evaluation_results_call_id ON public.pype_voice_evaluation_results(call_id);
-CREATE INDEX idx_evaluation_results_agent_id ON public.pype_voice_evaluation_results(agent_id);
-CREATE INDEX idx_evaluation_results_status ON public.pype_voice_evaluation_results(status);
-CREATE INDEX idx_evaluation_results_created_at ON public.pype_voice_evaluation_results(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_evaluation_results_job_id ON public.pype_voice_evaluation_results(job_id);
+CREATE INDEX IF NOT EXISTS idx_evaluation_results_prompt_id ON public.pype_voice_evaluation_results(prompt_id);
+CREATE INDEX IF NOT EXISTS idx_evaluation_results_trace_id ON public.pype_voice_evaluation_results(trace_id);
+CREATE INDEX IF NOT EXISTS idx_evaluation_results_call_id ON public.pype_voice_evaluation_results(call_id);
+CREATE INDEX IF NOT EXISTS idx_evaluation_results_agent_id ON public.pype_voice_evaluation_results(agent_id);
+CREATE INDEX IF NOT EXISTS idx_evaluation_results_status ON public.pype_voice_evaluation_results(status);
+CREATE INDEX IF NOT EXISTS idx_evaluation_results_created_at ON public.pype_voice_evaluation_results(created_at DESC);
+
+-- Evaluation summaries indexes
+CREATE INDEX IF NOT EXISTS idx_evaluation_summaries_job_id ON public.pype_voice_evaluation_summaries(job_id);
+CREATE INDEX IF NOT EXISTS idx_evaluation_summaries_prompt_id ON public.pype_voice_evaluation_summaries(prompt_id);
+CREATE INDEX IF NOT EXISTS idx_evaluation_summaries_project_id ON public.pype_voice_evaluation_summaries(project_id);
+CREATE INDEX IF NOT EXISTS idx_evaluation_summaries_agent_id ON public.pype_voice_evaluation_summaries(agent_id);
+CREATE INDEX IF NOT EXISTS idx_evaluation_summaries_created_at ON public.pype_voice_evaluation_summaries(created_at DESC);
 
 -- Audio files indexes
-CREATE INDEX idx_audio_files_project_id ON public.pype_voice_audio_files(project_id);
-CREATE INDEX idx_audio_files_agent_id ON public.pype_voice_audio_files(agent_id);
-CREATE INDEX idx_audio_files_status ON public.pype_voice_audio_files(status);
-CREATE INDEX idx_audio_files_upload_date ON public.pype_voice_audio_files(upload_date DESC);
-CREATE INDEX idx_audio_files_project_agent ON public.pype_voice_audio_files(project_id, agent_id);
+CREATE INDEX IF NOT EXISTS idx_audio_files_project_id ON public.pype_voice_audio_files(project_id);
+CREATE INDEX IF NOT EXISTS idx_audio_files_agent_id ON public.pype_voice_audio_files(agent_id);
+CREATE INDEX IF NOT EXISTS idx_audio_files_status ON public.pype_voice_audio_files(status);
+CREATE INDEX IF NOT EXISTS idx_audio_files_upload_date ON public.pype_voice_audio_files(upload_date DESC);
+CREATE INDEX IF NOT EXISTS idx_audio_files_project_agent ON public.pype_voice_audio_files(project_id, agent_id);
 
 -- Composite indexes for common queries
-CREATE INDEX idx_evaluation_results_job_status ON public.pype_voice_evaluation_results(job_id, status);
-CREATE INDEX idx_evaluation_results_agent_prompt ON public.pype_voice_evaluation_results(agent_id, prompt_id);
+CREATE INDEX IF NOT EXISTS idx_evaluation_results_job_status ON public.pype_voice_evaluation_results(job_id, status);
+CREATE INDEX IF NOT EXISTS idx_evaluation_results_agent_prompt ON public.pype_voice_evaluation_results(agent_id, prompt_id);
 
 -- ==============================================
 -- MATERIALIZED VIEWS
@@ -558,7 +599,7 @@ SELECT
 FROM pype_voice_call_logs
 GROUP BY agent_id, DATE(COALESCE(call_started_at, created_at));
 
-CREATE UNIQUE INDEX call_summary_agent_date_idx
+CREATE UNIQUE INDEX IF NOT EXISTS call_summary_agent_date_idx
   ON call_summary_materialized (agent_id, call_date);
 
 -- ==============================================
@@ -566,7 +607,7 @@ CREATE UNIQUE INDEX call_summary_agent_date_idx
 -- ==============================================
 
 -- View for easy access to evaluation results with prompt and job details
-CREATE VIEW evaluation_results_detailed AS
+CREATE OR REPLACE VIEW evaluation_results_detailed AS
 SELECT 
     r.id,
     r.job_id,
@@ -1056,6 +1097,10 @@ GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO admin;
 -- TRIGGERS
 -- ==============================================
 
+-- Drop existing triggers before creating (idempotent)
+DROP TRIGGER IF EXISTS trigger_update_evaluation_prompt_updated_at ON public.pype_voice_evaluation_prompts;
+DROP TRIGGER IF EXISTS trigger_update_evaluation_job_completion ON public.pype_voice_evaluation_jobs;
+
 -- Trigger to automatically update updated_at on prompt changes
 CREATE TRIGGER trigger_update_evaluation_prompt_updated_at
     BEFORE UPDATE ON public.pype_voice_evaluation_prompts
@@ -1078,8 +1123,13 @@ INSERT INTO public.pype_voice_users (email, first_name, last_name, password_hash
 VALUES ('admin@agent_evals.local', 'Admin', 'User', crypt('admin123', gen_salt('bf')), true)
 ON CONFLICT (email) DO NOTHING;
 
--- Refresh the materialized view
-REFRESH MATERIALIZED VIEW call_summary_materialized;
+-- Refresh the materialized view (safely with error handling)
+DO $$
+BEGIN
+    REFRESH MATERIALIZED VIEW call_summary_materialized;
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'Could not refresh materialized view: %', SQLERRM;
+END $$;
 
 -- ==============================================
 -- FINAL PERMISSIONS
