@@ -304,9 +304,15 @@ const TracesTable: React.FC<TracesTableProps> = ({
   }
 
   const formatDuration = (ms: number) => {
-    if (ms < 1) return `${(ms * 1000).toFixed(0)}μs`;
-    if (ms < 1000) return `${ms.toFixed(0)}ms`;
-    return `${(ms / 1000).toFixed(1)}s`;
+    if (ms < 1) return `${Math.round(ms * 1000)}μs`;
+    if (ms < 1000) return `${Math.round(ms)}ms`;
+    const totalSeconds = Math.round(ms / 1000);
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    if (mins > 0) {
+      return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${secs}s`;
   }
 
   const formatLatencyValue = (seconds: number) => {
@@ -424,6 +430,41 @@ const TracesTable: React.FC<TracesTableProps> = ({
   const calculateCumulativeTimestamps = useMemo(() => {
     if (!processedTraces?.length) return []
     
+    // Check if this is uploaded audio with actual timestamps in metadata
+    const hasActualTimestamps = processedTraces.some((trace: TraceLog) => 
+      trace.metadata?.from_uploaded_audio && 
+      trace.metadata?.start_time !== undefined && 
+      trace.metadata?.end_time !== undefined
+    )
+    
+    if (hasActualTimestamps) {
+      // Use actual timestamps from uploaded audio transcript
+      console.log('🎵 Audio Sync: Using actual timestamps from uploaded audio transcript')
+      return processedTraces.map((trace: TraceLog, index: number) => {
+        const startTime = trace.metadata?.start_time || 0
+        const endTime = trace.metadata?.end_time || startTime
+        const duration = endTime - startTime
+        
+        console.log(`🎵 Trace ${index} (${trace.turn_id}): actual timestamps`, {
+          startTime: `${startTime.toFixed(2)}s`,
+          endTime: `${endTime.toFixed(2)}s`,
+          duration: `${duration.toFixed(2)}s`
+        })
+        
+        return {
+          traceId: trace.id,
+          turnId: trace.turn_id,
+          startTime,
+          endTime,
+          latency: trace.metadata?.latency || 0,
+          audioDuration: duration,
+          traceDuration: duration,
+          index
+        }
+      })
+    }
+    
+    // Fallback: Calculate cumulative timestamps from latency (for non-uploaded audio)
     let cumulativeTime = 0
     const timestamps = processedTraces.map((trace: TraceLog, index: number) => {
       const latency = getTotalLatency(trace)

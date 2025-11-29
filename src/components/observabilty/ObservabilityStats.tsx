@@ -244,13 +244,20 @@ const ObservabilityStats: React.FC<ObservabilityStatsProps> = ({ sessionId, agen
   }
 
   const formatDuration = (seconds: number) => {
-    if (seconds < 1) return `${(seconds * 1000).toFixed(0)}ms`
-    return `${seconds.toFixed(1)}s`
+    if (seconds < 1) return `${Math.round(seconds * 1000)}ms`
+    const totalSeconds = Math.round(seconds)
+    const mins = Math.floor(totalSeconds / 60)
+    const secs = totalSeconds % 60
+    if (mins > 0) {
+      return `${mins}:${secs.toString().padStart(2, '0')}`
+    }
+    return `${secs}s`
   }
 
   const formatCallDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
+    const totalSeconds = Math.round(seconds)
+    const mins = Math.floor(totalSeconds / 60)
+    const secs = totalSeconds % 60
     return mins > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : `${secs}s`
   }
 
