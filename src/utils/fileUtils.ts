@@ -1,6 +1,7 @@
 import fs from 'fs/promises'
 import path from 'path'
 import { existsSync } from 'fs'
+// @ts-ignore - adm-zip doesn't have type declarations
 import AdmZip from 'adm-zip'
 import axios from 'axios'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
