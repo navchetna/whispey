@@ -40,8 +40,8 @@ setup: ## Install all dependencies (Node.js, Python, Database)
 	@echo "$(GREEN)✅ Python dependencies installed$(NC)"
 	
 	@echo "$(YELLOW)🗄️  Running database migrations...$(NC)"
-	@if [ -f "migrations/run.sh" ]; then \
-		bash migrations/run.sh; \
+	@if [ -f "setup-db.sql" ]; then \
+		sudo -u postgres psql -f setup-db.sql; \
 		echo "$(GREEN)✅ Database migrations completed$(NC)"; \
 	else \
 		echo "$(YELLOW)⚠️  No migration script found, skipping...$(NC)"; \
