@@ -8,6 +8,7 @@ import {
   isAudioFile
 } from '@/utils/fileUtils'
 import path from 'path'
+import fs from "fs"
 
 interface AudioFileRecord {
   file_name: string
@@ -212,21 +213,24 @@ export async function POST(request: NextRequest) {
       // Trigger transcription in background - don't await
       insertedRecords.forEach((record) => {
         // Call transcription API internally using the request context
+        const formData = new FormData();
+
+        const fileBuffer = fs.readFileSync(record.audio_file.file_path);  // read from disk
+        const blob = new Blob([fileBuffer]);                              // convert to Blob
+        formData.append('audio_file', blob, record.audio_file.file_name);
+
+        formData.append('audio_file_id', String(record.audio_file.id));
+
         fetch(`http://localhost:${process.env.PORT || 3000}/api/transcribe`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            audio_file_id: record.audio_file.id
-          })
+          body: formData, // No headers – fetch sets them automatically
         }).then(async (response) => {
           if (response.ok) {
             const result = await response.json()
-            console.log(`✅ Transcription completed for: ${record.audio_file.file_name}`)
+            console.log(`Transcription completed for: ${record.audio_file.file_name}`)
           } else {
             const errorText = await response.text()
-            console.error(`❌ Failed transcription for: ${record.audio_file.file_name}`)
+            console.error(`Failed transcription for: ${record.audio_file.file_name}`)
             console.error(`Status: ${response.status}, Response: ${errorText}`)
           }
         }).catch((error) => {

@@ -4,13 +4,12 @@ import { existsSync } from 'fs'
 
 export async function POST(request: NextRequest) {
   try {
-    const { audio_file_id } = await request.json()
-    
-    if (!audio_file_id) {
-      return NextResponse.json(
-        { error: 'audio_file_id is required' },
-        { status: 400 }
-      )
+    const form = await request.formData()
+    const file = form.get("audio_file") as File | null
+    const audio_file_id = form.get("audio_file_id");
+
+    if (!file) {
+      return NextResponse.json({ error: "No audio file uploaded" }, { status: 400 })
     }
 
     // Check if API key is configured
@@ -22,7 +21,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log(`📝 Starting transcription for audio_file_id: ${audio_file_id}`)
+    console.log(`Starting transcription for audio_file_id: ${audio_file_id}`)
 
     // Get the audio file record
     const audioFileResult = await query(
@@ -53,7 +52,7 @@ export async function POST(request: NextRequest) {
     // Call Python backend for transcription
     try {
       const pythonBackendUrl = process.env.PYTHON_BACKEND_URL || 'http://localhost:5006'
-      const transcriptResult = await callPythonBackend(filePath, pythonBackendUrl, process.env.SARVAM_API_KEY!)
+      const transcriptResult = await callPythonBackend(file, pythonBackendUrl)
       
       if (transcriptResult.success && transcriptResult.transcript) {
         // Update audio file with transcript
@@ -111,22 +110,19 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function callPythonBackend(filePath: string, backendUrl: string, apiKey: string) {
+async function callPythonBackend(file: File | Blob, backendUrl: string) {
   try {
-    console.log('🐍 Calling Python backend for transcription:', filePath)
-    console.log('🔗 Backend URL:', backendUrl)
-    
+    console.log('🐍 Calling Python backend for transcription (file upload):', file);
+    console.log('🔗 Backend URL:', backendUrl);
+
+    // Build multipart form-data
+    const formData = new FormData();
+    formData.append('audio_file', file);  // name must match your Python endpoint
+
     const response = await fetch(`${backendUrl}/transcribe`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        audio_file_path: filePath,
-        api_key: apiKey
-      }),
-      // No timeout - let Python handle the long-running operation
-    })
+      body: formData, // browser/Node 18+ fetch handles content-type automatically
+    });
     
     if (!response.ok) {
       const errorData = await response.json()
