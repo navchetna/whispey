@@ -12,15 +12,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No audio file uploaded" }, { status: 400 })
     }
 
-    // Check if API key is configured
-    if (!process.env.SARVAM_API_KEY || process.env.SARVAM_API_KEY === 'your_sarvam_api_key_here') {
-      console.error('❌ SARVAM_API_KEY is not configured')
-      return NextResponse.json(
-        { error: 'SarvamAI API key not configured. Please set SARVAM_API_KEY in .env.local' },
-        { status: 500 }
-      )
-    }
-
     console.log(`Starting transcription for audio_file_id: ${audio_file_id}`)
 
     // Get the audio file record
