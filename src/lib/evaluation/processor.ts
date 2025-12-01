@@ -814,13 +814,26 @@ export class EvaluationProcessor {
       
       const validTemperature = isNaN(temperature) ? 0 : Math.max(0, Math.min(2, temperature))
 
+      // Define system message for the evaluation
+      const systemMessage = `You are an expert evaluator of customer service conversations. 
+Your task is to analyze the provided conversation and evaluate it based on the given criteria.
+Provide a detailed evaluation with scores and reasoning.
+Return your response in JSON format with the following structure:
+{
+  "overall_score": <number 1-10>,
+  "reasoning": "<detailed explanation>",
+  "strengths": ["<strength 1>", "<strength 2>"],
+  "weaknesses": ["<weakness 1>", "<weakness 2>"],
+  "suggestions": ["<suggestion 1>", "<suggestion 2>"]
+}`
+
       console.log(`🤖 [LLM CALL] Making standard OpenAI-compatible call`)
       console.log(`🤖 [LLM CALL] Temperature: ${validTemperature} (original: ${prompt.temperature})`)
       console.log(`🤖 [LLM CALL] System message: ${systemMessage.substring(0, 100)}...`)
       console.log(`🤖 [LLM CALL] User message length: ${evaluationPrompt.length}`)
       console.log(`🤖 [LLM CALL] User message preview: ${evaluationPrompt.substring(0, 200)}...`)
       
-      response = await llmClient.chat.completions.create({
+      const response = await llmClient.chat.completions.create({
         model,
         messages: [
           { role: 'system', content: systemMessage },
