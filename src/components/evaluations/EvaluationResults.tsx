@@ -29,8 +29,59 @@ import {
   Eye,
   FileText,
   Users,
-  Zap
+  Zap,
+  Activity,
+  Headphones,
+  FileAudio
 } from 'lucide-react'
+
+// Trace data interface for agent traces
+interface TraceData {
+  call_id: string
+  call_log_id: string
+  agent_id: string
+  recording_url?: string
+  voice_recording_url?: string
+  duration_seconds?: number
+  call_ended_reason?: string
+  call_started_at?: string
+  call_ended_at?: string
+  audio_file_id?: string
+  audio_file?: {
+    id: string
+    file_name: string
+    file_path: string
+    status: string
+  }
+  trace?: {
+    id: string
+    trace_key: string
+    total_spans: number
+    performance_summary: any
+    span_summary: any
+    total_duration_ms: number
+  }
+  spans: Array<{
+    id: string
+    name: string
+    operation_type: string
+    duration_ms: number
+    start_time_ns: number
+    end_time_ns: number
+    attributes?: any
+    status?: any
+  }>
+  transcript_turns: Array<{
+    turn_id: string
+    user_transcript: string
+    agent_response: string
+    stt_metrics?: any
+    llm_metrics?: any
+    tts_metrics?: any
+    eou_metrics?: any
+    unix_timestamp?: number
+  }>
+}
 
 // Helper function to get scoring output type information
 const getScoringOutputTypeInfo = (type: string) => {
@@ -139,6 +190,8 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
   const [selectedTranscript, setSelectedTranscript] = useState<{callId: string, transcript: string} | null>(null)
   const [selectedRawResponse, setSelectedRawResponse] = useState<{callId: string, response: string} | null>(null)
   const [debugInfo, setDebugInfo] = useState<string>('')
+  const [selectedTrace, setSelectedTrace] = useState<TraceData | null>(null)
+  const [traceLoading, setTraceLoading] = useState<boolean>(false)
 
   // Debug selectedTranscript state changes
   useEffect(() => {
@@ -442,6 +495,86 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
     } catch (error) {
       console.error('Error exporting result:', error)
       alert('Failed to export result: ' + (error as Error).message)
+    }
+  }
+
+  // Handler to fetch and display agent traces for a specific call
+  const handleViewAgentTraces = async (callId: string) => {
+    try {
+      setTraceLoading(true)
+      console.log('🔍 [TRACE] Fetching agent traces for call_id:', callId)
+
+      // Fetch traces from the new traces API
+      const response = await fetch('/api/evaluations/traces', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ call_ids: [callId] })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        console.error('❌ [TRACE] Error fetching traces:', result.error)
+        setSelectedTrace({
+          call_id: callId,
+          call_log_id: '',
+          agent_id: '',
+          spans: [],
+          transcript_turns: [],
+          trace: undefined
+        })
+        return
+      }
+
+      if (result.data && result.data.length > 0) {
+        console.log('✅ [TRACE] Found trace data:', result.data[0])
+        setSelectedTrace(result.data[0])
+      } else {
+        console.log('⚠️ [TRACE] No trace data found for call_id:', callId)
+        setSelectedTrace({
+          call_id: callId,
+          call_log_id: '',
+          agent_id: '',
+          spans: [],
+          transcript_turns: [],
+          trace: undefined
+        })
+      }
+    } catch (error) {
+      console.error('💥 [TRACE] Unexpected error fetching traces:', error)
+      setSelectedTrace({
+        call_id: callId,
+        call_log_id: '',
+        agent_id: '',
+        spans: [],
+        transcript_turns: [],
+        trace: undefined
+      })
+    } finally {
+      setTraceLoading(false)
+    }
+  }
+
+  // Helper to format duration in a human-readable way
+  const formatTraceDuration = (ms: number | undefined): string => {
+    if (!ms) return 'N/A'
+    if (ms < 1000) return `${ms.toFixed(0)}ms`
+    if (ms < 60000) return `${(ms / 1000).toFixed(2)}s`
+    return `${(ms / 60000).toFixed(2)}m`
+  }
+
+  // Helper to get operation type color
+  const getOperationTypeColor = (opType: string): string => {
+    switch (opType?.toLowerCase()) {
+      case 'llm': return 'bg-purple-100 text-purple-700 border-purple-200'
+      case 'tts': return 'bg-green-100 text-green-700 border-green-200'
+      case 'stt': return 'bg-blue-100 text-blue-700 border-blue-200'
+      case 'user_interaction': return 'bg-cyan-100 text-cyan-700 border-cyan-200'
+      case 'assistant_interaction': return 'bg-emerald-100 text-emerald-700 border-emerald-200'
+      case 'tool': return 'bg-orange-100 text-orange-700 border-orange-200'
+      default: return 'bg-gray-100 text-gray-700 border-gray-200'
     }
   }
 
@@ -961,6 +1094,18 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
                             <Eye className="w-4 h-4" />
                             View Transcript
                           </Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="flex items-center gap-2 text-blue-600 border-blue-200 hover:bg-blue-50"
+                            onClick={() => {
+                              console.log('🖱️ [UI DEBUG] View Agent Traces button clicked for call_id:', result.call_id)
+                              handleViewAgentTraces(result.call_id)
+                            }}
+                          >
+                            <Activity className="w-4 h-4" />
+                            View Traces
+                          </Button>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button variant="ghost" size="sm">
@@ -1127,6 +1272,201 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
             </ul>
           </div>
         </div>
+      </DialogContent>
+    </Dialog>
+
+    {/* Agent Traces Dialog */}
+    <Dialog open={!!selectedTrace} onOpenChange={() => setSelectedTrace(null)}>
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Activity className="w-5 h-5 text-blue-600" />
+            Agent Traces - {selectedTrace?.call_id}
+          </DialogTitle>
+        </DialogHeader>
+        
+        {traceLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          </div>
+        ) : selectedTrace ? (
+          <div className="mt-4 overflow-y-auto max-h-[75vh]">
+            {/* Audio File Info */}
+            {selectedTrace.audio_file && (
+              <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="flex items-center gap-3 mb-2">
+                  <FileAudio className="w-5 h-5 text-blue-600" />
+                  <span className="font-medium text-blue-800">Audio File</span>
+                  <Badge variant="outline" className={`${
+                    selectedTrace.audio_file.status === 'completed' ? 'bg-green-50 text-green-700' :
+                    selectedTrace.audio_file.status === 'processing' ? 'bg-yellow-50 text-yellow-700' :
+                    'bg-gray-50 text-gray-700'
+                  }`}>
+                    {selectedTrace.audio_file.status}
+                  </Badge>
+                </div>
+                <div className="text-sm text-blue-700">
+                  <span className="font-mono">{selectedTrace.audio_file.file_name}</span>
+                </div>
+                {selectedTrace.voice_recording_url && (
+                  <div className="mt-2">
+                    <audio 
+                      controls 
+                      className="w-full h-10"
+                      src={selectedTrace.voice_recording_url}
+                    >
+                      Your browser does not support the audio element.
+                    </audio>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Call Duration Info */}
+            {selectedTrace.duration_seconds && (
+              <div className="mb-4 flex items-center gap-4 text-sm">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-gray-500" />
+                  <span className="text-gray-600">Duration:</span>
+                  <span className="font-medium">{selectedTrace.duration_seconds}s</span>
+                </div>
+                {selectedTrace.trace?.total_duration_ms && (
+                  <div className="flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-gray-500" />
+                    <span className="text-gray-600">Trace Duration:</span>
+                    <span className="font-medium">{formatTraceDuration(selectedTrace.trace.total_duration_ms)}</span>
+                  </div>
+                )}
+                {selectedTrace.trace?.total_spans && (
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-gray-500" />
+                    <span className="text-gray-600">Spans:</span>
+                    <span className="font-medium">{selectedTrace.trace.total_spans}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Tabs for Transcript and Traces */}
+            <Tabs defaultValue="transcript" className="w-full">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="transcript" className="flex items-center gap-2">
+                  <FileText className="w-4 h-4" />
+                  Transcript ({selectedTrace.transcript_turns?.length || 0} turns)
+                </TabsTrigger>
+                <TabsTrigger value="spans" className="flex items-center gap-2">
+                  <Activity className="w-4 h-4" />
+                  Agent Spans ({selectedTrace.spans?.length || 0})
+                </TabsTrigger>
+              </TabsList>
+
+              {/* Transcript Tab */}
+              <TabsContent value="transcript" className="mt-4">
+                {selectedTrace.transcript_turns && selectedTrace.transcript_turns.length > 0 ? (
+                  <div className="space-y-3">
+                    {selectedTrace.transcript_turns.map((turn, index) => (
+                      <div key={turn.turn_id || index} className="border rounded-lg overflow-hidden">
+                        {turn.user_transcript && (
+                          <div className="bg-blue-50 p-3 border-b border-blue-100">
+                            <div className="flex items-center gap-2 mb-1">
+                              <Badge className="bg-blue-100 text-blue-700 text-xs">USER</Badge>
+                              {turn.stt_metrics?.duration && (
+                                <span className="text-xs text-blue-600">
+                                  STT: {(turn.stt_metrics.duration * 1000).toFixed(0)}ms
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-gray-800">{turn.user_transcript}</p>
+                          </div>
+                        )}
+                        {turn.agent_response && (
+                          <div className="bg-green-50 p-3">
+                            <div className="flex items-center gap-2 mb-1">
+                              <Badge className="bg-green-100 text-green-700 text-xs">AGENT</Badge>
+                              {turn.llm_metrics?.ttft && (
+                                <span className="text-xs text-green-600">
+                                  LLM TTFT: {turn.llm_metrics.ttft.toFixed(0)}ms
+                                </span>
+                              )}
+                              {turn.tts_metrics?.ttfb && (
+                                <span className="text-xs text-green-600">
+                                  TTS TTFB: {turn.tts_metrics.ttfb.toFixed(0)}ms
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-gray-800">{turn.agent_response}</p>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <FileText className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                    <p>No transcript data available for this call</p>
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* Spans Tab */}
+              <TabsContent value="spans" className="mt-4">
+                {selectedTrace.spans && selectedTrace.spans.length > 0 ? (
+                  <div className="space-y-2">
+                    {selectedTrace.spans.map((span, index) => (
+                      <div 
+                        key={span.id || index} 
+                        className="border rounded-lg p-3 hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm font-medium text-gray-900">
+                              {span.name || 'Unknown Span'}
+                            </span>
+                            {span.operation_type && (
+                              <Badge 
+                                variant="outline" 
+                                className={`text-xs ${getOperationTypeColor(span.operation_type)}`}
+                              >
+                                {span.operation_type}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-sm text-gray-500">
+                            <Clock className="w-3 h-3" />
+                            <span>{formatTraceDuration(span.duration_ms)}</span>
+                          </div>
+                        </div>
+                        
+                        {/* Span Attributes Preview */}
+                        {span.attributes && Object.keys(span.attributes).length > 0 && (
+                          <details className="mt-2">
+                            <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">
+                              View attributes ({Object.keys(span.attributes).length})
+                            </summary>
+                            <div className="mt-2 bg-gray-100 rounded p-2 text-xs font-mono overflow-x-auto">
+                              <pre>{JSON.stringify(span.attributes, null, 2)}</pre>
+                            </div>
+                          </details>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <Activity className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                    <p>No trace spans available for this call</p>
+                    <p className="text-sm mt-1">Spans are captured during live agent interactions</p>
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
+          </div>
+        ) : (
+          <div className="text-center py-8 text-gray-500">
+            <Activity className="w-12 h-12 mx-auto mb-3 opacity-30" />
+            <p>No trace data available</p>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
     </>
