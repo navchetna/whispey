@@ -34,6 +34,30 @@ import {
 import { query } from "../../lib/postgres"
 import { DatabaseService } from "@/lib/database"
 
+// Helper function to parse boolean from various formats
+const parseBooleanScore = (value: any): boolean => {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string') {
+    const lowerValue = value.toLowerCase().trim()
+    return lowerValue === 'true' || lowerValue === 'yes' || lowerValue === '1' || lowerValue === 'pass'
+  }
+  if (typeof value === 'number') return value !== 0
+  return Boolean(value)
+}
+
+// Helper function to parse numeric score from various formats
+const parseNumericScore = (value: any): number => {
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') {
+    // Remove percentage sign if present
+    const cleaned = value.replace(/%/g, '').trim()
+    const parsed = parseFloat(cleaned)
+    return isNaN(parsed) ? 0 : parsed
+  }
+  if (typeof value === 'boolean') return value ? 1 : 0
+  return 0
+}
+
 // Helper function to get scoring output type information
 const getScoringOutputTypeInfo = (type: string) => {
   switch (type) {
@@ -43,7 +67,10 @@ const getScoringOutputTypeInfo = (type: string) => {
         description: 'Simple pass/fail evaluation (true or false)',
         example: 'true, false',
         range: 'true or false',
-        format: (value: any) => value ? '✅ True' : '❌ False'
+        format: (value: any) => {
+          const boolValue = parseBooleanScore(value)
+          return boolValue ? '✅ True' : '❌ False'
+        }
       }
     case 'int':
       return {
@@ -51,7 +78,7 @@ const getScoringOutputTypeInfo = (type: string) => {
         description: 'Discrete scoring with whole numbers',
         example: '1, 2, 3, 4, 5',
         range: 'Any whole number',
-        format: (value: any) => `${Math.round(Number(value) || 0)}`
+        format: (value: any) => `${Math.round(parseNumericScore(value))}`
       }
     case 'percentage':
       return {
@@ -59,7 +86,7 @@ const getScoringOutputTypeInfo = (type: string) => {
         description: 'Percentage-based scoring from 0 to 100',
         example: '85%, 92%, 67%',
         range: '0% to 100%',
-        format: (value: any) => `${Math.round(Number(value) || 0)}%`
+        format: (value: any) => `${Math.round(parseNumericScore(value))}%`
       }
     case 'float':
       return {
@@ -67,7 +94,7 @@ const getScoringOutputTypeInfo = (type: string) => {
         description: 'Precise scoring with decimal values',
         example: '8.5, 9.2, 7.8',
         range: 'Any decimal number',
-        format: (value: any) => `${Number(value || 0).toFixed(1)}`
+        format: (value: any) => `${parseNumericScore(value).toFixed(1)}`
       }
     default:
       return {
@@ -75,7 +102,7 @@ const getScoringOutputTypeInfo = (type: string) => {
         description: 'Display raw value as-is',
         example: 'Various formats',
         range: 'Any value',
-        format: (value: any) => String(value || 'N/A')
+        format: (value: any) => String(value ?? 'N/A')
       }
   }
 }
@@ -248,13 +275,13 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
     
     switch (outputType) {
       case 'bool':
-        return score ? 1 : 0
+        return parseBooleanScore(score) ? 1 : 0
       case 'percentage':
-        return Number(score) || 0
+        return parseNumericScore(score)
       case 'int':
       case 'float':
       default:
-        return Number(score) || 0
+        return parseNumericScore(score)
     }
   }
 
@@ -853,8 +880,8 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
               {/* Legacy Summary Cards (keep for compatibility) */}
               {summaries && summaries.length > 0 && (
                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-8">
-                  {summaries.map((summary: EvaluationSummary) => (
-                    <Card key={summary.evaluation_type} className="hover:shadow-md transition-shadow">
+                  {summaries.map((summary: EvaluationSummary, index: number) => (
+                    <Card key={`${summary.evaluation_type}-${index}`} className="hover:shadow-md transition-shadow">
                       <CardHeader className="pb-3">
                         <div className="flex items-center justify-between">
                           <CardTitle className="text-sm font-medium text-gray-600 uppercase tracking-wide">
@@ -1137,7 +1164,7 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                     </div>
                     <div className="flex justify-between">
                       <span>LLM Cost:</span>
-                      <span className="font-medium">{selectedDetails.result.llm_cost_usd ? `$${selectedDetails.result.llm_cost_usd.toFixed(4)}` : 'N/A'}</span>
+                      <span className="font-medium">{selectedDetails.result.llm_cost_usd != null ? `$${Number(selectedDetails.result.llm_cost_usd).toFixed(4)}` : 'N/A'}</span>
                     </div>
                   </div>
                 </div>
