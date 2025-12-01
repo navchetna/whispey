@@ -751,7 +751,7 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                             const avgTime = completedResults.length > 0 
                               ? completedResults.reduce((sum, r) => sum + (r.execution_time_ms || 0), 0) / completedResults.length
                               : 0
-                            const totalCost = results.reduce((sum, r) => sum + (r.llm_cost_usd || 0), 0)
+                            const totalCost = results.reduce((sum, r) => sum + (Number(r.llm_cost_usd) || 0), 0)
                             
                             return (
                               <div className="space-y-2 text-sm">
@@ -761,7 +761,7 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                                 </div>
                                 <div className="flex justify-between">
                                   <span>Total Cost:</span>
-                                  <span className="font-medium">${totalCost.toFixed(4)}</span>
+                                  <span className="font-medium">${(totalCost || 0).toFixed(4)}</span>
                                 </div>
                               </div>
                             )
