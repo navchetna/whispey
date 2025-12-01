@@ -156,18 +156,32 @@ export async function GET(request: NextRequest) {
     // Enrich each trace with transcript data from metrics_logs
     const tracesWithTranscripts = await Promise.all(
       tracesResult.rows.map(async (callLog: any) => {
-        // Get transcript turns from metrics_logs
-        const transcriptResult = await query(
-          `SELECT 
-            turn_id,
-            user_transcript,
-            agent_response,
-            created_at
-           FROM pype_voice_metrics_logs 
-           WHERE session_id = $1 
-           ORDER BY unix_timestamp ASC`,
-          [callLog.id]
-        )
+        console.log(`📊 [TRACES API] Processing call log ${callLog.id}, call_id: ${callLog.call_id}`)
+        
+        // For uploaded audio files, there won't be metrics_logs entries
+        // Only query metrics_logs for real-time call logs (not uploaded audio)
+        const isUploadedAudio = callLog.call_id?.startsWith('uploaded-')
+        let transcriptResult = { rows: [] as any[] }
+        
+        if (!isUploadedAudio) {
+          // Get transcript turns from metrics_logs - only for real-time calls
+          transcriptResult = await query(
+            `SELECT 
+              turn_id,
+              user_transcript,
+              agent_response,
+              created_at
+             FROM pype_voice_metrics_logs 
+             WHERE session_id = $1
+             ORDER BY unix_timestamp ASC`,
+            [callLog.id]
+          )
+          console.log(`📊 [TRACES API] Found ${transcriptResult.rows.length} transcript turns for call ${callLog.id}`)
+        } else {
+          console.log(`📊 [TRACES API] Skipping metrics_logs query for uploaded audio: ${callLog.call_id}`)
+        }
+
+        console.log(`📊 [TRACES API] Found ${transcriptResult.rows.length} transcript turns for call ${callLog.id}`)
 
         // Build transcript string for preview
         let transcriptPreview = ''
@@ -180,14 +194,16 @@ export async function GET(request: NextRequest) {
               return parts.join(' ')
             })
             .join(' | ')
+          console.log(`📊 [TRACES API] Built transcript preview from metrics_logs: ${transcriptPreview.substring(0, 100)}...`)
         } else if (callLog.transcript_json) {
           // Fallback to transcript_json if no metrics_logs
+          console.log(`📊 [TRACES API] Trying transcript_json fallback, type: ${typeof callLog.transcript_json}`)
           try {
-            const transcript = typeof callLog.transcript_json === 'string' 
-              ? JSON.parse(callLog.transcript_json) 
-              : callLog.transcript_json
+            // transcript_json is already a JSONB object from PostgreSQL, no need to parse
+            const transcript = callLog.transcript_json
             
             if (Array.isArray(transcript)) {
+              console.log(`📊 [TRACES API] transcript_json is array with ${transcript.length} items`)
               transcriptPreview = transcript
                 .map((item: any) => {
                   if (item.user_transcript || item.agent_response) {
@@ -199,12 +215,26 @@ export async function GET(request: NextRequest) {
                   if (item.role && item.content) {
                     return `${item.role}: ${item.content}`
                   }
+                  if (item.text) {
+                    return item.text
+                  }
                   return ''
                 })
                 .filter(Boolean)
                 .join(' | ')
+            } else if (typeof transcript === 'object' && transcript !== null) {
+              // Handle object format
+              console.log(`📊 [TRACES API] transcript_json is object`)
+              transcriptPreview = JSON.stringify(transcript).substring(0, 200)
+            } else if (typeof transcript === 'string') {
+              transcriptPreview = transcript.substring(0, 200)
+            }
+            
+            if (transcriptPreview) {
+              console.log(`📊 [TRACES API] Built transcript preview from transcript_json: ${transcriptPreview.substring(0, 100)}...`)
             }
           } catch (e) {
+            console.error(`📊 [TRACES API] Error processing transcript_json:`, e)
             transcriptPreview = 'Transcript available'
           }
         }
@@ -212,7 +242,9 @@ export async function GET(request: NextRequest) {
         // Check if this call log has valid transcript data
         const hasTranscript = transcriptResult.rows.length > 0 || 
           (callLog.transcript_json && 
-           (Array.isArray(callLog.transcript_json) ? callLog.transcript_json.length > 0 : true))
+           (Array.isArray(callLog.transcript_json) ? callLog.transcript_json.length > 0 : !!callLog.transcript_json))
+
+        console.log(`📊 [TRACES API] Call ${callLog.id} hasTranscript: ${hasTranscript}, preview length: ${transcriptPreview.length}`)
 
         return {
           id: callLog.id,
