@@ -827,11 +827,11 @@ Return your response in JSON format with the following structure:
   "suggestions": ["<suggestion 1>", "<suggestion 2>"]
 }`
 
-      console.log(`🤖 [LLM CALL] Making standard OpenAI-compatible call`)
-      console.log(`🤖 [LLM CALL] Temperature: ${validTemperature} (original: ${prompt.temperature})`)
-      console.log(`🤖 [LLM CALL] System message: ${systemMessage.substring(0, 100)}...`)
-      console.log(`🤖 [LLM CALL] User message length: ${evaluationPrompt.length}`)
-      console.log(`🤖 [LLM CALL] User message preview: ${evaluationPrompt.substring(0, 200)}...`)
+      console.log(`[LLM CALL] Making standard OpenAI-compatible call`)
+      console.log(`[LLM CALL] Temperature: ${validTemperature} (original: ${prompt.temperature})`)
+      console.log(`[LLM CALL] System message: ${systemMessage.substring(0, 100)}...`)
+      console.log(`[LLM CALL] User message length: ${evaluationPrompt.length}`)
+      console.log(`[LLM CALL] User message preview: ${evaluationPrompt.substring(0, 200)}...`)
       
       const response = await llmClient.chat.completions.create({
         model,
@@ -847,14 +847,14 @@ Return your response in JSON format with the following structure:
       const tokensUsed = response.usage?.total_tokens || 0
       const costUsd = this.calculateCost(response.usage, prompt.model)
 
-      console.log(`🤖 [LLM RESPONSE] Response length: ${llmResponse.length}`)
-      console.log(`🤖 [LLM RESPONSE] Response preview: ${llmResponse.substring(0, 300)}...`)
-      console.log(`🤖 [LLM RESPONSE] Tokens used: ${tokensUsed}`)
+      console.log(`[LLM RESPONSE] Response length: ${llmResponse.length}`)
+      console.log(`[LLM RESPONSE] Response preview: ${llmResponse.substring(0, 300)}...`)
+      console.log(` [LLM RESPONSE] Tokens used: ${tokensUsed}`)
       
       // Check if response looks like it's ready vs actual evaluation
       if (llmResponse.toLowerCase().includes('ready to evaluate') && !llmResponse.includes('score')) {
-        console.warn(`⚠️ [LLM RESPONSE] WARNING: LLM response appears to be a readiness statement rather than evaluation`)
-        console.log(`🔍 [LLM RESPONSE] Full response: ${llmResponse}`)
+        console.warn(`[LLM RESPONSE] WARNING: LLM response appears to be a readiness statement rather than evaluation`)
+        console.log(`[LLM RESPONSE] Full response: ${llmResponse}`)
       }
 
       // Parse the response to extract scores
