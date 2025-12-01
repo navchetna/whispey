@@ -808,58 +808,27 @@ export class EvaluationProcessor {
       const llmClient = this.createLLMClient(prompt)
 
       const model = prompt.model || 'gpt-4o-mini'
-      const temperature = prompt.temperature || 0.0
-      const max_tokens = prompt.max_tokens || 1000
+      const temperature = typeof prompt.temperature === 'number' 
+        ? prompt.temperature 
+        : (prompt.temperature ? parseFloat(String(prompt.temperature)) : 0)
+      
+      const validTemperature = isNaN(temperature) ? 0 : Math.max(0, Math.min(2, temperature))
 
-      console.log(`Making API call with:`, {
+      console.log(`🤖 [LLM CALL] Making standard OpenAI-compatible call`)
+      console.log(`🤖 [LLM CALL] Temperature: ${validTemperature} (original: ${prompt.temperature})`)
+      console.log(`🤖 [LLM CALL] System message: ${systemMessage.substring(0, 100)}...`)
+      console.log(`🤖 [LLM CALL] User message length: ${evaluationPrompt.length}`)
+      console.log(`🤖 [LLM CALL] User message preview: ${evaluationPrompt.substring(0, 200)}...`)
+      
+      response = await llmClient.chat.completions.create({
         model,
-        temperature,
-        max_tokens,
-        provider: prompt.llm_provider
+        messages: [
+          { role: 'system', content: systemMessage },
+          { role: 'user', content: evaluationPrompt }
+        ],
+        temperature: validTemperature,
+        max_tokens: 2000,
       })
-
-      // Call LLM API (OpenAI-compatible)
-      let response
-      if (prompt.llm_provider === 'gemini') {
-        // Handle Gemini API calls differently since it's not truly OpenAI compatible
-        response = await this.callGeminiAPI(llmClient, {
-          model,
-          messages: [
-            {
-              role: 'system',
-              content: 'You are an expert evaluator of customer service conversations. Provide objective, consistent evaluations based on the given criteria.'
-            },
-            {
-              role: 'user',
-              content: evaluationPrompt
-            }
-          ],
-          temperature,
-          max_tokens
-        })
-      } else {
-        // Standard OpenAI-compatible call
-        console.log(`🤖 [LLM CALL] Making standard OpenAI-compatible call`)
-        console.log(`🤖 [LLM CALL] System message: You are an expert evaluator of customer service conversations...`)
-        console.log(`🤖 [LLM CALL] User message length: ${evaluationPrompt.length}`)
-        console.log(`🤖 [LLM CALL] User message preview: ${evaluationPrompt.substring(0, 200)}...`)
-        
-        response = await llmClient.chat.completions.create({
-          model,
-          messages: [
-            {
-              role: 'system',
-              content: 'You are an expert evaluator of customer service conversations. Provide objective, consistent evaluations based on the given criteria.'
-            },
-            {
-              role: 'user',
-              content: evaluationPrompt
-            }
-          ],
-          temperature,
-          max_tokens
-        })
-      }
 
       const llmResponse = response.choices[0]?.message?.content || ''
       const tokensUsed = response.usage?.total_tokens || 0
