@@ -403,7 +403,7 @@ export class EvaluationProcessor {
 
         const transcriptTurns = transcriptResult.rows
 
-        // Check if we have meaningful transcript data
+        // Check if we have meaningful transcript data from metrics_logs
         const hasValidTranscript = transcriptTurns && transcriptTurns.length > 0 && 
           transcriptTurns.some((turn: any) => turn.user_transcript || turn.agent_response)
 
@@ -428,6 +428,91 @@ export class EvaluationProcessor {
             created_at: callLog.created_at
           })
           console.log(`✅ Processed transcript for call ${callLog.id}: ${formattedTranscript.length} turns`)
+        } else if (callLog.transcript_json) {
+          // Fallback: Check if transcript_json exists directly in call_logs (for uploaded audio files)
+          console.log(`📁 Checking transcript_json fallback for call ${callLog.id} (uploaded audio)`)
+          
+          const transcriptData = typeof callLog.transcript_json === 'string' 
+            ? JSON.parse(callLog.transcript_json) 
+            : callLog.transcript_json
+          
+          // Handle diarized transcript format from uploaded audio (has 'turns' array)
+          // Python backend returns: {"turns": [{"role": "agent", "content": "..."}, {"role": "user", "content": "..."}]}
+          if (transcriptData?.turns && Array.isArray(transcriptData.turns) && transcriptData.turns.length > 0) {
+            console.log(`📁 Found turns array with ${transcriptData.turns.length} items`)
+            console.log(`📁 Sample turn structure:`, JSON.stringify(transcriptData.turns[0], null, 2))
+            
+            const formattedTranscript = transcriptData.turns.map((turn: any, index: number) => {
+              // Handle role/content format (from Python diarization backend)
+              if (turn.role && turn.content) {
+                const isUser = turn.role === 'user' || turn.role === 'USER'
+                return {
+                  turn_id: turn.turn_id || `turn_${index}`,
+                  user_transcript: isUser ? turn.content : '',
+                  agent_response: !isUser ? turn.content : '',
+                  // Also preserve role/content for extractTranscript to use
+                  role: turn.role,
+                  content: turn.content,
+                  created_at: callLog.created_at
+                }
+              }
+              // Handle speaker/text format (legacy)
+              const isUser = turn.speaker === 'user' || turn.speaker === 'SPEAKER_00'
+              return {
+                turn_id: turn.turn_id || `turn_${index}`,
+                user_transcript: isUser ? (turn.text || '') : '',
+                agent_response: !isUser ? (turn.text || '') : '',
+                created_at: callLog.created_at
+              }
+            })
+            
+            callLogsWithTranscripts.push({
+              id: callLog.id,
+              call_id: callLog.call_id,
+              agent_id: callLog.agent_id,
+              transcript_json: formattedTranscript,
+              duration_seconds: callLog.duration_seconds,
+              call_ended_reason: callLog.call_ended_reason,
+              created_at: callLog.created_at
+            })
+            console.log(`✅ Processed uploaded audio transcript for call ${callLog.id}: ${formattedTranscript.length} turns`)
+          } else if (Array.isArray(transcriptData) && transcriptData.length > 0) {
+            // Handle array format directly
+            const formattedTranscript = transcriptData.map((item: any, index: number) => {
+              // Handle role/content format
+              if (item.role && item.content) {
+                const isUser = item.role === 'user' || item.role === 'USER'
+                return {
+                  turn_id: item.turn_id || `turn_${index}`,
+                  user_transcript: isUser ? item.content : '',
+                  agent_response: !isUser ? item.content : '',
+                  role: item.role,
+                  content: item.content,
+                  created_at: item.created_at || callLog.created_at
+                }
+              }
+              // Handle user_transcript/agent_response format
+              return {
+                turn_id: item.turn_id || `turn_${index}`,
+                user_transcript: item.user_transcript || (item.speaker === 'user' ? item.text : '') || '',
+                agent_response: item.agent_response || (item.speaker === 'agent' ? item.text : '') || '',
+                created_at: item.created_at || callLog.created_at
+              }
+            })
+            
+            callLogsWithTranscripts.push({
+              id: callLog.id,
+              call_id: callLog.call_id,
+              agent_id: callLog.agent_id,
+              transcript_json: formattedTranscript,
+              duration_seconds: callLog.duration_seconds,
+              call_ended_reason: callLog.call_ended_reason,
+              created_at: callLog.created_at
+            })
+            console.log(`✅ Processed array transcript for call ${callLog.id}: ${formattedTranscript.length} turns`)
+          } else {
+            console.warn(`⚠️ transcript_json exists but has unexpected format for call ${callLog.id}:`, typeof transcriptData)
+          }
         } else {
           console.warn(`⚠️ No valid transcript found for call ${callLog.id}`)
         }
@@ -456,8 +541,9 @@ export class EvaluationProcessor {
       console.log(`Selected trace IDs:`, job.selected_traces)
       
       // For selected traces, we fetch call logs by their IDs directly
+      // Include transcript_json for uploaded audio files fallback
       const selectedResult = await query(
-        `SELECT id, call_id, agent_id, call_ended_reason, created_at, duration_seconds 
+        `SELECT id, call_id, agent_id, call_ended_reason, created_at, duration_seconds, transcript_json 
          FROM pype_voice_call_logs 
          WHERE id = ANY($1::uuid[]) AND agent_id = $2`,
         [job.selected_traces, job.agent_id]
@@ -629,8 +715,9 @@ export class EvaluationProcessor {
     }
 
     // Execute the call logs query
+    // Include transcript_json for uploaded audio files fallback
     const finalQuery = `
-      SELECT id, call_id, agent_id, call_ended_reason, created_at, duration_seconds 
+      SELECT id, call_id, agent_id, call_ended_reason, created_at, duration_seconds, transcript_json 
       FROM pype_voice_call_logs 
       WHERE ${queryConditions.join(' AND ')}
       ORDER BY created_at DESC
@@ -868,15 +955,18 @@ export class EvaluationProcessor {
           .flatMap((item: any) => {
             const messages: string[] = []
             
-            // Handle role-based format (role + content)
+            // Handle role-based format (role + content) - from Python diarization backend
+            // The Python diarization backend uses 'agent' for voice bot and 'user' for customer
             if (item.role && item.content) {
-              const role = item.role === 'assistant' ? 'AGENT' : 'USER'
+              // Map roles: 'agent'/'assistant' -> 'AGENT', 'user' -> 'USER'
+              const role = (item.role === 'agent' || item.role === 'assistant') ? 'AGENT' : 'USER'
               const text = Array.isArray(item.content) ? item.content.join(' ') : item.content
               messages.push(`${role}: ${text}`)
               console.log(`📝 [TRANSCRIPT EXTRACT] Extracted role-based: ${role}: ${text.substring(0, 50)}...`)
+              return messages // Return early to avoid duplicates
             }
             
-            // Handle turn-based format (user_transcript + agent_response)
+            // Handle turn-based format (user_transcript + agent_response) - from real-time call logs
             if (item.user_transcript && item.user_transcript.trim()) {
               messages.push(`USER: ${item.user_transcript}`)
               console.log(`📝 [TRANSCRIPT EXTRACT] Extracted user: ${item.user_transcript.substring(0, 50)}...`)
