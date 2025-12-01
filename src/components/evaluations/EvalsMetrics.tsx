@@ -119,9 +119,20 @@ const calculateMetrics = (results: any[], summaries: any[], prompts: any[], jobs
   const successRate = totalEvaluations > 0 ? (completedEvaluations / totalEvaluations * 100).toFixed(1) : '0'
   
   // Calculate average score across all completed evaluations
-  const completedResults = results?.filter(r => r.status === 'completed' && r.evaluation_score?.score != null) || []
+  // Handle different score types: overall_score, score, and boolean values
+  const completedResults = results?.filter(r => {
+    if (r.status !== 'completed') return false
+    const score = r.evaluation_score?.overall_score ?? r.evaluation_score?.score
+    return score != null
+  }) || []
+  
   const averageScore = completedResults.length > 0 
-    ? (completedResults.reduce((sum, r) => sum + (Number(r.evaluation_score?.score) || 0), 0) / completedResults.length).toFixed(1)
+    ? (completedResults.reduce((sum, r) => {
+        const score = r.evaluation_score?.overall_score ?? r.evaluation_score?.score
+        // Handle boolean scores
+        if (typeof score === 'boolean') return sum + (score ? 1 : 0)
+        return sum + (parseNumericScore(score) || 0)
+      }, 0) / completedResults.length).toFixed(1)
     : '0'
   
   // Get unique prompts that have been used
@@ -138,8 +149,12 @@ const calculateMetrics = (results: any[], summaries: any[], prompts: any[], jobs
   const completedJobs = jobs?.filter(j => j.status === 'completed')?.length || 0
   const runningJobs = jobs?.filter(j => j.status === 'running')?.length || 0
   
-  // Calculate score range
-  const scores = completedResults.map(r => Number(r.evaluation_score?.score) || 0)
+  // Calculate score range - handle different score types
+  const scores = completedResults.map(r => {
+    const score = r.evaluation_score?.overall_score ?? r.evaluation_score?.score
+    if (typeof score === 'boolean') return score ? 1 : 0
+    return parseNumericScore(score) || 0
+  })
   const minScore = scores.length > 0 ? Math.min(...scores).toFixed(1) : '0'
   const maxScore = scores.length > 0 ? Math.max(...scores).toFixed(1) : '0'
   
@@ -161,19 +176,44 @@ const calculateMetrics = (results: any[], summaries: any[], prompts: any[], jobs
   }
 }
 
+// Helper function to parse boolean from various formats
+const parseBooleanScore = (value: any): boolean => {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string') {
+    const lowerValue = value.toLowerCase().trim()
+    return lowerValue === 'true' || lowerValue === 'yes' || lowerValue === '1' || lowerValue === 'pass'
+  }
+  if (typeof value === 'number') return value !== 0
+  return Boolean(value)
+}
+
+// Helper function to parse numeric score from various formats
+const parseNumericScore = (value: any): number => {
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') {
+    // Remove percentage sign if present
+    const cleaned = value.replace(/%/g, '').trim()
+    const parsed = parseFloat(cleaned)
+    return isNaN(parsed) ? 0 : parsed
+  }
+  if (typeof value === 'boolean') return value ? 1 : 0
+  return 0
+}
+
 const formatScore = (score: any, outputType: string = 'float') => {
   if (score == null) return 'N/A'
   
   switch (outputType) {
     case 'bool':
-      return score ? '✅ Pass' : '❌ Fail'
+      const boolValue = parseBooleanScore(score)
+      return boolValue ? '✅ Pass' : '❌ Fail'
     case 'int':
-      return Math.round(Number(score)).toString()
+      return Math.round(parseNumericScore(score)).toString()
     case 'percentage':
-      return `${Math.round(Number(score))}%`
+      return `${Math.round(parseNumericScore(score))}%`
     case 'float':
     default:
-      return Number(score).toFixed(1)
+      return parseNumericScore(score).toFixed(1)
   }
 }
 
@@ -369,9 +409,9 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
     }
   }
 
-  const handleViewTranscript = async (callId: string) => {
+  const handleViewTranscript = async (callId: string, traceId?: string) => {
     try {
-      console.log('🔍 [DEBUG] Starting transcript fetch for call_id:', callId)
+      console.log('🔍 [DEBUG] Starting transcript fetch for call_id:', callId, 'trace_id:', traceId)
       
       // Validate input
       if (!callId || callId === 'undefined' || callId === 'null') {
@@ -380,18 +420,44 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
         return
       }
 
-      console.log('📡 [DEBUG] Step 1: Fetching call log entry...')
-
-      // Step 1: First get the call log entry to get the internal ID
-      const callLogResponse = await fetch(`/api/call-logs?call_id=${callId}&limit=1`)
+      // For uploaded audio files, the trace_id is actually the call log ID (UUID)
+      // and call_id starts with 'uploaded-'
+      const isUploadedAudio = callId.startsWith('uploaded-')
       
-      if (!callLogResponse.ok) {
-        console.error('❌ [ERROR] API error fetching call log')
-        setSelectedTranscript({ callId, transcript: 'API Error: Failed to fetch call log' })
-        return
+      let callLogData: any[] = []
+      
+      if (isUploadedAudio && traceId) {
+        // For uploaded audio, use the trace_id (which is the call log id) to fetch
+        console.log('🔍 [DEBUG] Uploaded audio detected, fetching by id:', traceId)
+        const callLogResponse = await fetch(`/api/call-logs?id=${traceId}&limit=1`)
+        
+        if (callLogResponse.ok) {
+          const result = await callLogResponse.json()
+          callLogData = result.data || []
+        }
+      }
+      
+      // Fallback: try fetching by call_id
+      if (callLogData.length === 0) {
+        console.log('🔍 [DEBUG] Fetching by call_id:', callId)
+        const callLogResponse = await fetch(`/api/call-logs?call_id=${encodeURIComponent(callId)}&limit=1`)
+        
+        if (callLogResponse.ok) {
+          const result = await callLogResponse.json()
+          callLogData = result.data || []
+        }
       }
 
-      const { data: callLogData } = await callLogResponse.json()
+      if (!callLogData || callLogData.length === 0) {
+        // Last attempt: try using the callId as the actual id
+        console.log('🔍 [DEBUG] Last attempt: fetching by id:', callId)
+        const callLogResponse = await fetch(`/api/call-logs?id=${callId}&limit=1`)
+        
+        if (callLogResponse.ok) {
+          const result = await callLogResponse.json()
+          callLogData = result.data || []
+        }
+      }
 
       if (!callLogData || callLogData.length === 0) {
         setSelectedTranscript({ 
@@ -401,7 +467,50 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
         return
       }
 
-      const callLogId = callLogData[0].id
+      const callLog = callLogData[0]
+      const callLogId = callLog.id
+
+      // For uploaded audio files, check transcript_json first
+      if (callLog.transcript_json) {
+        console.log('🔍 [DEBUG] Found transcript_json in call log')
+        const transcriptData = typeof callLog.transcript_json === 'string' 
+          ? JSON.parse(callLog.transcript_json) 
+          : callLog.transcript_json
+        
+        let formattedTranscript = ''
+        
+        // Handle turns array format (from Python diarization backend)
+        if (transcriptData?.turns && Array.isArray(transcriptData.turns)) {
+          formattedTranscript = transcriptData.turns
+            .map((turn: any) => {
+              const role = (turn.role === 'agent' || turn.role === 'assistant') ? 'AGENT' : 'USER'
+              const content = turn.content || turn.text || ''
+              return `${role}: ${content}`
+            })
+            .join('\n\n')
+        } 
+        // Handle array format directly
+        else if (Array.isArray(transcriptData)) {
+          formattedTranscript = transcriptData
+            .map((item: any) => {
+              if (item.role && item.content) {
+                const role = (item.role === 'agent' || item.role === 'assistant') ? 'AGENT' : 'USER'
+                return `${role}: ${item.content}`
+              }
+              const messages: string[] = []
+              if (item.user_transcript) messages.push(`USER: ${item.user_transcript}`)
+              if (item.agent_response) messages.push(`AGENT: ${item.agent_response}`)
+              return messages.join('\n')
+            })
+            .filter(Boolean)
+            .join('\n\n')
+        }
+        
+        if (formattedTranscript.trim()) {
+          setSelectedTranscript({ callId, transcript: formattedTranscript })
+          return
+        }
+      }
 
       // Step 2: Get transcript data from metrics logs using the call log ID as session_id
       const metricsResponse = await fetch(`/api/metrics-logs?session_id=${callLogId}&orderBy=unix_timestamp&order=asc`)
@@ -711,7 +820,11 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
                       const promptResults = evaluationResults?.filter(r => r.prompt_id === prompt.id) || []
                       const completedResults = promptResults.filter(r => r.status === 'completed')
                       const avgScore = completedResults.length > 0 
-                        ? (completedResults.reduce((sum, r) => sum + (Number(r.evaluation_score?.score) || 0), 0) / completedResults.length)
+                        ? (completedResults.reduce((sum, r) => {
+                            const score = r.evaluation_score?.overall_score ?? r.evaluation_score?.score
+                            if (typeof score === 'boolean') return sum + (score ? 1 : 0)
+                            return sum + (parseNumericScore(score) || 0)
+                          }, 0) / completedResults.length)
                         : 0
                       
                       if (promptResults.length > 0) {
@@ -787,7 +900,12 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
               {evaluationResults
                 .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
                 .slice(0, 10) // Show only the 10 most recent results
-                .map((result: any) => (
+                .map((result: any) => {
+                  // Look up the prompt to get the scoring output type
+                  const promptForResult = prompts?.find((p: EvaluationPrompt) => p.id === result.prompt_id)
+                  const scoringOutputType = promptForResult?.scoring_output_type || 'float'
+                  
+                  return (
                   <Card key={result.id} className="hover:shadow-md transition-shadow">
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between">
@@ -801,7 +919,7 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
                             </Badge>
                             {result.status === 'completed' && (
                               <Badge variant="outline" className="text-green-700 bg-green-50">
-                                Score: {result.evaluation_score?.overall_score ? Number(result.evaluation_score.overall_score).toFixed(1) : 'N/A'}
+                                Score: {formatScore(result.evaluation_score?.overall_score, scoringOutputType)}
                               </Badge>
                             )}
                           </div>
@@ -835,7 +953,7 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
                             variant="outline" 
                             size="sm" 
                             className="flex items-center gap-2"
-                            onClick={() => handleViewTranscript(result.call_id)}
+                            onClick={() => handleViewTranscript(result.call_id, result.trace_id)}
                           >
                             <Eye className="w-4 h-4" />
                             View Transcript
@@ -844,7 +962,7 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
                       </div>
                     </CardContent>
                   </Card>
-                ))}
+                )})}
             </div>
           </div>
         )}

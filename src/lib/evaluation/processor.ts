@@ -1051,15 +1051,52 @@ Return your response in JSON format with the following structure:
                        response.match(/\{[\s\S]*\}/)
       
       if (jsonMatch) {
-        return JSON.parse(jsonMatch[1] || jsonMatch[0])
+        const parsed = JSON.parse(jsonMatch[1] || jsonMatch[0])
+        
+        // Handle boolean scores - normalize to actual boolean
+        if (prompt.scoring_output_type === 'bool' && parsed.score !== undefined) {
+          const scoreValue = parsed.score
+          if (typeof scoreValue === 'string') {
+            const lowerValue = scoreValue.toLowerCase().trim()
+            parsed.score = lowerValue === 'true' || lowerValue === 'yes' || lowerValue === '1' || lowerValue === 'pass'
+          } else if (typeof scoreValue === 'number') {
+            parsed.score = scoreValue !== 0
+          }
+          // Already boolean - leave as is
+        }
+        
+        return parsed
       }
 
-      // Fallback: extract score patterns
+      // Fallback: extract score patterns based on scoring type
+      if (prompt.scoring_output_type === 'bool') {
+        // Look for boolean patterns
+        const boolPatterns = [
+          /score[:\s]*(true|false)/i,
+          /result[:\s]*(pass|fail)/i,
+          /outcome[:\s]*(true|false|pass|fail)/i
+        ]
+        
+        for (const pattern of boolPatterns) {
+          const match = response.match(pattern)
+          if (match) {
+            const value = match[1].toLowerCase()
+            return { score: value === 'true' || value === 'pass' }
+          }
+        }
+      }
+      
+      // Fallback: extract numeric score patterns
       const scorePattern = /score[:\s]*(\d+(?:\.\d+)?)/i
       const scoreMatch = response.match(scorePattern)
       
       if (scoreMatch) {
-        return { score: parseFloat(scoreMatch[1]) }
+        const numericScore = parseFloat(scoreMatch[1])
+        // For boolean type, convert numeric to boolean (>0.5 = true)
+        if (prompt.scoring_output_type === 'bool') {
+          return { score: numericScore > 0.5 }
+        }
+        return { score: numericScore }
       }
 
       return { raw_response: response }
@@ -1069,25 +1106,50 @@ Return your response in JSON format with the following structure:
     }
   }
 
-  private extractOverallScore(parsedScores: any, prompt: any): number {
-    if (parsedScores.score !== undefined) {
-      return parsedScores.score
-    }
+  private extractOverallScore(parsedScores: any, prompt: any): number | boolean {
+    // Get the raw score value
+    let scoreValue: any = undefined
     
-    if (parsedScores.overall_score !== undefined) {
-      return parsedScores.overall_score
-    }
-
-    // Try to extract from other common score fields
-    const scoreFields = ['quality_score', 'rating', 'evaluation_score']
-    for (const field of scoreFields) {
-      if (parsedScores[field] !== undefined) {
-        return parsedScores[field]
+    if (parsedScores.score !== undefined) {
+      scoreValue = parsedScores.score
+    } else if (parsedScores.overall_score !== undefined) {
+      scoreValue = parsedScores.overall_score
+    } else {
+      // Try to extract from other common score fields
+      const scoreFields = ['quality_score', 'rating', 'evaluation_score']
+      for (const field of scoreFields) {
+        if (parsedScores[field] !== undefined) {
+          scoreValue = parsedScores[field]
+          break
+        }
       }
     }
-
-    // Default fallback
-    return 0
+    
+    // If no score found, return appropriate default
+    if (scoreValue === undefined) {
+      return prompt.scoring_output_type === 'bool' ? false : 0
+    }
+    
+    // Handle based on scoring output type
+    switch (prompt.scoring_output_type) {
+      case 'bool':
+        // Ensure boolean is returned
+        if (typeof scoreValue === 'boolean') return scoreValue
+        if (typeof scoreValue === 'string') {
+          const lowerValue = scoreValue.toLowerCase().trim()
+          return lowerValue === 'true' || lowerValue === 'yes' || lowerValue === '1' || lowerValue === 'pass'
+        }
+        if (typeof scoreValue === 'number') return scoreValue !== 0
+        return Boolean(scoreValue)
+      
+      case 'int':
+        return Math.round(Number(scoreValue) || 0)
+      
+      case 'percentage':
+      case 'float':
+      default:
+        return Number(scoreValue) || 0
+    }
   }
 
   private extractReasoning(response: string): string {
