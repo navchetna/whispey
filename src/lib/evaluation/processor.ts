@@ -1051,7 +1051,20 @@ Return your response in JSON format with the following structure:
                        response.match(/\{[\s\S]*\}/)
       
       if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[1] || jsonMatch[0])
+        let jsonString = jsonMatch[1] || jsonMatch[0]
+        
+        // Fix Python-style booleans (True/False) to JSON-style (true/false)
+        // Be careful to only replace standalone True/False, not inside strings
+        jsonString = jsonString.replace(/:\s*True\b/g, ': true')
+        jsonString = jsonString.replace(/:\s*False\b/g, ': false')
+        // Also handle cases without space after colon
+        jsonString = jsonString.replace(/:True\b/g, ':true')
+        jsonString = jsonString.replace(/:False\b/g, ':false')
+        // Handle Python None -> null
+        jsonString = jsonString.replace(/:\s*None\b/g, ': null')
+        jsonString = jsonString.replace(/:None\b/g, ':null')
+        
+        const parsed = JSON.parse(jsonString)
         
         // Handle boolean scores - normalize to actual boolean
         if (prompt.scoring_output_type === 'bool' && parsed.score !== undefined) {
