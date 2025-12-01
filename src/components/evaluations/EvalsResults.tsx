@@ -315,9 +315,9 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
     }
   }
 
-  const handleViewTranscript = async (callId: string) => {
+  const handleViewTranscript = async (callId: string, traceId?: string) => {
     try {
-      console.log('🔍 [DEBUG] Starting transcript fetch for call_id:', callId)
+      console.log('🔍 [DEBUG] Starting transcript fetch for call_id:', callId, 'trace_id:', traceId)
       
       // Validate input
       if (!callId || callId === 'undefined' || callId === 'null') {
@@ -326,16 +326,44 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
         return
       }
 
-      // Step 1: First get the call log entry to get the internal ID
-      const callLogResponse = await fetch(`/api/call-logs?call_id=${callId}&limit=1`)
+      // For uploaded audio files, the trace_id is actually the call log ID (UUID)
+      // and call_id starts with 'uploaded-'
+      const isUploadedAudio = callId.startsWith('uploaded-')
       
-      if (!callLogResponse.ok) {
-        console.error('❌ [ERROR] API error fetching call log')
-        setSelectedTranscript({ callId, transcript: 'API Error: Failed to fetch call log' })
-        return
+      let callLogData: any[] = []
+      
+      if (isUploadedAudio && traceId) {
+        // For uploaded audio, use the trace_id (which is the call log id) to fetch
+        console.log('🔍 [DEBUG] Uploaded audio detected, fetching by id:', traceId)
+        const callLogResponse = await fetch(`/api/call-logs?id=${traceId}&limit=1`)
+        
+        if (callLogResponse.ok) {
+          const result = await callLogResponse.json()
+          callLogData = result.data || []
+        }
+      }
+      
+      // Fallback: try fetching by call_id
+      if (callLogData.length === 0) {
+        console.log('🔍 [DEBUG] Fetching by call_id:', callId)
+        const callLogResponse = await fetch(`/api/call-logs?call_id=${encodeURIComponent(callId)}&limit=1`)
+        
+        if (callLogResponse.ok) {
+          const result = await callLogResponse.json()
+          callLogData = result.data || []
+        }
       }
 
-      const { data: callLogData } = await callLogResponse.json()
+      if (!callLogData || callLogData.length === 0) {
+        // Last attempt: try using the callId as the actual id
+        console.log('🔍 [DEBUG] Last attempt: fetching by id:', callId)
+        const callLogResponse = await fetch(`/api/call-logs?id=${callId}&limit=1`)
+        
+        if (callLogResponse.ok) {
+          const result = await callLogResponse.json()
+          callLogData = result.data || []
+        }
+      }
 
       if (!callLogData || callLogData.length === 0) {
         setSelectedTranscript({ 
@@ -345,7 +373,50 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
         return
       }
 
-      const callLogId = callLogData[0].id
+      const callLog = callLogData[0]
+      const callLogId = callLog.id
+
+      // For uploaded audio files, check transcript_json first
+      if (callLog.transcript_json) {
+        console.log('🔍 [DEBUG] Found transcript_json in call log')
+        const transcriptData = typeof callLog.transcript_json === 'string' 
+          ? JSON.parse(callLog.transcript_json) 
+          : callLog.transcript_json
+        
+        let formattedTranscript = ''
+        
+        // Handle turns array format (from Python diarization backend)
+        if (transcriptData?.turns && Array.isArray(transcriptData.turns)) {
+          formattedTranscript = transcriptData.turns
+            .map((turn: any) => {
+              const role = (turn.role === 'agent' || turn.role === 'assistant') ? 'AGENT' : 'USER'
+              const content = turn.content || turn.text || ''
+              return `${role}: ${content}`
+            })
+            .join('\n\n')
+        } 
+        // Handle array format directly
+        else if (Array.isArray(transcriptData)) {
+          formattedTranscript = transcriptData
+            .map((item: any) => {
+              if (item.role && item.content) {
+                const role = (item.role === 'agent' || item.role === 'assistant') ? 'AGENT' : 'USER'
+                return `${role}: ${item.content}`
+              }
+              const messages: string[] = []
+              if (item.user_transcript) messages.push(`USER: ${item.user_transcript}`)
+              if (item.agent_response) messages.push(`AGENT: ${item.agent_response}`)
+              return messages.join('\n')
+            })
+            .filter(Boolean)
+            .join('\n\n')
+        }
+        
+        if (formattedTranscript.trim()) {
+          setSelectedTranscript({ callId, transcript: formattedTranscript })
+          return
+        }
+      }
 
       // Step 2: Get transcript data from metrics logs using the call log ID as session_id
       const metricsResponse = await fetch(`/api/metrics-logs?session_id=${callLogId}&orderBy=unix_timestamp&order=asc`)
@@ -920,7 +991,7 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                               variant="outline" 
                               size="sm" 
                               className="flex items-center gap-2"
-                              onClick={() => handleViewTranscript(result.call_id)}
+                              onClick={() => handleViewTranscript(result.call_id, result.trace_id)}
                             >
                               <Eye className="w-4 h-4" />
                               View Transcript
