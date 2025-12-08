@@ -125,6 +125,7 @@ interface EvaluationResult {
   id: string
   trace_id: string
   call_id: string
+  prompt_id: string
   evaluation_score: {
     overall_score?: number
     parsed_scores?: any
@@ -161,6 +162,8 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
   const [selectedTranscript, setSelectedTranscript] = useState<{callId: string, transcript: string} | null>(null)
   const [selectedRawResponse, setSelectedRawResponse] = useState<{callId: string, response: string} | null>(null)
   const [selectedDetails, setSelectedDetails] = useState<{callId: string, result: EvaluationResult} | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false)
+  const [isDeleting, setIsDeleting] = useState<boolean>(false)
   
   // Filter states
   const [filterType, setFilterType] = useState<string>('all')
@@ -168,7 +171,7 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
   const [filterCallId, setFilterCallId] = useState<string>('')
 
   // Fetch jobs
-  const { data: jobs, loading: jobsLoading } = useSupabaseQuery('pype_voice_evaluation_jobs', {
+  const { data: jobs, loading: jobsLoading, refetch: refetchJobs } = useSupabaseQuery('pype_voice_evaluation_jobs', {
     select: '*',
     filters: [
       { column: 'agent_id', operator: 'eq', value: params.agentid }
@@ -203,6 +206,30 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
     filters: jobData?.[0]?.prompt_id ? [{ column: 'id', operator: 'eq', value: jobData[0].prompt_id }] : [],
     limit: 1
   })
+
+  // Fetch all prompts for the project to display prompt names in results
+  const { data: allPrompts, loading: allPromptsLoading } = useSupabaseQuery('pype_voice_evaluation_prompts', {
+    select: `
+      id,
+      name,
+      evaluation_type,
+      scoring_output_type
+    `,
+    filters: [
+      { column: 'project_id', operator: 'eq', value: params.projectid }
+    ]
+  })
+
+  // Create a lookup map for prompt details by ID
+  const promptsMap = React.useMemo(() => {
+    const map = new Map<string, { name: string; evaluation_type: string; scoring_output_type: string }>()
+    if (allPrompts) {
+      allPrompts.forEach((p: any) => {
+        map.set(p.id, { name: p.name, evaluation_type: p.evaluation_type, scoring_output_type: p.scoring_output_type })
+      })
+    }
+    return map
+  }, [allPrompts])
 
   // Fetch detailed results for selected job
   const { data: allResults, loading: resultsLoading } = useSupabaseQuery('pype_voice_evaluation_results', {
@@ -499,6 +526,35 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
     })
   }
 
+  const handleDeleteJob = async () => {
+    if (!selectedJobId) return
+    
+    setIsDeleting(true)
+    try {
+      // Delete evaluation results for this job
+      const resultsResponse = await fetch(`/api/evaluations/jobs/${selectedJobId}`, {
+        method: 'DELETE'
+      })
+      
+      if (!resultsResponse.ok) {
+        const result = await resultsResponse.json()
+        throw new Error(result.error || 'Failed to delete evaluation job')
+      }
+      
+      console.log('Evaluation job deleted successfully:', selectedJobId)
+      
+      // Reset state and refetch jobs
+      setSelectedJobId('')
+      setShowDeleteConfirm(false)
+      refetchJobs()
+    } catch (error: any) {
+      console.error('Failed to delete evaluation job:', error)
+      alert(`Failed to delete evaluation job: ${error.message}`)
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   if (jobsLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -556,6 +612,16 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                 <Filter className="w-4 h-4" />
                 Filters
               </Button>
+              {selectedJobId && (
+                <Button 
+                  variant="outline" 
+                  className="flex items-center gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                  onClick={() => setShowDeleteConfirm(true)}
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Delete Run
+                </Button>
+              )}
             </div>
           </div>
 
@@ -877,51 +943,135 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                 </div>
               )}
 
-              {/* Legacy Summary Cards (keep for compatibility) */}
-              {summaries && summaries.length > 0 && (
-                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-8">
-                  {summaries.map((summary: EvaluationSummary, index: number) => (
-                    <Card key={`${summary.evaluation_type}-${index}`} className="hover:shadow-md transition-shadow">
-                      <CardHeader className="pb-3">
-                        <div className="flex items-center justify-between">
-                          <CardTitle className="text-sm font-medium text-gray-600 uppercase tracking-wide">
-                            {summary.evaluation_type}
-                          </CardTitle>
-                          <Star className="w-4 h-4 text-yellow-500" />
-                        </div>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-4">
-                          {/* Completed Runs Count */}
-                          <div>
-                            <div className="text-2xl font-bold text-blue-600">
-                              {results ? results.filter(r => r.status === 'completed' && r.evaluation_score?.evaluation_type === summary.evaluation_type).length : 0}/{results ? results.filter(r => r.evaluation_score?.evaluation_type === summary.evaluation_type).length : summary.total_evaluations}
-                            </div>
-                            <div className="text-sm text-gray-500">Completed Runs</div>
-                          </div>
+              {/* Prompt-based Summary Cards with Distribution */}
+              {allPrompts && allPrompts.length > 0 && results && results.length > 0 && (
+                <div className="mb-8">
+                  <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <Star className="w-5 h-5 text-yellow-500" />
+                    Results by Metric
+                  </h2>
+                  <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                    {allPrompts.map((promptItem: any) => {
+                      // Get results for this specific prompt
+                      const promptResults = results.filter((r: EvaluationResult) => r.prompt_id === promptItem.id)
+                      if (promptResults.length === 0) return null
+                      
+                      const completedResults = promptResults.filter((r: EvaluationResult) => r.status === 'completed')
+                      const failedResults = promptResults.filter((r: EvaluationResult) => r.status === 'failed')
+                      const scoringType = promptItem.scoring_output_type || 'float'
+                      
+                      // Calculate distribution based on scoring type
+                      let distribution: { [key: string]: number } = {}
+                      let avgScore = 0
+                      
+                      if (scoringType === 'bool') {
+                        // For boolean, count true vs false
+                        const trueCount = completedResults.filter((r: EvaluationResult) => {
+                          const score = r.evaluation_score?.overall_score
+                          return parseBooleanScore(score)
+                        }).length
+                        const falseCount = completedResults.length - trueCount
+                        distribution = { 'Pass (True)': trueCount, 'Fail (False)': falseCount }
+                        avgScore = completedResults.length > 0 ? (trueCount / completedResults.length) * 100 : 0
+                      } else {
+                        // For numeric types, calculate score ranges
+                        const scores = completedResults.map((r: EvaluationResult) => 
+                          parseNumericScore(r.evaluation_score?.overall_score)
+                        ).filter((s: number) => !isNaN(s))
+                        
+                        if (scores.length > 0) {
+                          avgScore = scores.reduce((a: number, b: number) => a + b, 0) / scores.length
                           
-                          <div>
-                            <div className="text-2xl font-bold flex items-center gap-2">
-                              {formatScore(summary.avg_score, prompt?.scoring_output_type)}
-                              {getScoreIcon(getScoreValue(summary.avg_score, prompt?.scoring_output_type), prompt?.scoring_output_type)}
+                          if (scoringType === 'percentage') {
+                            // Group by 20% ranges
+                            distribution = {
+                              '0-20%': scores.filter((s: number) => s >= 0 && s < 20).length,
+                              '20-40%': scores.filter((s: number) => s >= 20 && s < 40).length,
+                              '40-60%': scores.filter((s: number) => s >= 40 && s < 60).length,
+                              '60-80%': scores.filter((s: number) => s >= 60 && s < 80).length,
+                              '80-100%': scores.filter((s: number) => s >= 80).length
+                            }
+                          } else {
+                            // For int/float, group by score ranges (assuming 1-10 scale)
+                            distribution = {
+                              'Low (1-3)': scores.filter((s: number) => s >= 0 && s < 4).length,
+                              'Medium (4-6)': scores.filter((s: number) => s >= 4 && s < 7).length,
+                              'High (7-10)': scores.filter((s: number) => s >= 7).length
+                            }
+                          }
+                        }
+                      }
+                      
+                      return (
+                        <Card key={promptItem.id} className="hover:shadow-md transition-shadow">
+                          <CardHeader className="pb-3">
+                            <div className="flex items-center justify-between">
+                              <CardTitle className="text-base font-medium text-gray-900">
+                                {promptItem.name}
+                              </CardTitle>
+                              <Badge className={getEvaluationTypeColor(promptItem.evaluation_type)}>
+                                {promptItem.evaluation_type}
+                              </Badge>
                             </div>
-                            <div className="text-sm text-gray-500">Average Score ({getScoringOutputTypeInfo(prompt?.scoring_output_type || 'float').label})</div>
-                          </div>
-                          
-                          <div className="grid grid-cols-2 gap-4 text-sm">
-                            <div>
-                              <div className="font-medium">{formatScore(summary.min_score, prompt?.scoring_output_type)}</div>
-                              <div className="text-gray-500">Min</div>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="space-y-4">
+                              {/* Runs Count */}
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <div className="text-2xl font-bold text-blue-600">
+                                    {completedResults.length}/{promptResults.length}
+                                  </div>
+                                  <div className="text-sm text-gray-500">Completed Runs</div>
+                                </div>
+                                {failedResults.length > 0 && (
+                                  <div className="text-right">
+                                    <div className="text-lg font-bold text-red-600">{failedResults.length}</div>
+                                    <div className="text-sm text-gray-500">Failed</div>
+                                  </div>
+                                )}
+                              </div>
+                              
+                              {/* Average Score */}
+                              <div>
+                                <div className="text-xl font-bold flex items-center gap-2">
+                                  {scoringType === 'bool' 
+                                    ? `${avgScore.toFixed(0)}% Pass Rate`
+                                    : formatScore(avgScore, scoringType)
+                                  }
+                                  {getScoreIcon(getScoreValue(avgScore, scoringType), scoringType)}
+                                </div>
+                                <div className="text-sm text-gray-500">
+                                  {scoringType === 'bool' ? 'Pass Rate' : `Average Score (${getScoringOutputTypeInfo(scoringType).label})`}
+                                </div>
+                              </div>
+                              
+                              {/* Score Distribution */}
+                              <div>
+                                <div className="text-sm font-medium text-gray-700 mb-2">Distribution</div>
+                                <div className="space-y-1">
+                                  {Object.entries(distribution).map(([label, count]) => (
+                                    <div key={label} className="flex items-center justify-between text-sm">
+                                      <span className="text-gray-600">{label}</span>
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-24 bg-gray-200 rounded-full h-2">
+                                          <div 
+                                            className={`h-2 rounded-full ${scoringType === 'bool' && label.includes('Pass') ? 'bg-green-500' : scoringType === 'bool' ? 'bg-red-500' : 'bg-blue-500'}`}
+                                            style={{ width: `${completedResults.length > 0 ? (count / completedResults.length) * 100 : 0}%` }}
+                                          />
+                                        </div>
+                                        <span className="font-medium w-8 text-right">{count}</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
                             </div>
-                            <div>
-                              <div className="font-medium">{formatScore(summary.max_score, prompt?.scoring_output_type)}</div>
-                              <div className="text-gray-500">Max</div>
-                            </div>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                          </CardContent>
+                        </Card>
+                      )
+                    })}
+                  </div>
                 </div>
               )}
 
@@ -945,21 +1095,35 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                     </CardContent>
                   </Card>
                 ) : (
-                  results?.map((result: EvaluationResult) => (
+                  results?.map((result: EvaluationResult) => {
+                    // Look up prompt details for this result
+                    const resultPrompt = promptsMap.get(result.prompt_id) || { 
+                      name: result.evaluation_score?.evaluation_type || 'Unknown', 
+                      evaluation_type: result.evaluation_score?.evaluation_type || 'unknown',
+                      scoring_output_type: prompt?.scoring_output_type || 'float'
+                    }
+                    
+                    return (
                     <Card key={result.id} className="hover:shadow-md transition-shadow">
                       <CardContent className="p-6">
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <div className="flex items-center gap-3 mb-4">
-                              <Badge className={getEvaluationTypeColor(result.evaluation_score?.evaluation_type || 'unknown')}>
-                                {result.evaluation_score?.evaluation_type || 'Unknown'}
+                              {/* Prompt Name Badge */}
+                              <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200">
+                                {resultPrompt.name}
+                              </Badge>
+                              
+                              {/* Evaluation Type Badge */}
+                              <Badge className={getEvaluationTypeColor(resultPrompt.evaluation_type)}>
+                                {resultPrompt.evaluation_type}
                               </Badge>
                               
                               {/* Main Score Display */}
-                              <div className={`px-4 py-2 rounded-lg text-base font-semibold border-2 ${getScoreColor(getScoreValue(result.evaluation_score?.overall_score, prompt?.scoring_output_type), prompt?.scoring_output_type)} border-current`}>
+                              <div className={`px-4 py-2 rounded-lg text-base font-semibold border-2 ${getScoreColor(getScoreValue(result.evaluation_score?.overall_score, resultPrompt.scoring_output_type), resultPrompt.scoring_output_type)} border-current`}>
                                 <div className="flex items-center gap-2">
-                                  {getScoreIcon(getScoreValue(result.evaluation_score?.overall_score, prompt?.scoring_output_type), prompt?.scoring_output_type)}
-                                  <span>Score: {formatScore(result.evaluation_score?.overall_score, prompt?.scoring_output_type)}</span>
+                                  {getScoreIcon(getScoreValue(result.evaluation_score?.overall_score, resultPrompt.scoring_output_type), resultPrompt.scoring_output_type)}
+                                  <span>Score: {formatScore(result.evaluation_score?.overall_score, resultPrompt.scoring_output_type)}</span>
                                 </div>
                               </div>
 
@@ -1049,7 +1213,7 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                         </div>
                       </CardContent>
                     </Card>
-                  ))
+                  )})
                 )}
               </div>
             </>
@@ -1222,6 +1386,58 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                 )}
               </>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="w-5 h-5" />
+              Delete Evaluation Run
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-gray-700 mb-4">
+              Are you sure you want to delete this evaluation run? This action cannot be undone.
+            </p>
+            <p className="text-sm text-gray-500">
+              This will permanently delete:
+            </p>
+            <ul className="text-sm text-gray-500 list-disc list-inside mt-2">
+              <li>All evaluation results for this run</li>
+              <li>All summaries and metrics</li>
+              <li>The evaluation job record</li>
+            </ul>
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button 
+              variant="outline" 
+              onClick={() => setShowDeleteConfirm(false)}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={handleDeleteJob}
+              disabled={isDeleting}
+              className="flex items-center gap-2"
+            >
+              {isDeleting ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4" />
+                  Delete Run
+                </>
+              )}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
