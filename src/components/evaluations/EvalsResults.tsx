@@ -58,6 +58,59 @@ const parseNumericScore = (value: any): number => {
   return 0
 }
 
+// Helper function to clean and parse reasoning text from LLM response
+const parseReasoning = (reasoning: string | any): string => {
+  if (!reasoning) return ''
+  
+  // If it's already a clean string, return it
+  if (typeof reasoning === 'string') {
+    let cleaned = reasoning.trim()
+    
+    // Try to parse as JSON if it looks like JSON
+    if (cleaned.startsWith('{') || cleaned.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(cleaned)
+        // Extract reasoning from parsed JSON
+        if (parsed.reasoning) return parsed.reasoning
+        if (parsed.explanation) return parsed.explanation
+        if (parsed.analysis) return parsed.analysis
+        // If it's an object, stringify it nicely
+        if (typeof parsed === 'object') {
+          return JSON.stringify(parsed, null, 2)
+        }
+      } catch (e) {
+        // Not valid JSON, continue with string cleaning
+      }
+    }
+    
+    // Remove common JSON artifacts
+    cleaned = cleaned
+      .replace(/^["']|["']$/g, '') // Remove surrounding quotes
+      .replace(/\\n/g, '\n') // Convert escaped newlines
+      .replace(/\\"/g, '"') // Convert escaped quotes
+      .replace(/^\s*"reasoning"\s*:\s*"?|"?\s*$/g, '') // Remove "reasoning": prefix/suffix
+      .replace(/^\s*"explanation"\s*:\s*"?|"?\s*$/g, '') // Remove "explanation": prefix/suffix
+      .replace(/""\s*:\s*""/g, '') // Remove empty key-value pairs like "": ""
+      .replace(/,\s*""\s*:\s*""\s*/g, '') // Remove ", "": """ patterns
+      .replace(/\s*""\s*:\s*""\s*,?/g, '') // Remove "":" " patterns with optional comma
+      .replace(/^\s*{\s*|\s*}\s*$/g, '') // Remove surrounding braces if present
+      .trim()
+    
+    return cleaned
+  }
+  
+  // If it's an object, try to extract the reasoning field
+  if (typeof reasoning === 'object') {
+    if (reasoning.reasoning) return reasoning.reasoning
+    if (reasoning.explanation) return reasoning.explanation
+    if (reasoning.analysis) return reasoning.analysis
+    // Convert object to readable string
+    return JSON.stringify(reasoning, null, 2)
+  }
+  
+  return String(reasoning)
+}
+
 // Helper function to get scoring output type information
 const getScoringOutputTypeInfo = (type: string) => {
   switch (type) {
@@ -1166,7 +1219,7 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                                     WebkitBoxOrient: 'vertical', 
                                     overflow: 'hidden' 
                                   }}>
-                                    {result.evaluation_reasoning}
+                                    {parseReasoning(result.evaluation_reasoning)}
                                   </div>
                                 ) : (
                                   <div className="text-sm text-gray-500 italic">
@@ -1362,7 +1415,7 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                   {selectedDetails.result.evaluation_reasoning ? (
                     <div className="prose prose-sm max-w-none">
                       <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
-                        {selectedDetails.result.evaluation_reasoning}
+                        {parseReasoning(selectedDetails.result.evaluation_reasoning)}
                       </p>
                     </div>
                   ) : (
