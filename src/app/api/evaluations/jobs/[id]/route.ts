@@ -110,6 +110,12 @@ export async function DELETE(
       [jobId]
     )
 
+    // Delete associated evaluation summaries
+    await query(
+      'DELETE FROM pype_voice_evaluation_summaries WHERE job_id = $1',
+      [jobId]
+    )
+
     // Delete the job
     await query(
       'DELETE FROM pype_voice_evaluation_jobs WHERE id = $1',
