@@ -824,8 +824,8 @@ export default function AgentConfig() {
 
   const isFormDirty = formik.dirty || hasExternalChanges
 
-  // Loading state
-  if (agentLoading || isConfigLoading) {
+  // Loading state - only wait for local agent data, not external API
+  if (agentLoading) {
     return (
       <div className="h-screen bg-gray-50 dark:bg-gray-900 p-6">
         <div className="max-w-7xl mx-auto">
@@ -839,67 +839,8 @@ export default function AgentConfig() {
     )
   }
 
-  if (isConfigError) {
-    return (
-      <div className="h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-6">
-        <div className="max-w-md w-full">
-          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-8 text-center shadow-lg">
-            {/* Icon */}
-            <div className="w-16 h-16 mx-auto mb-4 bg-blue-50 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
-              <svg className="w-8 h-8 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-  
-            {/* Title */}
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
-              Agent Not Found in Command Center
-            </h3>
-  
-            {/* Description */}
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-6 leading-relaxed">
-              This agent exists in your workspace but couldn't be found in the current command center environment. 
-              It might be deployed to a different environment or needs to be created.
-            </p>
-  
-            {/* Environment Info */}
-            <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3 mb-6 text-left">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500 dark:text-gray-400">Current Environment:</span>
-                <code className="bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded text-gray-700 dark:text-gray-300">
-                  {process.env.NODE_ENV === 'development' ? 'Development' : 'Production'}
-                </code>
-              </div>
-            </div>
-  
-            {/* Actions */}
-            <div className="space-y-3">
-              <Button 
-                onClick={() => refetchConfig()} 
-                variant="outline"
-                className="w-full"
-              >
-                Try Again
-              </Button>
-              <Button 
-                onClick={() => window.history.back()} 
-                variant="ghost"
-                size="sm"
-                className="w-full text-gray-600 dark:text-gray-400"
-              >
-                Go Back
-              </Button>
-            </div>
-  
-            {/* Help Text */}
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-4">
-              Need help? Check if the agent was deployed to the correct environment.
-            </p>
-          </div>
-        </div>
-      </div>
-    )
-  }
+  // Note: isConfigError from external Command Center API is ignored for on-prem
+  // The page will work with local database configuration only
 
   return (
     <div className="h-screen bg-gray-50 dark:bg-gray-900 flex flex-col">
