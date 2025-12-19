@@ -785,183 +785,252 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
     setIsExporting(true)
     
     try {
-      // Fetch transcript and audio metadata for each result
-      const exportData = await Promise.all(
-        results.map(async (result: EvaluationResult) => {
-          const callId = result.call_id || result.trace_id || ''
-          const traceId = result.trace_id || ''
-          const promptDetails = promptsMap.get(result.prompt_id)
-          const scoringOutputType = promptDetails?.scoring_output_type || prompt?.scoring_output_type || 'float'
-          const metricName = promptDetails?.name || prompt?.name || 'Evaluation'
+      // Group results by trace_id (audio file)
+      const resultsByTraceId = new Map<string, EvaluationResult[]>()
+      results.forEach((result: EvaluationResult) => {
+        const traceId = result.trace_id || result.call_id || ''
+        if (!resultsByTraceId.has(traceId)) {
+          resultsByTraceId.set(traceId, [])
+        }
+        resultsByTraceId.get(traceId)!.push(result)
+      })
+
+      // Get all unique metric names for dynamic columns
+      const allMetricNames = new Set<string>()
+      results.forEach((result: EvaluationResult) => {
+        const promptDetails = promptsMap.get(result.prompt_id)
+        const metricName = promptDetails?.name || prompt?.name || 'Evaluation'
+        allMetricNames.add(metricName)
+      })
+      const metricNamesArray = Array.from(allMetricNames).sort()
+
+      // Build export data with one row per audio file
+      const exportData: any[] = []
+      
+      for (const [traceId, traceResults] of resultsByTraceId) {
+        const firstResult = traceResults[0]
+        const callId = firstResult.call_id || traceId || ''
+        
+        // Fetch transcript and audio metadata once per audio file
+        // Using same logic as handleViewTranscript
+        let transcript = ''
+        let audioFileId = ''
+        let audioName = ''
+        let audioDuration = ''
+        
+        try {
+          const isUploadedAudio = callId.startsWith('uploaded-')
+          let callLogData: any = null
           
-          // Get score value
-          let scoreValue: any = result.evaluation_score?.overall_score
-          if (scoreValue === undefined && result.evaluation_score?.parsed_scores) {
-            const parsedScores = result.evaluation_score.parsed_scores
-            if (typeof parsedScores === 'object' && parsedScores.score !== undefined) {
-              scoreValue = parsedScores.score
+          // Step 1: For uploaded audio, use the trace_id (which is the call log id) to fetch
+          if (isUploadedAudio && traceId) {
+            const response = await fetch(`/api/call-logs?id=${traceId}&limit=1`)
+            if (response.ok) {
+              const data = await response.json()
+              callLogData = data.data?.[0]
             }
           }
           
-          // Get raw LLM evaluation output (True/False, number, percentage, etc.)
-          let llmEvaluationRaw = 'N/A'
-          if (scoreValue !== null && scoreValue !== undefined) {
-            if (scoringOutputType === 'bool') {
-              llmEvaluationRaw = parseBooleanScore(scoreValue) ? 'True' : 'False'
-            } else if (scoringOutputType === 'percentage') {
-              llmEvaluationRaw = `${Math.round(parseNumericScore(scoreValue))}%`
-            } else if (scoringOutputType === 'int') {
-              llmEvaluationRaw = `${Math.round(parseNumericScore(scoreValue))}`
-            } else {
-              llmEvaluationRaw = `${parseNumericScore(scoreValue).toFixed(2)}`
+          // Step 2: Fallback - try fetching by call_id
+          if (!callLogData && callId) {
+            const response = await fetch(`/api/call-logs?call_id=${encodeURIComponent(callId)}&limit=1`)
+            if (response.ok) {
+              const data = await response.json()
+              callLogData = data.data?.[0]
             }
           }
           
-          // Determine evaluation result (Pass/Fail)
-          let evaluationResult = 'N/A'
-          if (result.status === 'failed') {
-            evaluationResult = 'Error'
-          } else if (scoringOutputType === 'bool') {
-            evaluationResult = parseBooleanScore(scoreValue) ? 'Pass' : 'Fail'
-          } else if (scoringOutputType === 'percentage') {
-            evaluationResult = parseNumericScore(scoreValue) >= 70 ? 'Pass' : 'Fail'
-          } else {
-            // For numeric scores, assume scale of 5 and pass threshold of 3
-            const numScore = parseNumericScore(scoreValue)
-            evaluationResult = numScore >= 3 ? 'Pass' : 'Fail'
+          // Step 3: Last attempt - try using the callId/traceId as the actual id
+          if (!callLogData && traceId) {
+            const response = await fetch(`/api/call-logs?id=${callId}&limit=1`)
+            if (response.ok) {
+              const data = await response.json()
+              callLogData = data.data?.[0]
+            }
           }
           
-          // Fetch transcript and audio metadata
-          let transcript = ''
-          let audioMetadata: any = {}
-          let audioUrl = ''
-          let audioName = ''
-          let audioDuration = ''
-          
-          try {
-            // Try to get call log data for transcript and audio info
-            const isUploadedAudio = callId.startsWith('uploaded-')
-            let callLogData: any = null
+          if (callLogData) {
+            // Extract audio_file_id from metadata
+            audioFileId = callLogData.metadata?.audio_file_id || callLogData.id || traceId
             
-            if (isUploadedAudio && traceId) {
-              const response = await fetch(`/api/call-logs?id=${traceId}&limit=1`)
-              if (response.ok) {
-                const data = await response.json()
-                callLogData = data.data?.[0]
-              }
-            } else {
-              const response = await fetch(`/api/call-logs?call_id=${encodeURIComponent(callId)}&limit=1`)
-              if (response.ok) {
-                const data = await response.json()
-                callLogData = data.data?.[0]
+            // Extract transcript from transcript_json (same logic as handleViewTranscript)
+            const transcriptData = callLogData.transcript_json
+            if (transcriptData) {
+              const parsedTranscript = typeof transcriptData === 'string' 
+                ? JSON.parse(transcriptData) 
+                : transcriptData
+              
+              // Handle turns array format (from Python diarization backend)
+              if (parsedTranscript?.turns && Array.isArray(parsedTranscript.turns)) {
+                transcript = parsedTranscript.turns
+                  .map((turn: any) => {
+                    const role = (turn.role === 'agent' || turn.role === 'assistant') ? 'AGENT' : 'USER'
+                    const content = turn.content || turn.text || ''
+                    return `${role}: ${content}`
+                  })
+                  .join('\n\n')
+              } 
+              // Handle array format directly
+              else if (Array.isArray(parsedTranscript)) {
+                transcript = parsedTranscript
+                  .map((item: any) => {
+                    if (item.role && item.content) {
+                      const role = (item.role === 'agent' || item.role === 'assistant') ? 'AGENT' : 'USER'
+                      return `${role}: ${item.content}`
+                    }
+                    const messages: string[] = []
+                    if (item.user_transcript) messages.push(`USER: ${item.user_transcript}`)
+                    if (item.agent_response) messages.push(`AGENT: ${item.agent_response}`)
+                    return messages.join('\n')
+                  })
+                  .filter(Boolean)
+                  .join('\n\n')
               }
             }
             
-            if (callLogData) {
-              // Extract transcript
-              const transcriptData = callLogData.transcript_json || callLogData.transcript
-              if (transcriptData) {
-                if (typeof transcriptData === 'string') {
-                  transcript = transcriptData
-                } else if (transcriptData.turns && Array.isArray(transcriptData.turns)) {
-                  transcript = transcriptData.turns
+            // If still no transcript, try metrics-logs as fallback (same as handleViewTranscript)
+            if (!transcript && callLogData.id) {
+              const metricsResponse = await fetch(`/api/metrics-logs?session_id=${callLogData.id}&orderBy=unix_timestamp&order=asc`)
+              if (metricsResponse.ok) {
+                const { data: transcriptTurns } = await metricsResponse.json()
+                if (transcriptTurns && transcriptTurns.length > 0) {
+                  transcript = transcriptTurns
+                    .filter((turn: any) => turn.user_transcript || turn.agent_response)
                     .map((turn: any) => {
-                      const role = (turn.role === 'agent' || turn.role === 'assistant') ? 'AGENT' : 'USER'
-                      return `${role}: ${turn.content || turn.text || ''}`
-                    })
-                    .join(' | ')
-                } else if (Array.isArray(transcriptData)) {
-                  transcript = transcriptData
-                    .map((item: any) => {
-                      if (item.role && item.content) {
-                        const role = (item.role === 'agent' || item.role === 'assistant') ? 'AGENT' : 'USER'
-                        return `${role}: ${item.content}`
+                      const messages: string[] = []
+                      if (turn.user_transcript && turn.user_transcript.trim()) {
+                        messages.push(`USER: ${turn.user_transcript}`)
                       }
-                      const parts = []
-                      if (item.user_transcript) parts.push(`USER: ${item.user_transcript}`)
-                      if (item.agent_response) parts.push(`AGENT: ${item.agent_response}`)
-                      return parts.join(' | ')
+                      if (turn.agent_response && turn.agent_response.trim()) {
+                        messages.push(`AGENT: ${turn.agent_response}`)
+                      }
+                      return messages.join('\n')
                     })
-                    .join(' | ')
+                    .join('\n\n')
                 }
               }
-              
-              // Extract audio metadata
-              audioName = callLogData.audio_file_name || callLogData.file_name || ''
-              audioUrl = callLogData.audio_url || callLogData.s3_audio_url || ''
-              audioDuration = callLogData.duration ? `${Math.round(callLogData.duration)}s` : ''
-              
-              // Additional metadata
-              audioMetadata = {
-                sampleRate: callLogData.sample_rate,
-                channels: callLogData.channels,
-                format: callLogData.audio_format || callLogData.format,
-                fileSize: callLogData.file_size,
-                createdAt: callLogData.created_at
+            }
+            
+            // Extract audio metadata
+            audioName = callLogData.metadata?.file_name ||
+                       callLogData.recording_url?.split('/').pop() || 
+                       callLogData.voice_recording_url?.split('/').pop() || 
+                       ''
+            audioDuration = callLogData.duration_seconds ? `${Math.round(callLogData.duration_seconds)}s` : ''
+          }
+        } catch (error) {
+          console.error('Error fetching transcript/audio data for export:', error)
+        }
+        
+        // Build row with common fields
+        const row: any = {
+          'Audio File ID': audioFileId || traceId,
+          'Trace ID': traceId,
+          'Audio File Name': audioName || 'N/A',
+          'Audio Duration': audioDuration || 'N/A',
+          'Transcript': transcript || 'No transcript available',
+        }
+        
+        // Add metric columns dynamically
+        let totalExecutionTime = 0
+        let totalLlmCost = 0
+        
+        for (const metricName of metricNamesArray) {
+          const metricResult = traceResults.find((r: EvaluationResult) => {
+            const promptDetails = promptsMap.get(r.prompt_id)
+            const name = promptDetails?.name || prompt?.name || 'Evaluation'
+            return name === metricName
+          })
+          
+          if (metricResult) {
+            const promptDetails = promptsMap.get(metricResult.prompt_id)
+            const scoringOutputType = promptDetails?.scoring_output_type || prompt?.scoring_output_type || 'float'
+            
+            // Get score value
+            let scoreValue: any = metricResult.evaluation_score?.overall_score
+            if (scoreValue === undefined && metricResult.evaluation_score?.parsed_scores) {
+              const parsedScores = metricResult.evaluation_score.parsed_scores
+              if (typeof parsedScores === 'object' && parsedScores.score !== undefined) {
+                scoreValue = parsedScores.score
               }
             }
-          } catch (error) {
-            console.error('Error fetching transcript/audio data for export:', error)
+            
+            // Format score based on type
+            let formattedScore = 'N/A'
+            if (scoreValue !== null && scoreValue !== undefined) {
+              if (scoringOutputType === 'bool') {
+                formattedScore = parseBooleanScore(scoreValue) ? 'True' : 'False'
+              } else if (scoringOutputType === 'percentage') {
+                formattedScore = `${Math.round(parseNumericScore(scoreValue))}%`
+              } else if (scoringOutputType === 'int') {
+                formattedScore = `${Math.round(parseNumericScore(scoreValue))}`
+              } else {
+                formattedScore = `${parseNumericScore(scoreValue).toFixed(2)}`
+              }
+            }
+            
+            // Add metric score column
+            row[`${metricName} (Score)`] = formattedScore
+            row[`${metricName} (Reasoning)`] = parseReasoning(metricResult.evaluation_reasoning)
+            row[`${metricName} (Status)`] = metricResult.status
+            
+            // Accumulate costs
+            if (metricResult.execution_time_ms) totalExecutionTime += metricResult.execution_time_ms
+            if (metricResult.llm_cost_usd) totalLlmCost += Number(metricResult.llm_cost_usd)
+          } else {
+            row[`${metricName} (Score)`] = 'N/A'
+            row[`${metricName} (Reasoning)`] = 'N/A'
+            row[`${metricName} (Status)`] = 'N/A'
           }
-          
-          return {
-            'Call ID': callId,
-            'Trace ID': traceId,
-            'Status': result.status,
-            'Evaluation Result': evaluationResult,
-            'LLM Evaluation': llmEvaluationRaw,
-            'Metric Name': metricName,
-            'Metric Type': promptDetails?.evaluation_type || prompt?.evaluation_type || 'N/A',
-            'Scoring Type': getScoringOutputTypeInfo(scoringOutputType).label,
-            'AI Reasoning': parseReasoning(result.evaluation_reasoning),
-            'Transcript': transcript || 'No transcript available',
-            'Audio File Name': audioName || 'N/A',
-            'Audio URL': audioUrl || 'N/A',
-            'Audio Duration': audioDuration || 'N/A',
-            'Audio Format': audioMetadata.format || 'N/A',
-            'Sample Rate': audioMetadata.sampleRate || 'N/A',
-            'Execution Time (ms)': result.execution_time_ms || 'N/A',
-            'LLM Cost (USD)': result.llm_cost_usd ? `$${Number(result.llm_cost_usd).toFixed(6)}` : 'N/A',
-            'Error Message': result.error_message || '',
-            'Evaluated At': new Date(result.created_at).toLocaleString()
-          }
-        })
-      )
+        }
+        
+        // Add totals
+        row['Total Execution Time (ms)'] = totalExecutionTime || 'N/A'
+        row['Total LLM Cost (USD)'] = totalLlmCost > 0 ? `$${totalLlmCost.toFixed(6)}` : 'N/A'
+        row['Evaluated At'] = new Date(firstResult.created_at).toLocaleString()
+        
+        exportData.push(row)
+      }
       
       // Create workbook and worksheet
       const workbook = XLSX.utils.book_new()
       const worksheet = XLSX.utils.json_to_sheet(exportData)
       
-      // Set column widths
-      const columnWidths = [
-        { wch: 40 },  // Call ID
-        { wch: 40 },  // Trace ID
-        { wch: 12 },  // Status
-        { wch: 18 },  // Evaluation Result
-        { wch: 18 },  // LLM Evaluation
-        { wch: 25 },  // Metric Name
-        { wch: 15 },  // Metric Type
-        { wch: 25 },  // Scoring Type
-        { wch: 60 },  // AI Reasoning
-        { wch: 80 },  // Transcript
-        { wch: 30 },  // Audio File Name
-        { wch: 50 },  // Audio URL
-        { wch: 15 },  // Audio Duration
-        { wch: 12 },  // Audio Format
-        { wch: 12 },  // Sample Rate
-        { wch: 18 },  // Execution Time
-        { wch: 15 },  // LLM Cost
-        { wch: 40 },  // Error Message
-        { wch: 22 },  // Evaluated At
+      // Build dynamic column widths based on actual columns
+      const baseColumns = [
+        { key: 'Audio File ID', wch: 40 },
+        { key: 'Trace ID', wch: 40 },
+        { key: 'Audio File Name', wch: 30 },
+        { key: 'Audio Duration', wch: 15 },
+        { key: 'Transcript', wch: 80 },
       ]
-      worksheet['!cols'] = columnWidths
+      
+      // Add metric columns
+      const metricColumns: { key: string, wch: number }[] = []
+      metricNamesArray.forEach(metricName => {
+        metricColumns.push({ key: `${metricName} (Score)`, wch: 20 })
+        metricColumns.push({ key: `${metricName} (Reasoning)`, wch: 60 })
+        metricColumns.push({ key: `${metricName} (Status)`, wch: 15 })
+      })
+      
+      const endColumns = [
+        { key: 'Total Execution Time (ms)', wch: 22 },
+        { key: 'Total LLM Cost (USD)', wch: 18 },
+        { key: 'Evaluated At', wch: 22 },
+      ]
+      
+      const allColumns = [...baseColumns, ...metricColumns, ...endColumns]
+      worksheet['!cols'] = allColumns.map(col => ({ wch: col.wch }))
       
       // Add worksheet to workbook
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Evaluation Results')
       
       // Add summary sheet
+      const uniqueAudioFiles = resultsByTraceId.size
       const summaryData = [
+        { 'Metric': 'Total Audio Files', 'Value': uniqueAudioFiles },
         { 'Metric': 'Total Evaluations', 'Value': results.length },
+        { 'Metric': 'Metrics Evaluated', 'Value': metricNamesArray.join(', ') },
         { 'Metric': 'Completed', 'Value': results.filter((r: EvaluationResult) => r.status === 'completed').length },
         { 'Metric': 'Failed', 'Value': results.filter((r: EvaluationResult) => r.status === 'failed').length },
         { 'Metric': 'Job Name', 'Value': selectedJob?.name || 'N/A' },
