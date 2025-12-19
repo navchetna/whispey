@@ -99,6 +99,52 @@ export async function POST(request: NextRequest) {
 
       uploadedCount = extractedFiles.length
 
+    } else if (uploadType === 'audio') {
+      // Handle direct audio file upload
+      const audioFile = formData.get('file') as File
+      
+      if (!audioFile) {
+        return NextResponse.json(
+          { error: 'Audio file is required when upload_type is "audio"' },
+          { status: 400 }
+        )
+      }
+
+      // Validate file is an audio file
+      if (!isAudioFile(audioFile.name)) {
+        return NextResponse.json(
+          { error: 'Invalid file type. Please upload an audio file (MP3, WAV, M4A, OGG, FLAC, AAC, WMA, OPUS)' },
+          { status: 400 }
+        )
+      }
+
+      console.log(`Processing audio file: ${audioFile.name} (${audioFile.size} bytes)`)
+
+      try {
+        // Read the file as buffer and save to disk
+        const fileBuffer = Buffer.from(await audioFile.arrayBuffer())
+        const fileName = audioFile.name
+        const filePath = path.join(audioDirectory, fileName)
+        
+        // Write file to disk
+        await fs.promises.writeFile(filePath, fileBuffer)
+        const fileSize = await getFileSize(filePath)
+        
+        audioFiles.push({
+          file_name: fileName,
+          file_path: filePath,
+          file_size_bytes: fileSize
+        })
+
+        uploadedCount = 1
+      } catch (error) {
+        console.error('Failed to save audio file:', error)
+        return NextResponse.json(
+          { error: `Failed to save audio file: ${error instanceof Error ? error.message : 'Unknown error'}` },
+          { status: 500 }
+        )
+      }
+
     } else if (uploadType === 'url') {
       // Handle URL download
       const fileUrl = formData.get('file_url') as string
@@ -134,7 +180,7 @@ export async function POST(request: NextRequest) {
 
     } else {
       return NextResponse.json(
-        { error: 'Invalid upload_type. Must be "zip" or "url"' },
+        { error: 'Invalid upload_type. Must be "zip", "audio", or "url"' },
         { status: 400 }
       )
     }
