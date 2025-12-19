@@ -58,6 +58,8 @@ services:
       - PYTHON_BACKEND_URL=http://python-backend:8000
     ports:
       - "${APP_PORT:-3003}:3000"
+    volumes:
+      - audios:/app/audios
     depends_on:
       database:
         condition: service_healthy
@@ -109,6 +111,9 @@ services:
 volumes:
   postgres_data:
     driver: local
+  audios:
+    driver: local
+  
   
 networks:
   agent-evals:
