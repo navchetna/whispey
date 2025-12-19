@@ -97,8 +97,14 @@ async def transcribe(request: Request, file: UploadFile = File(None)):
             logger.info(f"Transcription completed successfully")
             return result
         else:
-            logger.error(f"Transcription failed: {result.get('error')}")
-            raise HTTPException(status_code=500, detail=result.get('error'))
+            error_msg = result.get('error', 'Unknown error')
+            logger.error(f"Transcription failed: {error_msg}")
+            
+            # Return 429 for rate limit errors so frontend can retry
+            if 'rate_limit' in error_msg.lower() or 'rate limit' in error_msg.lower():
+                raise HTTPException(status_code=429, detail=error_msg)
+            
+            raise HTTPException(status_code=500, detail=error_msg)
             
     except HTTPException:
         raise
@@ -197,9 +203,29 @@ async def transcribe_audio(audio_file_path: str, api_key: str):
             }
             
     except Exception as e:
+        # Extract clean error message from SarvamAI API errors
+        error_message = str(e)
+        
+        # Check if it's a SarvamAI ApiError with body containing error details
+        if hasattr(e, 'body') and isinstance(e.body, dict):
+            body = e.body
+            if 'error' in body:
+                error_info = body['error']
+                if isinstance(error_info, dict):
+                    error_message = error_info.get('message', str(e))
+                    error_code = error_info.get('code', '')
+                    if error_code:
+                        error_message = f"{error_message} ({error_code})"
+                else:
+                    error_message = str(error_info)
+            elif 'message' in body:
+                error_message = body['message']
+        
+        print(f"Transcription failed: {error_message}")
+        
         return {
             "success": False,
-            "error": str(e)
+            "error": error_message
         }
 
 def format_diarized_transcript(transcript_data):

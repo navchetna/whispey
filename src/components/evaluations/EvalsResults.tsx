@@ -29,10 +29,13 @@ import {
   Play,
   RefreshCw,
   Bug,
-  Trash2
+  Trash2,
+  FileSpreadsheet,
+  Loader2
 } from 'lucide-react'
 import { query } from "../../lib/postgres"
 import { DatabaseService } from "@/lib/database"
+import * as XLSX from 'xlsx'
 
 // Helper function to parse boolean from various formats
 const parseBooleanScore = (value: any): boolean => {
@@ -71,9 +74,9 @@ const parseReasoning = (reasoning: string | any): string => {
       try {
         const parsed = JSON.parse(cleaned)
         // Extract reasoning from parsed JSON
-        if (parsed.reasoning) return parsed.reasoning
-        if (parsed.explanation) return parsed.explanation
-        if (parsed.analysis) return parsed.analysis
+        if (parsed.reasoning) return parsed.reasoning.replace(/^[:\s]+/, '').trim()
+        if (parsed.explanation) return parsed.explanation.replace(/^[:\s]+/, '').trim()
+        if (parsed.analysis) return parsed.analysis.replace(/^[:\s]+/, '').trim()
         // If it's an object, stringify it nicely
         if (typeof parsed === 'object') {
           return JSON.stringify(parsed, null, 2)
@@ -94,6 +97,7 @@ const parseReasoning = (reasoning: string | any): string => {
       .replace(/,\s*""\s*:\s*""\s*/g, '') // Remove ", "": """ patterns
       .replace(/\s*""\s*:\s*""\s*,?/g, '') // Remove "":" " patterns with optional comma
       .replace(/^\s*{\s*|\s*}\s*$/g, '') // Remove surrounding braces if present
+      .replace(/^[:\s]+/, '') // Remove leading colons and whitespace
       .trim()
     
     return cleaned
@@ -101,15 +105,16 @@ const parseReasoning = (reasoning: string | any): string => {
   
   // If it's an object, try to extract the reasoning field
   if (typeof reasoning === 'object') {
-    if (reasoning.reasoning) return reasoning.reasoning
-    if (reasoning.explanation) return reasoning.explanation
-    if (reasoning.analysis) return reasoning.analysis
+    if (reasoning.reasoning) return String(reasoning.reasoning).replace(/^[:\s]+/, '').trim()
+    if (reasoning.explanation) return String(reasoning.explanation).replace(/^[:\s]+/, '').trim()
+    if (reasoning.analysis) return String(reasoning.analysis).replace(/^[:\s]+/, '').trim()
     // Convert object to readable string
     return JSON.stringify(reasoning, null, 2)
   }
   
   return String(reasoning)
 }
+
 
 // Helper function to get scoring output type information
 const getScoringOutputTypeInfo = (type: string) => {
@@ -217,6 +222,7 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
   const [selectedDetails, setSelectedDetails] = useState<{callId: string, result: EvaluationResult} | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false)
   const [isDeleting, setIsDeleting] = useState<boolean>(false)
+  const [isExporting, setIsExporting] = useState<boolean>(false)
   
   // Filter states
   const [filterType, setFilterType] = useState<string>('all')
@@ -608,6 +614,384 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
     }
   }
 
+  // Export single evaluation result to Excel
+  const handleExportSingleResult = async (result: EvaluationResult) => {
+    setIsExporting(true)
+    
+    try {
+      const callId = result.call_id || result.trace_id || ''
+      const traceId = result.trace_id || ''
+      const promptDetails = promptsMap.get(result.prompt_id)
+      const scoringOutputType = promptDetails?.scoring_output_type || prompt?.scoring_output_type || 'float'
+      const metricName = promptDetails?.name || prompt?.name || 'Evaluation'
+      
+      // Get score value
+      let scoreValue: any = result.evaluation_score?.overall_score
+      if (scoreValue === undefined && result.evaluation_score?.parsed_scores) {
+        const parsedScores = result.evaluation_score.parsed_scores
+        if (typeof parsedScores === 'object' && parsedScores.score !== undefined) {
+          scoreValue = parsedScores.score
+        }
+      }
+      
+      // Get raw LLM evaluation output (True/False, number, percentage, etc.)
+      let llmEvaluationRaw = 'N/A'
+      if (scoreValue !== null && scoreValue !== undefined) {
+        if (scoringOutputType === 'bool') {
+          llmEvaluationRaw = parseBooleanScore(scoreValue) ? 'True' : 'False'
+        } else if (scoringOutputType === 'percentage') {
+          llmEvaluationRaw = `${Math.round(parseNumericScore(scoreValue))}%`
+        } else if (scoringOutputType === 'int') {
+          llmEvaluationRaw = `${Math.round(parseNumericScore(scoreValue))}`
+        } else {
+          llmEvaluationRaw = `${parseNumericScore(scoreValue).toFixed(2)}`
+        }
+      }
+      
+      // Determine evaluation result (Pass/Fail)
+      let evaluationResult = 'N/A'
+      if (result.status === 'failed') {
+        evaluationResult = 'Error'
+      } else if (scoringOutputType === 'bool') {
+        evaluationResult = parseBooleanScore(scoreValue) ? 'Pass' : 'Fail'
+      } else if (scoringOutputType === 'percentage') {
+        evaluationResult = parseNumericScore(scoreValue) >= 70 ? 'Pass' : 'Fail'
+      } else {
+        const numScore = parseNumericScore(scoreValue)
+        evaluationResult = numScore >= 3 ? 'Pass' : 'Fail'
+      }
+      
+      // Fetch transcript and audio metadata
+      let transcript = ''
+      let audioMetadata: any = {}
+      let audioUrl = ''
+      let audioName = ''
+      let audioDuration = ''
+      
+      try {
+        const isUploadedAudio = callId.startsWith('uploaded-')
+        let callLogData: any = null
+        
+        if (isUploadedAudio && traceId) {
+          const response = await fetch(`/api/call-logs?id=${traceId}&limit=1`)
+          if (response.ok) {
+            const data = await response.json()
+            callLogData = data.data?.[0]
+          }
+        } else {
+          const response = await fetch(`/api/call-logs?call_id=${encodeURIComponent(callId)}&limit=1`)
+          if (response.ok) {
+            const data = await response.json()
+            callLogData = data.data?.[0]
+          }
+        }
+        
+        if (callLogData) {
+          const transcriptData = callLogData.transcript_json || callLogData.transcript
+          if (transcriptData) {
+            if (typeof transcriptData === 'string') {
+              transcript = transcriptData
+            } else if (transcriptData.turns && Array.isArray(transcriptData.turns)) {
+              transcript = transcriptData.turns
+                .map((turn: any) => {
+                  const role = (turn.role === 'agent' || turn.role === 'assistant') ? 'AGENT' : 'USER'
+                  return `${role}: ${turn.content || turn.text || ''}`
+                })
+                .join('\n\n')
+            } else if (Array.isArray(transcriptData)) {
+              transcript = transcriptData
+                .map((item: any) => {
+                  if (item.role && item.content) {
+                    const role = (item.role === 'agent' || item.role === 'assistant') ? 'AGENT' : 'USER'
+                    return `${role}: ${item.content}`
+                  }
+                  const parts = []
+                  if (item.user_transcript) parts.push(`USER: ${item.user_transcript}`)
+                  if (item.agent_response) parts.push(`AGENT: ${item.agent_response}`)
+                  return parts.join('\n')
+                })
+                .join('\n\n')
+            }
+          }
+          
+          audioName = callLogData.audio_file_name || callLogData.file_name || ''
+          audioUrl = callLogData.audio_url || callLogData.s3_audio_url || ''
+          audioDuration = callLogData.duration ? `${Math.round(callLogData.duration)}s` : ''
+          audioMetadata = {
+            sampleRate: callLogData.sample_rate,
+            channels: callLogData.channels,
+            format: callLogData.audio_format || callLogData.format,
+            fileSize: callLogData.file_size,
+            createdAt: callLogData.created_at
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching transcript/audio data:', error)
+      }
+      
+      const exportData = [{
+        'Call ID': callId,
+        'Trace ID': traceId,
+        'Status': result.status,
+        'Evaluation Result': evaluationResult,
+        'LLM Evaluation': llmEvaluationRaw,
+        'Metric Name': metricName,
+        'Metric Type': promptDetails?.evaluation_type || prompt?.evaluation_type || 'N/A',
+        'Scoring Type': getScoringOutputTypeInfo(scoringOutputType).label,
+        'AI Reasoning': parseReasoning(result.evaluation_reasoning),
+        'Transcript': transcript || 'No transcript available',
+        'Audio File Name': audioName || 'N/A',
+        'Audio URL': audioUrl || 'N/A',
+        'Audio Duration': audioDuration || 'N/A',
+        'Audio Format': audioMetadata.format || 'N/A',
+        'Sample Rate': audioMetadata.sampleRate || 'N/A',
+        'Execution Time (ms)': result.execution_time_ms || 'N/A',
+        'LLM Cost (USD)': result.llm_cost_usd ? `$${Number(result.llm_cost_usd).toFixed(6)}` : 'N/A',
+        'Error Message': result.error_message || '',
+        'Evaluated At': new Date(result.created_at).toLocaleString()
+      }]
+      
+      const workbook = XLSX.utils.book_new()
+      const worksheet = XLSX.utils.json_to_sheet(exportData)
+      
+      worksheet['!cols'] = [
+        { wch: 40 }, { wch: 40 }, { wch: 12 }, { wch: 18 }, { wch: 18 },
+        { wch: 25 }, { wch: 15 }, { wch: 25 }, { wch: 60 }, { wch: 80 },
+        { wch: 30 }, { wch: 50 }, { wch: 15 }, { wch: 12 }, { wch: 12 },
+        { wch: 18 }, { wch: 15 }, { wch: 40 }, { wch: 22 }
+      ]
+      
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Evaluation Result')
+      
+      const shortCallId = callId.substring(0, 8)
+      const timestamp = new Date().toISOString().split('T')[0]
+      XLSX.writeFile(workbook, `eval_${shortCallId}_${timestamp}.xlsx`)
+      
+    } catch (error: any) {
+      console.error('Failed to export result:', error)
+      alert(`Failed to export: ${error.message}`)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  // Export evaluation results to Excel
+  const handleExportToExcel = async () => {
+    if (!results || results.length === 0) {
+      alert('No evaluation results to export')
+      return
+    }
+
+    setIsExporting(true)
+    
+    try {
+      // Fetch transcript and audio metadata for each result
+      const exportData = await Promise.all(
+        results.map(async (result: EvaluationResult) => {
+          const callId = result.call_id || result.trace_id || ''
+          const traceId = result.trace_id || ''
+          const promptDetails = promptsMap.get(result.prompt_id)
+          const scoringOutputType = promptDetails?.scoring_output_type || prompt?.scoring_output_type || 'float'
+          const metricName = promptDetails?.name || prompt?.name || 'Evaluation'
+          
+          // Get score value
+          let scoreValue: any = result.evaluation_score?.overall_score
+          if (scoreValue === undefined && result.evaluation_score?.parsed_scores) {
+            const parsedScores = result.evaluation_score.parsed_scores
+            if (typeof parsedScores === 'object' && parsedScores.score !== undefined) {
+              scoreValue = parsedScores.score
+            }
+          }
+          
+          // Get raw LLM evaluation output (True/False, number, percentage, etc.)
+          let llmEvaluationRaw = 'N/A'
+          if (scoreValue !== null && scoreValue !== undefined) {
+            if (scoringOutputType === 'bool') {
+              llmEvaluationRaw = parseBooleanScore(scoreValue) ? 'True' : 'False'
+            } else if (scoringOutputType === 'percentage') {
+              llmEvaluationRaw = `${Math.round(parseNumericScore(scoreValue))}%`
+            } else if (scoringOutputType === 'int') {
+              llmEvaluationRaw = `${Math.round(parseNumericScore(scoreValue))}`
+            } else {
+              llmEvaluationRaw = `${parseNumericScore(scoreValue).toFixed(2)}`
+            }
+          }
+          
+          // Determine evaluation result (Pass/Fail)
+          let evaluationResult = 'N/A'
+          if (result.status === 'failed') {
+            evaluationResult = 'Error'
+          } else if (scoringOutputType === 'bool') {
+            evaluationResult = parseBooleanScore(scoreValue) ? 'Pass' : 'Fail'
+          } else if (scoringOutputType === 'percentage') {
+            evaluationResult = parseNumericScore(scoreValue) >= 70 ? 'Pass' : 'Fail'
+          } else {
+            // For numeric scores, assume scale of 5 and pass threshold of 3
+            const numScore = parseNumericScore(scoreValue)
+            evaluationResult = numScore >= 3 ? 'Pass' : 'Fail'
+          }
+          
+          // Fetch transcript and audio metadata
+          let transcript = ''
+          let audioMetadata: any = {}
+          let audioUrl = ''
+          let audioName = ''
+          let audioDuration = ''
+          
+          try {
+            // Try to get call log data for transcript and audio info
+            const isUploadedAudio = callId.startsWith('uploaded-')
+            let callLogData: any = null
+            
+            if (isUploadedAudio && traceId) {
+              const response = await fetch(`/api/call-logs?id=${traceId}&limit=1`)
+              if (response.ok) {
+                const data = await response.json()
+                callLogData = data.data?.[0]
+              }
+            } else {
+              const response = await fetch(`/api/call-logs?call_id=${encodeURIComponent(callId)}&limit=1`)
+              if (response.ok) {
+                const data = await response.json()
+                callLogData = data.data?.[0]
+              }
+            }
+            
+            if (callLogData) {
+              // Extract transcript
+              const transcriptData = callLogData.transcript_json || callLogData.transcript
+              if (transcriptData) {
+                if (typeof transcriptData === 'string') {
+                  transcript = transcriptData
+                } else if (transcriptData.turns && Array.isArray(transcriptData.turns)) {
+                  transcript = transcriptData.turns
+                    .map((turn: any) => {
+                      const role = (turn.role === 'agent' || turn.role === 'assistant') ? 'AGENT' : 'USER'
+                      return `${role}: ${turn.content || turn.text || ''}`
+                    })
+                    .join(' | ')
+                } else if (Array.isArray(transcriptData)) {
+                  transcript = transcriptData
+                    .map((item: any) => {
+                      if (item.role && item.content) {
+                        const role = (item.role === 'agent' || item.role === 'assistant') ? 'AGENT' : 'USER'
+                        return `${role}: ${item.content}`
+                      }
+                      const parts = []
+                      if (item.user_transcript) parts.push(`USER: ${item.user_transcript}`)
+                      if (item.agent_response) parts.push(`AGENT: ${item.agent_response}`)
+                      return parts.join(' | ')
+                    })
+                    .join(' | ')
+                }
+              }
+              
+              // Extract audio metadata
+              audioName = callLogData.audio_file_name || callLogData.file_name || ''
+              audioUrl = callLogData.audio_url || callLogData.s3_audio_url || ''
+              audioDuration = callLogData.duration ? `${Math.round(callLogData.duration)}s` : ''
+              
+              // Additional metadata
+              audioMetadata = {
+                sampleRate: callLogData.sample_rate,
+                channels: callLogData.channels,
+                format: callLogData.audio_format || callLogData.format,
+                fileSize: callLogData.file_size,
+                createdAt: callLogData.created_at
+              }
+            }
+          } catch (error) {
+            console.error('Error fetching transcript/audio data for export:', error)
+          }
+          
+          return {
+            'Call ID': callId,
+            'Trace ID': traceId,
+            'Status': result.status,
+            'Evaluation Result': evaluationResult,
+            'LLM Evaluation': llmEvaluationRaw,
+            'Metric Name': metricName,
+            'Metric Type': promptDetails?.evaluation_type || prompt?.evaluation_type || 'N/A',
+            'Scoring Type': getScoringOutputTypeInfo(scoringOutputType).label,
+            'AI Reasoning': parseReasoning(result.evaluation_reasoning),
+            'Transcript': transcript || 'No transcript available',
+            'Audio File Name': audioName || 'N/A',
+            'Audio URL': audioUrl || 'N/A',
+            'Audio Duration': audioDuration || 'N/A',
+            'Audio Format': audioMetadata.format || 'N/A',
+            'Sample Rate': audioMetadata.sampleRate || 'N/A',
+            'Execution Time (ms)': result.execution_time_ms || 'N/A',
+            'LLM Cost (USD)': result.llm_cost_usd ? `$${Number(result.llm_cost_usd).toFixed(6)}` : 'N/A',
+            'Error Message': result.error_message || '',
+            'Evaluated At': new Date(result.created_at).toLocaleString()
+          }
+        })
+      )
+      
+      // Create workbook and worksheet
+      const workbook = XLSX.utils.book_new()
+      const worksheet = XLSX.utils.json_to_sheet(exportData)
+      
+      // Set column widths
+      const columnWidths = [
+        { wch: 40 },  // Call ID
+        { wch: 40 },  // Trace ID
+        { wch: 12 },  // Status
+        { wch: 18 },  // Evaluation Result
+        { wch: 18 },  // LLM Evaluation
+        { wch: 25 },  // Metric Name
+        { wch: 15 },  // Metric Type
+        { wch: 25 },  // Scoring Type
+        { wch: 60 },  // AI Reasoning
+        { wch: 80 },  // Transcript
+        { wch: 30 },  // Audio File Name
+        { wch: 50 },  // Audio URL
+        { wch: 15 },  // Audio Duration
+        { wch: 12 },  // Audio Format
+        { wch: 12 },  // Sample Rate
+        { wch: 18 },  // Execution Time
+        { wch: 15 },  // LLM Cost
+        { wch: 40 },  // Error Message
+        { wch: 22 },  // Evaluated At
+      ]
+      worksheet['!cols'] = columnWidths
+      
+      // Add worksheet to workbook
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Evaluation Results')
+      
+      // Add summary sheet
+      const summaryData = [
+        { 'Metric': 'Total Evaluations', 'Value': results.length },
+        { 'Metric': 'Completed', 'Value': results.filter((r: EvaluationResult) => r.status === 'completed').length },
+        { 'Metric': 'Failed', 'Value': results.filter((r: EvaluationResult) => r.status === 'failed').length },
+        { 'Metric': 'Job Name', 'Value': selectedJob?.name || 'N/A' },
+        { 'Metric': 'Job Description', 'Value': selectedJob?.description || 'N/A' },
+        { 'Metric': 'Prompt Name', 'Value': prompt?.name || 'N/A' },
+        { 'Metric': 'Evaluation Type', 'Value': prompt?.evaluation_type || 'N/A' },
+        { 'Metric': 'Scoring Output Type', 'Value': getScoringOutputTypeInfo(prompt?.scoring_output_type || 'float').label },
+        { 'Metric': 'Export Date', 'Value': new Date().toLocaleString() }
+      ]
+      const summaryWorksheet = XLSX.utils.json_to_sheet(summaryData)
+      summaryWorksheet['!cols'] = [{ wch: 25 }, { wch: 60 }]
+      XLSX.utils.book_append_sheet(workbook, summaryWorksheet, 'Summary')
+      
+      // Generate filename
+      const jobName = selectedJob?.name?.replace(/[^a-zA-Z0-9]/g, '_') || 'evaluation'
+      const timestamp = new Date().toISOString().split('T')[0]
+      const filename = `${jobName}_results_${timestamp}.xlsx`
+      
+      // Download file
+      XLSX.writeFile(workbook, filename)
+      
+      console.log(`Successfully exported ${results.length} evaluation results to ${filename}`)
+    } catch (error: any) {
+      console.error('Failed to export evaluation results:', error)
+      alert(`Failed to export: ${error.message}`)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   if (jobsLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -657,9 +1041,18 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                   </Select>
                 </div>
               )}
-              <Button variant="outline" className="flex items-center gap-2">
-                <Download className="w-4 h-4" />
-                Export
+              <Button 
+                variant="outline" 
+                className="flex items-center gap-2"
+                onClick={handleExportToExcel}
+                disabled={isExporting || !results || results.length === 0}
+              >
+                {isExporting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <FileSpreadsheet className="w-4 h-4" />
+                )}
+                {isExporting ? 'Exporting...' : 'Export Excel'}
               </Button>
               <Button variant="outline" className="flex items-center gap-2">
                 <Filter className="w-4 h-4" />
@@ -1256,9 +1649,9 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                                   <FileText className="w-4 h-4 mr-2" />
                                   Raw Response
                                 </DropdownMenuItem>
-                                <DropdownMenuItem>
-                                  <Download className="w-4 h-4 mr-2" />
-                                  Export Result
+                                <DropdownMenuItem onClick={() => handleExportSingleResult(result)}>
+                                  <FileSpreadsheet className="w-4 h-4 mr-2" />
+                                  Export to Excel
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
