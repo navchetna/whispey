@@ -10,6 +10,7 @@ import { Phone, Clock, CheckCircle, XCircle, Loader2, AlertCircle, RefreshCw } f
 import { useInfiniteScroll } from "../../hooks/useApi"
 import CallFilter, { FilterRule } from "../CallFilter"
 import ColumnSelector from "../shared/ColumnSelector"
+import AudioUploadDialog from "./AudioUploadDialog"
 import { cn } from "@/lib/utils"
 import { CostTooltip } from "../tool-tip/costToolTip"
 import { CallLog } from "../../types/logs"
@@ -818,6 +819,11 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
           />
           
           <div className="flex items-center gap-2">
+            <AudioUploadDialog
+              projectId={project?.id}
+              agentId={agent?.id}
+              onUploadComplete={handleRefresh}
+            />
             <Button
               variant="outline"
               size="sm"
