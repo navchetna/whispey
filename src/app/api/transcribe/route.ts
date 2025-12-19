@@ -101,36 +101,68 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function callPythonBackend(file: File | Blob, backendUrl: string) {
-  try {
-    console.log('🐍 Calling Python backend for transcription (file upload):', file);
-    console.log('🔗 Backend URL:', backendUrl);
+async function callPythonBackend(file: File | Blob, backendUrl: string, maxRetries: number = 5) {
+  const baseDelay = 30000 // 2 seconds
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log('🐍 Calling Python backend for transcription (file upload):', file);
+      console.log('🔗 Backend URL:', backendUrl);
 
-    // Build multipart form-data
-    const formData = new FormData();
-    formData.append('audio_file', file);  // name must match your Python endpoint
+      // Build multipart form-data
+      const formData = new FormData();
+      formData.append('audio_file', file);  // name must match your Python endpoint
 
-    const response = await fetch(`${backendUrl}/transcribe`, {
-      method: 'POST',
-      body: formData, // browser/Node 18+ fetch handles content-type automatically
-    });
-    
-    if (!response.ok) {
-      const errorData = await response.json()
-      throw new Error(errorData.error || `Backend returned ${response.status}`)
+      const response = await fetch(`${backendUrl}/transcribe`, {
+        method: 'POST',
+        body: formData, // browser/Node 18+ fetch handles content-type automatically
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        const errorMessage = errorData?.detail || errorData?.error || ''
+        
+        // Check if it's a rate limit error (429 status or error message contains rate limit)
+        const isRateLimitError = 
+          response.status === 429 || 
+          errorMessage.toLowerCase().includes('rate_limit') ||
+          errorMessage.toLowerCase().includes('rate limit')
+
+        if (isRateLimitError && attempt < maxRetries) {
+          const delay = baseDelay * Math.pow(2, attempt - 1) // Exponential backoff: 2s, 4s, 8s, 16s, 32s
+          console.log(`⏳ Rate limit hit. Retrying in ${delay / 1000}s... (attempt ${attempt}/${maxRetries})`)
+          await new Promise(resolve => setTimeout(resolve, delay))
+          continue
+        }
+        
+        throw new Error(errorMessage || `Backend returned ${response.status}`)
+      }
+      
+      const result = await response.json()
+      console.log('✅ Python backend completed transcription')
+      
+      return result
+      
+    } catch (error) {
+      // If it's a network error and we have retries left, retry
+      if (attempt < maxRetries && error instanceof TypeError) {
+        const delay = baseDelay * Math.pow(2, attempt - 1)
+        console.log(`⏳ Network error. Retrying in ${delay / 1000}s... (attempt ${attempt}/${maxRetries})`)
+        await new Promise(resolve => setTimeout(resolve, delay))
+        continue
+      }
+      
+      console.error('❌ Error calling Python backend:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error calling Python backend'
+      }
     }
-    
-    const result = await response.json()
-    console.log('✅ Python backend completed transcription')
-    
-    return result
-    
-  } catch (error) {
-    console.error('❌ Error calling Python backend:', error)
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error calling Python backend'
-    }
+  }
+  
+  return {
+    success: false,
+    error: 'Max retries exceeded for transcription'
   }
 }
 
