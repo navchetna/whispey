@@ -36,6 +36,13 @@ export async function GET(request: NextRequest) {
       paramIndex++
     }
 
+    // Support filtering by audio_file_id in metadata
+    if (searchParams.get('audio_file_id')) {
+      conditions.push(`metadata->>'audio_file_id' = $${paramIndex}`)
+      params.push(searchParams.get('audio_file_id'))
+      paramIndex++
+    }
+
     // Build WHERE clause
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
 
