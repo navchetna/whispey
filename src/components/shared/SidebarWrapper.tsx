@@ -174,12 +174,13 @@ const sidebarRoutes: SidebarRoute[] = [
       { pattern: '/:projectId/agents/:agentId/evaluations/:jobId' },
       { pattern: '/:projectId/agents/:agentId/evals-metrics' },
       { pattern: '/:projectId/agents/:agentId/evals-results' },
+      { pattern: '/:projectId/agents/:agentId/evals-summary' },
     ],
     getSidebarConfig: (params, context) => {
       const { projectId, agentId } = params
       const { isEnhancedProject, agentType } = context
 
-      const reservedPaths = ['api-keys', 'settings', 'config', 'observability', 'evaluations', 'evals-metrics', 'evals-results'];
+      const reservedPaths = ['api-keys', 'settings', 'config', 'observability', 'evaluations', 'evals-metrics', 'evals-results', 'evals-summary'];
       if (reservedPaths.includes(agentId)) {
         return null;
       }
@@ -250,6 +251,13 @@ const sidebarRoutes: SidebarRoute[] = [
           name: 'Evals Results', 
           icon: 'BarChart3', 
           path: `/${projectId}/agents/${agentId}/evals-results`, 
+          group: 'Evaluation Suite' 
+        },
+        { 
+          id: 'evals-summary', 
+          name: 'Evals Summary', 
+          icon: 'PieChart', 
+          path: `/${projectId}/agents/${agentId}/evals-summary`, 
           group: 'Evaluation Suite' 
         }
       ]

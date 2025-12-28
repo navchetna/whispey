@@ -46,29 +46,48 @@ export async function POST(request: NextRequest) {
       const transcriptResult = await callPythonBackend(file, pythonBackendUrl)
       
       if (transcriptResult.success && transcriptResult.transcript) {
-        // Update audio file with transcript
-        await query(
-          'UPDATE pype_voice_audio_files SET transcript = $1, status = $2, processed_at = NOW(), updated_at = NOW() WHERE id = $3',
-          [JSON.stringify(transcriptResult.transcript), 'processed', audio_file_id]
-        )
+        const transcriptData = transcriptResult.transcript
+        
+        // Check if transcript has actual content (turns with text)
+        const hasMeaningfulContent = transcriptData?.turns?.length > 0 && 
+          transcriptData.turns.some((t: any) => t.content && t.content.trim().length > 0)
         
         // Extract duration from transcript metadata
-        const transcriptData = transcriptResult.transcript
         const totalDuration = transcriptData?.metadata?.total_duration || 
           (transcriptData?.turns?.length > 0 
             ? Math.max(...transcriptData.turns.map((t: any) => t.end_time || 0)) 
             : null)
+        
+        // Determine status based on content
+        const audioFileStatus = hasMeaningfulContent ? 'processed' : 'failed'
+        const callEndedReason = hasMeaningfulContent ? 'completed' : 'no_transcript'
+        const errorMessage = hasMeaningfulContent ? null : 'Transcription returned no meaningful content'
+        
+        // Update audio file with transcript
+        await query(
+          'UPDATE pype_voice_audio_files SET transcript = $1, status = $2, error_message = $3, processed_at = NOW(), updated_at = NOW() WHERE id = $4',
+          [JSON.stringify(transcriptResult.transcript), audioFileStatus, errorMessage, audio_file_id]
+        )
         
         // Update call log with transcript, status and duration
         await query(
           `UPDATE pype_voice_call_logs 
            SET transcript_json = $1, 
                transcript_type = 'diarized',
-               call_ended_reason = 'completed',
+               call_ended_reason = $4,
                duration_seconds = COALESCE($3, duration_seconds)
            WHERE metadata->>'audio_file_id' = $2`,
-          [JSON.stringify(transcriptResult.transcript), audio_file_id, totalDuration ? Math.round(totalDuration) : null]
+          [JSON.stringify(transcriptResult.transcript), audio_file_id, totalDuration ? Math.round(totalDuration) : null, callEndedReason]
         )
+        
+        if (!hasMeaningfulContent) {
+          console.warn(`⚠️ Transcription returned no meaningful content for audio_file_id: ${audio_file_id}`)
+          return NextResponse.json({
+            success: false,
+            message: 'Transcription completed but no speech content detected',
+            transcript: transcriptResult.transcript
+          }, { status: 200 })
+        }
         
         return NextResponse.json({
           success: true,

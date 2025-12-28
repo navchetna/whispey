@@ -7,7 +7,7 @@ import logging
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sarvamai import AsyncSarvamAI
+from sarvamai import AsyncSarvamAI, SarvamAI
 from dotenv import load_dotenv
 import json
 
@@ -281,11 +281,16 @@ def format_diarized_transcript(transcript_data):
                     'start_time_seconds': entry.get('start_time_seconds', 0),
                     'end_time_seconds': entry.get('end_time_seconds', 0),
                 }
-        
+
         # Don't forget the last entry
         if current_entry:
             merged_entries.append(current_entry)
         
+        # Translate all transcriptions for Indic languages to English
+        if language_code not in ["en-IN", "en-US"]:
+            for entry in merged_entries:
+                entry["translated_text"] = translate_text(entry["transcript"], target_language="en-IN")
+
         logger.info(f"Merged {len(entries)} entries into {len(merged_entries)} turns")
         
         # Step 2: Format turns with required fields
@@ -311,6 +316,7 @@ def format_diarized_transcript(transcript_data):
             turns.append({
                 'role': role,
                 'content': entry['transcript'].strip(),
+                'translated_text': entry.get('translated_text', ''),
                 'start_time': entry['start_time_seconds'],
                 'end_time': entry['end_time_seconds'],
                 'duration': round(entry['end_time_seconds'] - entry['start_time_seconds']),
@@ -341,6 +347,22 @@ def format_diarized_transcript(transcript_data):
             'metadata': {},
             'error': str(e)
         }
+    
+
+# NOTE - Reformat this python backend, improve the translated text generation.
+def translate_text(text, target_language='en-IN'):
+    """Translate text to target language."""
+    client = SarvamAI(
+        api_subscription_key=os.getenv('SARVAM_API_KEY')
+    )
+
+    response = client.text.translate(
+        input=text,
+        source_language_code='auto',
+        target_language_code=target_language
+    )
+
+    return response.translated_text
 
 if __name__ == '__main__':
     import uvicorn

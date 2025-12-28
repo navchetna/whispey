@@ -31,7 +31,8 @@ import {
   Bug,
   Trash2,
   FileSpreadsheet,
-  Loader2
+  Loader2,
+  PieChart
 } from 'lucide-react'
 import { query } from "../../lib/postgres"
 import { DatabaseService } from "@/lib/database"
@@ -1455,138 +1456,6 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                       )}
                     </CardContent>
                   </Card>
-                </div>
-              )}
-
-              {/* Prompt-based Summary Cards with Distribution */}
-              {allPrompts && allPrompts.length > 0 && results && results.length > 0 && (
-                <div className="mb-8">
-                  <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                    <Star className="w-5 h-5 text-yellow-500" />
-                    Results by Metric
-                  </h2>
-                  <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                    {allPrompts.map((promptItem: any) => {
-                      // Get results for this specific prompt
-                      const promptResults = results.filter((r: EvaluationResult) => r.prompt_id === promptItem.id)
-                      if (promptResults.length === 0) return null
-                      
-                      const completedResults = promptResults.filter((r: EvaluationResult) => r.status === 'completed')
-                      const failedResults = promptResults.filter((r: EvaluationResult) => r.status === 'failed')
-                      const scoringType = promptItem.scoring_output_type || 'float'
-                      
-                      // Calculate distribution based on scoring type
-                      let distribution: { [key: string]: number } = {}
-                      let avgScore = 0
-                      
-                      if (scoringType === 'bool') {
-                        // For boolean, count true vs false
-                        const trueCount = completedResults.filter((r: EvaluationResult) => {
-                          const score = r.evaluation_score?.overall_score
-                          return parseBooleanScore(score)
-                        }).length
-                        const falseCount = completedResults.length - trueCount
-                        distribution = { 'Pass (True)': trueCount, 'Fail (False)': falseCount }
-                        avgScore = completedResults.length > 0 ? (trueCount / completedResults.length) * 100 : 0
-                      } else {
-                        // For numeric types, calculate score ranges
-                        const scores = completedResults.map((r: EvaluationResult) => 
-                          parseNumericScore(r.evaluation_score?.overall_score)
-                        ).filter((s: number) => !isNaN(s))
-                        
-                        if (scores.length > 0) {
-                          avgScore = scores.reduce((a: number, b: number) => a + b, 0) / scores.length
-                          
-                          if (scoringType === 'percentage') {
-                            // Group by 20% ranges
-                            distribution = {
-                              '0-20%': scores.filter((s: number) => s >= 0 && s < 20).length,
-                              '20-40%': scores.filter((s: number) => s >= 20 && s < 40).length,
-                              '40-60%': scores.filter((s: number) => s >= 40 && s < 60).length,
-                              '60-80%': scores.filter((s: number) => s >= 60 && s < 80).length,
-                              '80-100%': scores.filter((s: number) => s >= 80).length
-                            }
-                          } else {
-                            // For int/float, group by score ranges (assuming 1-10 scale)
-                            distribution = {
-                              'Low (1-3)': scores.filter((s: number) => s >= 0 && s < 4).length,
-                              'Medium (4-6)': scores.filter((s: number) => s >= 4 && s < 7).length,
-                              'High (7-10)': scores.filter((s: number) => s >= 7).length
-                            }
-                          }
-                        }
-                      }
-                      
-                      return (
-                        <Card key={promptItem.id} className="hover:shadow-md transition-shadow">
-                          <CardHeader className="pb-3">
-                            <div className="flex items-center justify-between">
-                              <CardTitle className="text-base font-medium text-gray-900">
-                                {promptItem.name}
-                              </CardTitle>
-                              <Badge className={getEvaluationTypeColor(promptItem.evaluation_type)}>
-                                {promptItem.evaluation_type}
-                              </Badge>
-                            </div>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="space-y-4">
-                              {/* Runs Count */}
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <div className="text-2xl font-bold text-blue-600">
-                                    {completedResults.length}/{promptResults.length}
-                                  </div>
-                                  <div className="text-sm text-gray-500">Completed Runs</div>
-                                </div>
-                                {failedResults.length > 0 && (
-                                  <div className="text-right">
-                                    <div className="text-lg font-bold text-red-600">{failedResults.length}</div>
-                                    <div className="text-sm text-gray-500">Failed</div>
-                                  </div>
-                                )}
-                              </div>
-                              
-                              {/* Average Score */}
-                              <div>
-                                <div className="text-xl font-bold flex items-center gap-2">
-                                  {scoringType === 'bool' 
-                                    ? `${avgScore.toFixed(0)}% Pass Rate`
-                                    : formatScore(avgScore, scoringType)
-                                  }
-                                  {getScoreIcon(getScoreValue(avgScore, scoringType), scoringType)}
-                                </div>
-                                <div className="text-sm text-gray-500">
-                                  {scoringType === 'bool' ? 'Pass Rate' : `Average Score (${getScoringOutputTypeInfo(scoringType).label})`}
-                                </div>
-                              </div>
-                              
-                              {/* Score Distribution */}
-                              <div>
-                                <div className="text-sm font-medium text-gray-700 mb-2">Distribution</div>
-                                <div className="space-y-1">
-                                  {Object.entries(distribution).map(([label, count]) => (
-                                    <div key={label} className="flex items-center justify-between text-sm">
-                                      <span className="text-gray-600">{label}</span>
-                                      <div className="flex items-center gap-2">
-                                        <div className="w-24 bg-gray-200 rounded-full h-2">
-                                          <div 
-                                            className={`h-2 rounded-full ${scoringType === 'bool' && label.includes('Pass') ? 'bg-green-500' : scoringType === 'bool' ? 'bg-red-500' : 'bg-blue-500'}`}
-                                            style={{ width: `${completedResults.length > 0 ? (count / completedResults.length) * 100 : 0}%` }}
-                                          />
-                                        </div>
-                                        <span className="font-medium w-8 text-right">{count}</span>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      )
-                    })}
-                  </div>
                 </div>
               )}
 

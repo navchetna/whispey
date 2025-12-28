@@ -39,7 +39,8 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
-  Brain
+  Brain,
+  PieChart
 } from 'lucide-react'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -68,7 +69,8 @@ const ICONS = {
   BarChart,
   CreditCard,
   History,
-  Brain
+  Brain,
+  PieChart
 } as const
 
 interface NavigationItem {

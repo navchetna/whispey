@@ -32,7 +32,8 @@ import {
   Zap,
   Activity,
   Headphones,
-  FileAudio
+  FileAudio,
+  Languages
 } from 'lucide-react'
 
 // Trace data interface for agent traces
@@ -75,6 +76,7 @@ interface TraceData {
     turn_id: string
     user_transcript: string
     agent_response: string
+    translated_text?: string
     stt_metrics?: any
     llm_metrics?: any
     tts_metrics?: any
@@ -192,6 +194,7 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
   const [debugInfo, setDebugInfo] = useState<string>('')
   const [selectedTrace, setSelectedTrace] = useState<TraceData | null>(null)
   const [traceLoading, setTraceLoading] = useState<boolean>(false)
+  const [showTranslated, setShowTranslated] = useState<boolean>(false)
 
   // Debug selectedTranscript state changes
   useEffect(() => {
@@ -719,6 +722,13 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
           </div>
           
           <div className="flex gap-3">
+            <Button 
+              onClick={() => router.push(`/${params.projectid}/agents/${params.agentid}/evaluations/${params.jobid}/summary`)}
+              className="flex items-center gap-2 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white shadow-lg"
+            >
+              <TrendingUp className="w-4 h-4" />
+              View Summary
+            </Button>
             <Button variant="outline" className="flex items-center gap-2">
               <Download className="w-4 h-4" />
               Export
@@ -730,17 +740,6 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
             >
               <AlertTriangle className="w-4 h-4" />
               Debug Transcript
-            </Button>
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                console.log('🧪 [TEST] Manually opening transcript dialog')
-                setSelectedTranscript({ callId: 'test-123', transcript: 'TEST TRANSCRIPT:\n\nUSER: Hello, this is a test\nAGENT: This is a test response\nUSER: Great, the dialog is working!\nAGENT: Yes, it appears to be functioning correctly.' })
-              }}
-              className="flex items-center gap-2 bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
-            >
-              <Eye className="w-4 h-4" />
-              Test Dialog
             </Button>
             <Button variant="outline" className="flex items-center gap-2">
               <Filter className="w-4 h-4" />
@@ -818,98 +817,42 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
           </Card>
         )}
 
-        {/* Summary Cards */}
+        {/* Quick Stats Banner */}
         {summaries && summaries.length > 0 && (
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-8">
-            {summaries.map((summary: EvaluationSummary) => (
-              <Card key={summary.evaluation_type} className="hover:shadow-md transition-shadow">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-medium text-gray-600 uppercase tracking-wide">
-                      {summary.evaluation_type}
-                    </CardTitle>
-                    <Star className="w-4 h-4 text-yellow-500" />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div>
-                      <div className="text-2xl font-bold flex items-center gap-2">
-                        {formatScore(summary.avg_score, prompt?.scoring_output_type)}
-                        {getScoreIcon(getScoreValue(summary.avg_score, prompt?.scoring_output_type), prompt?.scoring_output_type)}
-                      </div>
-                      <div className="text-sm text-gray-500">Average Score ({getScoringOutputTypeInfo(prompt?.scoring_output_type || 'float').label})</div>
+          <div className="bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 rounded-xl p-4 mb-8 border border-purple-100 dark:border-purple-800">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-6">
+                {summaries.slice(0, 2).map((summary: EvaluationSummary) => (
+                  <div key={summary.evaluation_type} className="flex items-center gap-3">
+                    <div className="text-sm text-gray-600 dark:text-gray-400">{summary.evaluation_type}:</div>
+                    <div className="text-lg font-bold text-purple-700 dark:text-purple-300">
+                      {formatScore(summary.avg_score, prompt?.scoring_output_type)} avg
                     </div>
-                    
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <div className="font-medium">{formatScore(summary.min_score, prompt?.scoring_output_type)}</div>
-                        <div className="text-gray-500">Min</div>
-                      </div>
-                      <div>
-                        <div className="font-medium">{formatScore(summary.max_score, prompt?.scoring_output_type)}</div>
-                        <div className="text-gray-500">Max</div>
-                      </div>
+                    <div className="text-sm text-green-600 dark:text-green-400">
+                      ({(summary.pass_rate * 100).toFixed(0)}% pass)
                     </div>
-                    
-                    {summary.pass_rate !== null && (
-                      <div>
-                        <div className="flex justify-between text-sm mb-1">
-                          <span>Pass Rate</span>
-                          <span>{(summary.pass_rate * 100).toFixed(1)}%</span>
-                        </div>
-                        <Progress value={summary.pass_rate * 100} className="h-2" />
-                      </div>
-                    )}
                   </div>
-                </CardContent>
-              </Card>
-            ))}
+                ))}
+              </div>
+              <Button 
+                onClick={() => router.push(`/${params.projectid}/agents/${params.agentid}/evaluations/${params.jobid}/summary`)}
+                variant="outline"
+                className="flex items-center gap-2 border-purple-300 text-purple-700 hover:bg-purple-100 dark:border-purple-700 dark:text-purple-300 dark:hover:bg-purple-900/30"
+              >
+                <TrendingUp className="w-4 h-4" />
+                Full Summary Report
+              </Button>
+            </div>
           </div>
         )}
 
         {/* Main Content Tabs */}
-        <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
+        <Tabs defaultValue="results" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="results">Individual Results</TabsTrigger>
             <TabsTrigger value="insights">Insights</TabsTrigger>
             <TabsTrigger value="recommendations">Recommendations</TabsTrigger>
           </TabsList>
-
-          <TabsContent value="overview" className="space-y-6">
-            {/* Score Distribution Charts */}
-            <div className="grid gap-6 md:grid-cols-2">
-              {summaries?.map((summary: EvaluationSummary) => (
-                <Card key={summary.evaluation_type}>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <BarChart3 className="w-5 h-5" />
-                      {summary.evaluation_type} Distribution
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {summary.score_distribution && (
-                      <div className="space-y-3">
-                        {Object.entries(summary.score_distribution).map(([score, count]: [string, any]) => (
-                          <div key={score} className="flex items-center gap-3">
-                            <div className="w-16 text-sm font-medium">Score {score}</div>
-                            <div className="flex-1">
-                              <Progress 
-                                value={(count / summary.total_evaluations) * 100} 
-                                className="h-4"
-                              />
-                            </div>
-                            <div className="w-12 text-sm text-gray-500">{count}</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </TabsContent>
 
           <TabsContent value="results" className="space-y-6">
             {/* Filters */}
@@ -1210,20 +1153,54 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
       onOpenChange={(open) => {
         console.log('🖥️ [UI DEBUG] Dialog onOpenChange called with:', open)
         console.log('🖥️ [UI DEBUG] Current selectedTranscript state:', selectedTranscript)
-        if (!open) setSelectedTranscript(null)
+        if (!open) {
+          setSelectedTranscript(null)
+          setShowTranslated(false)
+        }
       }}
     >
       <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
         <DialogHeader>
-          <DialogTitle>
-            Call Transcript - {selectedTranscript?.callId}
-          </DialogTitle>
+          <div className="flex items-center justify-between">
+            <DialogTitle>
+              Call Transcript - {selectedTranscript?.callId}
+            </DialogTitle>
+            {/* Translation Toggle */}
+            <div className="flex items-center gap-2 mr-8">
+              <span className="text-xs text-gray-500">Original</span>
+              <button
+                onClick={() => setShowTranslated(!showTranslated)}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                  showTranslated ? 'bg-purple-600' : 'bg-gray-300 dark:bg-gray-600'
+                }`}
+              >
+                <span
+                  className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                    showTranslated ? 'translate-x-5' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+              <div className="flex items-center gap-1">
+                <Languages className="w-3 h-3 text-purple-600" />
+                <span className="text-xs text-gray-500">Translated</span>
+              </div>
+            </div>
+          </div>
         </DialogHeader>
         <div className="mt-4 overflow-y-auto max-h-[60vh]">
           <div className="bg-gray-50 rounded-lg p-4">
             <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono leading-relaxed">
               {selectedTranscript?.transcript}
             </pre>
+            {showTranslated && (
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <div className="flex items-center gap-2 mb-2">
+                  <Languages className="w-4 h-4 text-purple-600" />
+                  <span className="text-sm font-medium text-purple-700">Translated Version</span>
+                </div>
+                <p className="text-xs text-gray-500 italic">Note: Translation is shown below the original text in each turn when viewing call logs.</p>
+              </div>
+            )}
           </div>
         </div>
       </DialogContent>
@@ -1377,6 +1354,9 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
                               )}
                             </div>
                             <p className="text-sm text-gray-800">{turn.user_transcript}</p>
+                            {turn.translated_text && (
+                              <p className="text-xs text-gray-600 font-medium mt-1">({turn.translated_text})</p>
+                            )}
                           </div>
                         )}
                         {turn.agent_response && (
@@ -1395,6 +1375,9 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
                               )}
                             </div>
                             <p className="text-sm text-gray-800">{turn.agent_response}</p>
+                            {turn.translated_text && !turn.user_transcript && (
+                              <p className="text-xs text-gray-600 font-medium mt-1">({turn.translated_text})</p>
+                            )}
                           </div>
                         )}
                       </div>
