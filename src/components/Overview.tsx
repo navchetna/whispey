@@ -19,6 +19,9 @@ import {
   Percent,
   ArrowUp,
   ArrowDown,
+  Timer,
+  ChatCircle,
+  Hourglass,
 } from 'phosphor-react'
 
 import { 
@@ -32,9 +35,11 @@ import {
   CartesianGrid,
   PieChart,
   Pie,
-  Cell
+  Cell,
+  Tooltip as RechartsTooltip
 } from 'recharts'
 import { useOverviewQuery } from '../hooks/useOverviewQuery'
+import { useDetailedMetrics } from '../hooks/useDetailedMetrics'
 import { 
   DropdownMenu,
   DropdownMenuContent,
@@ -180,6 +185,13 @@ const Overview: React.FC<OverviewProps> = ({
 
   // Data fetching - only run when we have agent data
   const { data: analytics, loading: analyticsLoading, error } = useOverviewQuery({
+    agentId: agent?.id,
+    dateFrom: dateRange.from,
+    dateTo: dateRange.to,
+  })
+
+  // Detailed metrics for turn latencies, call durations, and turns per call
+  const { data: detailedMetrics, loading: detailedMetricsLoading } = useDetailedMetrics({
     agentId: agent?.id,
     dateFrom: dateRange.from,
     dateTo: dateRange.to,
@@ -816,6 +828,14 @@ const Overview: React.FC<OverviewProps> = ({
           </Card>
         )}
 
+        {/* Section Header: Daily Trends */}
+        <div className={`${isMobile ? 'mb-3' : 'mb-4'}`}>
+          <h2 className={`${isMobile ? 'text-lg' : 'text-xl'} font-semibold text-gray-900 dark:text-gray-100`}>Daily Trends</h2>
+          <p className={`${isMobile ? 'text-xs' : 'text-sm'} text-gray-500 dark:text-gray-400 mt-1`}>
+            Aggregated metrics over the selected time period
+          </p>
+        </div>
+
         {/* Chart Grid - Single column on mobile */}
         <div className={`grid gap-4 ${isMobile ? 'grid-cols-1' : 'grid-cols-2 gap-6'}`}>
           {/* Daily Calls Chart */}
@@ -1173,6 +1193,313 @@ const Overview: React.FC<OverviewProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Section Header: Call-Level Distribution */}
+        <div className={`${isMobile ? 'mb-3' : 'mb-4'}`}>
+          <h2 className={`${isMobile ? 'text-lg' : 'text-xl'} font-semibold text-gray-900 dark:text-gray-100`}>Call-Level Distribution</h2>
+          <p className={`${isMobile ? 'text-xs' : 'text-sm'} text-gray-500 dark:text-gray-400 mt-1`}>
+            Per-call metrics breakdown and percentile analysis
+          </p>
+        </div>
+
+        {/* Loading state for detailed metrics */}
+        {detailedMetricsLoading && (
+          <div className={`grid gap-4 ${isMobile ? 'grid-cols-1' : 'grid-cols-3 gap-6'}`}>
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl shadow-sm">
+                <div className={`border-b border-gray-200 dark:border-gray-700 ${isMobile ? 'px-4 py-4' : 'px-7 py-6'}`}>
+                  <div className="flex items-center gap-3">
+                    <div className={`${isMobile ? 'w-8 h-8' : 'w-10 h-10'} bg-gray-100 dark:bg-gray-700 rounded-lg animate-pulse`}></div>
+                    <div>
+                      <div className={`${isMobile ? 'h-4 w-32' : 'h-5 w-40'} bg-gray-200 dark:bg-gray-600 rounded animate-pulse mb-2`}></div>
+                      <div className={`${isMobile ? 'h-3 w-24' : 'h-4 w-32'} bg-gray-100 dark:bg-gray-700 rounded animate-pulse`}></div>
+                    </div>
+                  </div>
+                </div>
+                <div className={isMobile ? 'p-4' : 'p-7'}>
+                  <div className={`${isMobile ? 'h-48' : 'h-64'} bg-gray-50 dark:bg-gray-800 rounded-lg animate-pulse flex items-center justify-center`}>
+                    <Loader2 className={`${isMobile ? 'w-6 h-6' : 'w-8 h-8'} animate-spin text-gray-400 dark:text-gray-500`} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Turn Latency, Call Duration & Turns Charts Section */}
+        {!detailedMetricsLoading && detailedMetrics && (
+          <div className={`grid gap-4 ${isMobile ? 'grid-cols-1' : 'grid-cols-3 gap-6'}`}>
+            {/* Turn Latency Histogram with Percentiles */}
+            <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl shadow-sm hover:shadow-md transition-all duration-300">
+              <div className={`border-b border-gray-200 dark:border-gray-700 ${isMobile ? 'px-4 py-4' : 'px-7 py-6'}`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-100 dark:border-purple-800`}>
+                      <Timer weight="regular" className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-purple-600 dark:text-purple-400`} />
+                    </div>
+                    <div>
+                      <h3 className={`${isMobile ? 'text-base' : 'text-lg'} font-semibold text-gray-900 dark:text-gray-100 tracking-tight`}>Turn Latency Distribution</h3>
+                      <p className={`${isMobile ? 'text-xs' : 'text-sm'} text-gray-500 dark:text-gray-400 mt-0.5`}>
+                        Response time breakdown
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                {/* Percentile badges */}
+                <div className={`flex flex-wrap gap-2 ${isMobile ? 'mt-3' : 'mt-4'}`}>
+                  <div className="flex items-center gap-1.5 bg-purple-50 dark:bg-purple-900/20 px-2 py-1 rounded-md border border-purple-100 dark:border-purple-800">
+                    <span className={`${isMobile ? 'text-xs' : 'text-xs'} font-medium text-purple-600 dark:text-purple-400`}>p50</span>
+                    <span className={`${isMobile ? 'text-xs' : 'text-sm'} font-semibold text-purple-700 dark:text-purple-300`}>
+                      {detailedMetrics.latencyMetrics.percentiles.p50.toFixed(2)}s
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 bg-orange-50 dark:bg-orange-900/20 px-2 py-1 rounded-md border border-orange-100 dark:border-orange-800">
+                    <span className={`${isMobile ? 'text-xs' : 'text-xs'} font-medium text-orange-600 dark:text-orange-400`}>p90</span>
+                    <span className={`${isMobile ? 'text-xs' : 'text-sm'} font-semibold text-orange-700 dark:text-orange-300`}>
+                      {detailedMetrics.latencyMetrics.percentiles.p90.toFixed(2)}s
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded-md border border-red-100 dark:border-red-800">
+                    <span className={`${isMobile ? 'text-xs' : 'text-xs'} font-medium text-red-600 dark:text-red-400`}>p99</span>
+                    <span className={`${isMobile ? 'text-xs' : 'text-sm'} font-semibold text-red-700 dark:text-red-300`}>
+                      {detailedMetrics.latencyMetrics.percentiles.p99.toFixed(2)}s
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className={isMobile ? 'p-4' : 'p-7'}>
+                <div className={isMobile ? 'h-48' : 'h-64'}>
+                  {detailedMetrics.latencyMetrics.histogram.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={detailedMetrics.latencyMetrics.histogram} margin={{ top: 10, right: 10, left: 10, bottom: 30 }}>
+                        <defs>
+                          <linearGradient id="latencyBinGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.9}/>
+                            <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.5}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="1 1" stroke={colors.grid} />
+                        <XAxis 
+                          dataKey="range" 
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fontSize: isMobile ? 8 : 10, fill: colors.text, fontWeight: 500 }}
+                          angle={-45}
+                          textAnchor="end"
+                          height={50}
+                        />
+                        <YAxis 
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fontSize: isMobile ? 9 : 11, fill: colors.text, fontWeight: 500 }}
+                          width={isMobile ? 30 : 35}
+                        />
+                        <Tooltip 
+                          contentStyle={{
+                            backgroundColor: colors.background,
+                            border: `1px solid ${theme === 'dark' ? '#374151' : '#e5e7eb'}`,
+                            borderRadius: '12px',
+                            fontSize: isMobile ? '12px' : '13px',
+                            fontWeight: '500',
+                            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+                            backdropFilter: 'blur(20px)',
+                            color: theme === 'dark' ? '#f3f4f6' : '#374151'
+                          }}
+                          formatter={(value) => [`${value} calls`, 'Count']}
+                        />
+                        <Bar 
+                          dataKey="count" 
+                          fill="url(#latencyBinGradient)"
+                          radius={[4, 4, 0, 0]}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-gray-400 dark:text-gray-500 text-sm">
+                      No latency data available
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Call Duration Distribution */}
+            <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl shadow-sm hover:shadow-md transition-all duration-300">
+              <div className={`border-b border-gray-200 dark:border-gray-700 ${isMobile ? 'px-4 py-4' : 'px-7 py-6'}`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-100 dark:border-emerald-800`}>
+                      <Hourglass weight="regular" className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-emerald-600 dark:text-emerald-400`} />
+                    </div>
+                    <div>
+                      <h3 className={`${isMobile ? 'text-base' : 'text-lg'} font-semibold text-gray-900 dark:text-gray-100 tracking-tight`}>Call Duration Breakdown</h3>
+                      <p className={`${isMobile ? 'text-xs' : 'text-sm'} text-gray-500 dark:text-gray-400 mt-0.5`}>
+                        Calls by length
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className={`${isMobile ? 'text-xs' : 'text-xs'} font-medium text-gray-500 dark:text-gray-400`}>Avg Duration</div>
+                    <div className={`${isMobile ? 'text-lg' : 'text-xl'} font-light text-emerald-600 dark:text-emerald-400`}>
+                      {detailedMetrics.durationMetrics.avgDuration > 60 
+                        ? `${(detailedMetrics.durationMetrics.avgDuration / 60).toFixed(1)}m`
+                        : `${detailedMetrics.durationMetrics.avgDuration.toFixed(0)}s`
+                      }
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className={isMobile ? 'p-4' : 'p-7'}>
+                <div className={isMobile ? 'h-48' : 'h-64'}>
+                  {detailedMetrics.durationMetrics.histogram.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={detailedMetrics.durationMetrics.histogram} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
+                        <defs>
+                          <linearGradient id="durationBinGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.9}/>
+                            <stop offset="95%" stopColor="#10b981" stopOpacity={0.5}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="1 1" stroke={colors.grid} />
+                        <XAxis 
+                          dataKey="range" 
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fontSize: isMobile ? 9 : 11, fill: colors.text, fontWeight: 500 }}
+                        />
+                        <YAxis 
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fontSize: isMobile ? 9 : 11, fill: colors.text, fontWeight: 500 }}
+                          width={isMobile ? 30 : 35}
+                        />
+                        <Tooltip 
+                          contentStyle={{
+                            backgroundColor: colors.background,
+                            border: `1px solid ${theme === 'dark' ? '#374151' : '#e5e7eb'}`,
+                            borderRadius: '12px',
+                            fontSize: isMobile ? '12px' : '13px',
+                            fontWeight: '500',
+                            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+                            backdropFilter: 'blur(20px)',
+                            color: theme === 'dark' ? '#f3f4f6' : '#374151'
+                          }}
+                          formatter={(value) => [`${value} calls`, 'Count']}
+                        />
+                        <Bar 
+                          dataKey="count" 
+                          fill="url(#durationBinGradient)"
+                          radius={[4, 4, 0, 0]}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-gray-400 dark:text-gray-500 text-sm">
+                      No duration data available
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Turns Per Call Distribution */}
+            <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl shadow-sm hover:shadow-md transition-all duration-300">
+              <div className={`border-b border-gray-200 dark:border-gray-700 ${isMobile ? 'px-4 py-4' : 'px-7 py-6'}`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 bg-cyan-50 dark:bg-cyan-900/20 rounded-lg border border-cyan-100 dark:border-cyan-800`}>
+                      <ChatCircle weight="regular" className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-cyan-600 dark:text-cyan-400`} />
+                    </div>
+                    <div>
+                      <h3 className={`${isMobile ? 'text-base' : 'text-lg'} font-semibold text-gray-900 dark:text-gray-100 tracking-tight`}>Turns Per Call</h3>
+                      <p className={`${isMobile ? 'text-xs' : 'text-sm'} text-gray-500 dark:text-gray-400 mt-0.5`}>
+                        Conversation depth
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className={`${isMobile ? 'text-xs' : 'text-xs'} font-medium text-gray-500 dark:text-gray-400`}>Avg Turns</div>
+                    <div className={`${isMobile ? 'text-lg' : 'text-xl'} font-light text-cyan-600 dark:text-cyan-400`}>
+                      {detailedMetrics.turnMetrics.stats.avg.toFixed(1)}
+                    </div>
+                  </div>
+                </div>
+                {/* Turn stats badges */}
+                <div className={`flex flex-wrap gap-2 ${isMobile ? 'mt-3' : 'mt-4'}`}>
+                  <div className="flex items-center gap-1.5 bg-gray-50 dark:bg-gray-700 px-2 py-1 rounded-md border border-gray-200 dark:border-gray-600">
+                    <span className={`${isMobile ? 'text-xs' : 'text-xs'} font-medium text-gray-500 dark:text-gray-400`}>Min</span>
+                    <span className={`${isMobile ? 'text-xs' : 'text-sm'} font-semibold text-gray-700 dark:text-gray-300`}>
+                      {detailedMetrics.turnMetrics.stats.min}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 bg-gray-50 dark:bg-gray-700 px-2 py-1 rounded-md border border-gray-200 dark:border-gray-600">
+                    <span className={`${isMobile ? 'text-xs' : 'text-xs'} font-medium text-gray-500 dark:text-gray-400`}>Max</span>
+                    <span className={`${isMobile ? 'text-xs' : 'text-sm'} font-semibold text-gray-700 dark:text-gray-300`}>
+                      {detailedMetrics.turnMetrics.stats.max}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 bg-cyan-50 dark:bg-cyan-900/20 px-2 py-1 rounded-md border border-cyan-100 dark:border-cyan-800">
+                    <span className={`${isMobile ? 'text-xs' : 'text-xs'} font-medium text-cyan-600 dark:text-cyan-400`}>Total</span>
+                    <span className={`${isMobile ? 'text-xs' : 'text-sm'} font-semibold text-cyan-700 dark:text-cyan-300`}>
+                      {detailedMetrics.turnMetrics.stats.total.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className={isMobile ? 'p-4' : 'p-7'}>
+                <div className={isMobile ? 'h-48' : 'h-64'}>
+                  {detailedMetrics.turnMetrics.histogram.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={detailedMetrics.turnMetrics.histogram} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
+                        <defs>
+                          <linearGradient id="turnsBinGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.9}/>
+                            <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.5}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="1 1" stroke={colors.grid} />
+                        <XAxis 
+                          dataKey="range" 
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fontSize: isMobile ? 9 : 11, fill: colors.text, fontWeight: 500 }}
+                        />
+                        <YAxis 
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fontSize: isMobile ? 9 : 11, fill: colors.text, fontWeight: 500 }}
+                          width={isMobile ? 30 : 35}
+                        />
+                        <Tooltip 
+                          contentStyle={{
+                            backgroundColor: colors.background,
+                            border: `1px solid ${theme === 'dark' ? '#374151' : '#e5e7eb'}`,
+                            borderRadius: '12px',
+                            fontSize: isMobile ? '12px' : '13px',
+                            fontWeight: '500',
+                            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+                            backdropFilter: 'blur(20px)',
+                            color: theme === 'dark' ? '#f3f4f6' : '#374151'
+                          }}
+                          formatter={(value) => [`${value} calls`, 'Count']}
+                        />
+                        <Bar 
+                          dataKey="count" 
+                          fill="url(#turnsBinGradient)"
+                          radius={[4, 4, 0, 0]}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-gray-400 dark:text-gray-500 text-sm">
+                      No turn data available
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Chart Analytics Section - Hidden on mobile for better performance */}
         {!isMobile && (

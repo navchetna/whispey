@@ -184,6 +184,7 @@ CREATE TABLE IF NOT EXISTS public.pype_voice_call_logs (
     call_ended_reason varchar,
     transcript_type varchar,
     transcript_json jsonb DEFAULT '{}',
+    translation_language varchar(10) DEFAULT NULL,
     metadata jsonb DEFAULT '{}',
     dynamic_variables jsonb DEFAULT '{}',
     environment varchar DEFAULT 'production',

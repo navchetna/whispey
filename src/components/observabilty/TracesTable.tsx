@@ -18,7 +18,7 @@ import { getAgentPlatform } from "@/utils/agentDetection";
 const SarvamIcon = ({ className }: { className?: string }) => (
   <img 
     src="https://img.icons8.com/?size=100&id=cSTZGiTsAgJX&format=png&color=000000"
-    alt="Sarvam"
+    alt="Survey Bot"
     className={className}
   />
 )
@@ -178,7 +178,8 @@ const TracesTable: React.FC<TracesTableProps> = ({
             latency: turn.latency,
             cost: turn.cost,
             confidence: turn.confidence,
-            from_uploaded_audio: true
+            from_uploaded_audio: true,
+            translated_text: turn.translated_text || null
           }
         }
       })
@@ -990,6 +991,12 @@ const handleRowClick = (trace: TraceLog) => {
                                 isActiveTrace && "bg-blue-50 dark:bg-blue-900/10 p-3 rounded-lg border border-blue-200 dark:border-blue-800 leading-relaxed"
                               )}>
                                 {isActiveTrace ? trace.user_transcript : truncateText(trace.user_transcript, 120)}
+                                {/* Show translated text for user message */}
+                                {trace.metadata?.translated_text && trace.user_transcript && (
+                                  <div className="text-gray-600 dark:text-gray-300 font-medium text-xs mt-1">
+                                    ({trace.metadata.translated_text})
+                                  </div>
+                                )}
                               </div>
                             </div>
                           )}
@@ -1019,6 +1026,12 @@ const handleRowClick = (trace: TraceLog) => {
                                 isActiveTrace && "bg-green-50 dark:bg-green-900/10 p-3 rounded-lg border border-green-200 dark:border-green-800 leading-relaxed"
                               )}>
                                 {isActiveTrace ? trace.agent_response : truncateText(trace.agent_response, 120)}
+                                {/* Show translated text for agent message */}
+                                {trace.metadata?.translated_text && trace.agent_response && !trace.user_transcript && (
+                                  <div className="text-gray-600 dark:text-gray-300 font-medium text-xs mt-1">
+                                    ({trace.metadata.translated_text})
+                                  </div>
+                                )}
                               </div>
                             </div>
                           )}
