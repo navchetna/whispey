@@ -52,6 +52,25 @@ export async function GET(request: NextRequest) {
       paramIndex++
     }
 
+    if (searchParams.get('agent_id')) {
+      conditions.push(`agent_id = $${paramIndex}`)
+      params.push(searchParams.get('agent_id'))
+      paramIndex++
+    }
+
+    // Date range filters
+    if (searchParams.get('date_from')) {
+      conditions.push(`created_at >= $${paramIndex}`)
+      params.push(searchParams.get('date_from'))
+      paramIndex++
+    }
+
+    if (searchParams.get('date_to')) {
+      conditions.push(`created_at <= $${paramIndex}::date + interval '1 day'`)
+      params.push(searchParams.get('date_to'))
+      paramIndex++
+    }
+
     // Build WHERE clause
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
 

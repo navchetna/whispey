@@ -189,7 +189,7 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
   const [selectedType, setSelectedType] = useState<string>('all')
   const [sortBy, setSortBy] = useState<'score' | 'date' | 'duration'>('score')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
-  const [selectedTranscript, setSelectedTranscript] = useState<{callId: string, transcript: string} | null>(null)
+  const [selectedTranscript, setSelectedTranscript] = useState<{callId: string, transcript: string, translatedTranscript?: string} | null>(null)
   const [selectedRawResponse, setSelectedRawResponse] = useState<{callId: string, response: string} | null>(null)
   const [debugInfo, setDebugInfo] = useState<string>('')
   const [selectedTrace, setSelectedTrace] = useState<TraceData | null>(null)
@@ -402,8 +402,10 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
           index,
           user_transcript: turn.user_transcript ? turn.user_transcript.substring(0, 50) + '...' : null,
           agent_response: turn.agent_response ? turn.agent_response.substring(0, 50) + '...' : null,
+          translated_text: turn.translated_text ? turn.translated_text.substring(0, 50) + '...' : null,
           has_user: !!turn.user_transcript,
-          has_agent: !!turn.agent_response
+          has_agent: !!turn.agent_response,
+          has_translated: !!turn.translated_text
         })))
 
         // Format the transcript data using the same logic as the processor
@@ -423,13 +425,37 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
           })
           .join('\n\n')
 
+        // Format the translated transcript data
+        const formattedTranslatedTranscript = transcriptTurns
+          .filter((turn: any) => turn.translated_text || turn.user_transcript || turn.agent_response)
+          .map((turn: any) => {
+            const messages: string[] = []
+            
+            // Use translated_text if available, otherwise fall back to original
+            if (turn.user_transcript && turn.user_transcript.trim()) {
+              const translatedUser = turn.translated_text && turn.user_transcript ? turn.translated_text : turn.user_transcript
+              messages.push(`USER: ${translatedUser}`)
+            }
+            if (turn.agent_response && turn.agent_response.trim()) {
+              // Agent responses typically don't need translation (they're already in the target language)
+              messages.push(`AGENT: ${turn.agent_response}`)
+            }
+            
+            return messages.join('\n')
+          })
+          .join('\n\n')
+
         console.log('📄 [DEBUG] Formatted transcript length:', formattedTranscript.length)
         console.log('📄 [DEBUG] Formatted transcript preview:', formattedTranscript.substring(0, 200) + '...')
 
         if (formattedTranscript.trim()) {
           console.log('✅ [SUCCESS] Transcript formatted successfully, opening dialog')
           console.log('🖥️ [UI DEBUG] Setting selectedTranscript state with:', { callId, transcriptLength: formattedTranscript.length })
-          setSelectedTranscript({ callId, transcript: formattedTranscript })
+          setSelectedTranscript({ 
+            callId, 
+            transcript: formattedTranscript,
+            translatedTranscript: formattedTranslatedTranscript !== formattedTranscript ? formattedTranslatedTranscript : undefined
+          })
           // Force a small delay to ensure state update
           setTimeout(() => {
             console.log('🖥️ [UI DEBUG] Dialog should be open now, selectedTranscript set')
@@ -1165,40 +1191,43 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
             <DialogTitle>
               Call Transcript - {selectedTranscript?.callId}
             </DialogTitle>
-            {/* Translation Toggle */}
-            <div className="flex items-center gap-2 mr-8">
-              <span className="text-xs text-gray-500">Original</span>
-              <button
-                onClick={() => setShowTranslated(!showTranslated)}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                  showTranslated ? 'bg-purple-600' : 'bg-gray-300 dark:bg-gray-600'
-                }`}
-              >
-                <span
-                  className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
-                    showTranslated ? 'translate-x-5' : 'translate-x-1'
+            {/* Translation Toggle - Only show if translated content is available */}
+            {selectedTranscript?.translatedTranscript && (
+              <div className="flex items-center gap-2 mr-8">
+                <span className={`text-xs ${!showTranslated ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>Original</span>
+                <button
+                  onClick={() => setShowTranslated(!showTranslated)}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                    showTranslated ? 'bg-purple-600' : 'bg-gray-300 dark:bg-gray-600'
                   }`}
-                />
-              </button>
-              <div className="flex items-center gap-1">
-                <Languages className="w-3 h-3 text-purple-600" />
-                <span className="text-xs text-gray-500">Translated</span>
+                >
+                  <span
+                    className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                      showTranslated ? 'translate-x-5' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+                <div className="flex items-center gap-1">
+                  <Languages className="w-3 h-3 text-purple-600" />
+                  <span className={`text-xs ${showTranslated ? 'text-purple-700 font-medium' : 'text-gray-500'}`}>Translated</span>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </DialogHeader>
         <div className="mt-4 overflow-y-auto max-h-[60vh]">
           <div className="bg-gray-50 rounded-lg p-4">
             <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono leading-relaxed">
-              {selectedTranscript?.transcript}
+              {showTranslated && selectedTranscript?.translatedTranscript 
+                ? selectedTranscript.translatedTranscript 
+                : selectedTranscript?.transcript}
             </pre>
-            {showTranslated && (
+            {!selectedTranscript?.translatedTranscript && (
               <div className="mt-4 pt-4 border-t border-gray-200">
-                <div className="flex items-center gap-2 mb-2">
-                  <Languages className="w-4 h-4 text-purple-600" />
-                  <span className="text-sm font-medium text-purple-700">Translated Version</span>
+                <div className="flex items-center gap-2">
+                  <Languages className="w-4 h-4 text-gray-400" />
+                  <span className="text-xs text-gray-500 italic">No translated version available for this transcript.</span>
                 </div>
-                <p className="text-xs text-gray-500 italic">Note: Translation is shown below the original text in each turn when viewing call logs.</p>
               </div>
             )}
           </div>

@@ -12,7 +12,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
-import { AlertCircle, Plus, Settings, Play, MoreHorizontal, Edit2, Trash2, Copy, Eye, Brain, CheckCircle, Clock, XCircle, RefreshCw, Bug, Upload, File, Link as LinkIcon } from 'lucide-react'
+import { AlertCircle, Plus, Settings, Play, MoreHorizontal, Edit2, Trash2, Copy, Eye, Brain, CheckCircle, Clock, XCircle, RefreshCw, Bug, Upload, File, Link as LinkIcon, Timer, Gauge } from 'lucide-react'
 import { query } from "../../lib/postgres"
 
 // Utility functions
@@ -131,6 +131,16 @@ interface EvaluationConfigProps {
   params: { projectid: string; agentid: string }
 }
 
+// Static metric configuration interface
+interface StaticMetricConfig {
+  id: string
+  name: string
+  description: string
+  enabled: boolean
+  threshold: number
+  unit: string
+}
+
 export default function EvaluationConfig({ params }: EvaluationConfigProps) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<'prompts' | 'jobs' | 'audio'>('prompts')
@@ -139,6 +149,19 @@ export default function EvaluationConfig({ params }: EvaluationConfigProps) {
   const [showEditPrompt, setShowEditPrompt] = useState(false)
   const [showCreateJob, setShowCreateJob] = useState(false)
   const [selectedPrompts, setSelectedPrompts] = useState<string[]>([])
+  
+  // Static metrics state
+  const [staticMetrics, setStaticMetrics] = useState<StaticMetricConfig[]>([
+    {
+      id: 'turn_latency',
+      name: 'Turn Latency',
+      description: 'All individual turn latencies must be less than the threshold',
+      enabled: true,
+      threshold: 5,
+      unit: 'seconds'
+    }
+  ])
+  const [editingStaticMetric, setEditingStaticMetric] = useState<StaticMetricConfig | null>(null)
   
   // Audio upload states
   const [uploadType, setUploadType] = useState<'zip' | 'url'>('zip')
@@ -727,6 +750,71 @@ ${diag.sampleCallLogs.all.map((log: any) => `• ${log.id}: ${log.call_ended_rea
                 ))}
               </div>
             )}
+
+            {/* Static Metrics Section */}
+            <div className="mt-8">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                    <Gauge className="w-5 h-5 text-orange-600" />
+                    Static Metrics
+                  </h2>
+                  <p className="text-sm text-gray-500 mt-1">Non-prompt based metrics with configurable thresholds</p>
+                </div>
+              </div>
+              
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {staticMetrics.map((metric) => (
+                  <Card key={metric.id} className={`hover:shadow-md transition-shadow ${metric.enabled ? 'border-orange-200 bg-orange-50/30' : 'border-gray-200 bg-gray-50/30'}`}>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <CardTitle className="text-lg mb-2 flex items-center gap-2">
+                            <Timer className="w-5 h-5 text-orange-600" />
+                            {metric.name}
+                          </CardTitle>
+                          <Badge className={`text-xs ${metric.enabled ? 'bg-orange-100 text-orange-700 border-orange-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                            Static Metric
+                          </Badge>
+                        </div>
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => setEditingStaticMetric(metric)}
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-gray-600 mb-4">
+                        {metric.description}
+                      </p>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-500">Threshold:</span>
+                          <span className="text-sm font-medium text-orange-700 bg-orange-100 px-2 py-1 rounded">
+                            {metric.threshold} {metric.unit}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-500">Success Criteria:</span>
+                          <span className="text-xs text-gray-600">
+                            All turns &lt; {metric.threshold}s
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-500">Status:</span>
+                          <span className={`px-2 py-1 rounded-full text-xs ${metric.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                            {metric.enabled ? 'Enabled' : 'Disabled'}
+                          </span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
@@ -1068,6 +1156,103 @@ ${diag.sampleCallLogs.all.map((log: any) => `• ${log.id}: ${log.call_ended_rea
         onSubmit={handleCreateJob}
         params={params}
       />
+
+      {/* Edit Static Metric Dialog */}
+      <Dialog open={!!editingStaticMetric} onOpenChange={(open) => !open && setEditingStaticMetric(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Timer className="w-5 h-5 text-orange-600" />
+              Edit Static Metric
+            </DialogTitle>
+          </DialogHeader>
+          {editingStaticMetric && (
+            <div className="space-y-4 mt-4">
+              <div>
+                <Label className="text-sm font-medium text-gray-700">Metric Name</Label>
+                <p className="text-sm text-gray-900 mt-1 font-medium">{editingStaticMetric.name}</p>
+              </div>
+              
+              <div>
+                <Label className="text-sm font-medium text-gray-700">Description</Label>
+                <p className="text-sm text-gray-600 mt-1">{editingStaticMetric.description}</p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="threshold" className="text-sm font-medium text-gray-700">
+                  Threshold ({editingStaticMetric.unit})
+                </Label>
+                <Input
+                  id="threshold"
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  max="60"
+                  value={editingStaticMetric.threshold}
+                  onChange={(e) => {
+                    const newThreshold = parseFloat(e.target.value) || 5
+                    setEditingStaticMetric({
+                      ...editingStaticMetric,
+                      threshold: newThreshold
+                    })
+                  }}
+                  className="w-full"
+                />
+                <p className="text-xs text-gray-500">
+                  Success Criteria: All individual turn latencies must be less than {editingStaticMetric.threshold} {editingStaticMetric.unit}
+                </p>
+              </div>
+              
+              <div className="flex items-center justify-between">
+                <Label htmlFor="enabled" className="text-sm font-medium text-gray-700">
+                  Enable Metric
+                </Label>
+                <button
+                  id="enabled"
+                  onClick={() => {
+                    setEditingStaticMetric({
+                      ...editingStaticMetric,
+                      enabled: !editingStaticMetric.enabled
+                    })
+                  }}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    editingStaticMetric.enabled ? 'bg-orange-600' : 'bg-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      editingStaticMetric.enabled ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+              
+              <div className="flex justify-end gap-3 pt-4 border-t">
+                <Button
+                  variant="outline"
+                  onClick={() => setEditingStaticMetric(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => {
+                    // Update the static metrics
+                    setStaticMetrics(prev => 
+                      prev.map(m => 
+                        m.id === editingStaticMetric.id ? editingStaticMetric : m
+                      )
+                    )
+                    setEditingStaticMetric(null)
+                  }}
+                  className="bg-orange-600 hover:bg-orange-700"
+                >
+                  Save Changes
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -1094,7 +1279,7 @@ Analyze the conversation and provide your evaluation in the following JSON forma
 
 {
   "score": <overall_score_from_1_to_10>,
-  "reasoning": "<detailed_explanation_of_your_evaluation>"
+  "reasoning": "<short_explanation_of_your_evaluation>"
 }
 
 Provide only the JSON response, nothing else.`,

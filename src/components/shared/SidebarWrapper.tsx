@@ -39,6 +39,7 @@ interface SidebarContext {
   userCanViewApiKeys: boolean
   projectId?: string
   agentType?: string
+  isAdmin?: boolean
 }
 
 interface NavigationItem {
@@ -169,6 +170,8 @@ const sidebarRoutes: SidebarRoute[] = [
     patterns: [
       { pattern: '/:projectId/agents/:agentId' },
       { pattern: '/:projectId/agents/:agentId/config' },
+      { pattern: '/:projectId/agents/:agentId/agent-personas' },
+      { pattern: '/:projectId/agents/:agentId/developer-settings' },
       { pattern: '/:projectId/agents/:agentId/observability' },
       { pattern: '/:projectId/agents/:agentId/phone-call-config' },
       { pattern: '/:projectId/agents/:agentId/evaluations/:jobId' },
@@ -210,6 +213,14 @@ const sidebarRoutes: SidebarRoute[] = [
         name: 'Agent Config', 
         icon: 'Brain', 
         path: `/${projectId}/agents/${agentId}/config`, 
+        group: 'agent config' 
+      })
+      // Add Agent Personas
+      configItems.push({ 
+        id: 'agent-personas', 
+        name: 'Agent Personas', 
+        icon: 'User', 
+        path: `/${projectId}/agents/${agentId}/agent-personas`, 
         group: 'agent config' 
       })
 
@@ -287,32 +298,78 @@ const sidebarRoutes: SidebarRoute[] = [
     },
     priority: 90
   },
+  // Admin routes
+  {
+    patterns: [
+      { pattern: '/admin/default-metrics' },
+      { pattern: '/admin/persona-templates' },
+      { pattern: '/admin/*' }
+    ],
+    getSidebarConfig: () => ({
+      type: 'admin',
+      context: {},
+      navigation: [
+        { 
+          id: 'default-metrics', 
+          name: 'Default Metrics', 
+          icon: 'Shield', 
+          path: '/admin/default-metrics',
+          group: 'Admin Portal'
+        },
+        { 
+          id: 'persona-templates', 
+          name: 'Persona Templates', 
+          icon: 'User', 
+          path: '/admin/persona-templates',
+          group: 'Admin Portal'
+        },
+        { 
+          id: 'back-to-workspaces', 
+          name: 'Back to Workspaces', 
+          icon: 'ArrowLeft', 
+          path: '/',
+          group: 'Navigation'
+        }
+      ],
+      showBackButton: true,
+      backPath: '/',
+      backLabel: 'Back to Workspaces'
+    }),
+    priority: 95
+  },
   {
     patterns: [
       { pattern: '/', exact: true },
       { pattern: '*' }
     ],
-    getSidebarConfig: () => ({
-      type: 'workspaces',
-      context: {},
-      navigation: [
+    getSidebarConfig: (params, context) => {
+      const navigation: NavigationItem[] = [
         { 
           id: 'workspaces', 
           name: 'Workspaces', 
           icon: 'Home', 
           path: '/' 
-        },
-        { 
-          id: 'docs', 
-          name: 'Documentation', 
-          icon: 'FileText', 
-          path: '/docs', 
-          external: true, 
-          group: 'resources' 
         }
-      ],
-      showBackButton: false
-    }),
+      ]
+
+      // Add Admin Portal link for admin users
+      if (context.isAdmin) {
+        navigation.push({
+          id: 'admin-portal',
+          name: 'Admin Portal',
+          icon: 'Shield',
+          path: '/admin/default-metrics',
+          group: 'Administration'
+        })
+      }
+
+      return {
+        type: 'workspaces',
+        context: {},
+        navigation,
+        showBackButton: false
+      }
+    },
     priority: 1
   }
 ]
@@ -424,7 +481,8 @@ export default function SidebarWrapper({ children }: SidebarWrapperProps) {
     isEnhancedProject,
     userCanViewApiKeys,
     projectId,
-    agentType: agent?.agent_type
+    agentType: agent?.agent_type,
+    isAdmin: user?.isAdmin === true
   }
   
   const sidebarConfig = getSidebarConfig(pathname, sidebarContext)

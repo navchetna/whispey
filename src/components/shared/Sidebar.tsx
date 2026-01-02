@@ -70,7 +70,8 @@ const ICONS = {
   CreditCard,
   History,
   Brain,
-  PieChart
+  PieChart,
+  ArrowLeft
 } as const
 
 interface NavigationItem {

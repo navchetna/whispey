@@ -17,7 +17,8 @@ import {
   Phone,
   Clock,
   Sparkles,
-  ChevronRight
+  ChevronRight,
+  Timer
 } from 'lucide-react'
 
 // Helper function to get scoring output type information
@@ -109,6 +110,10 @@ const DonutChart = ({
   const circumference = 2 * Math.PI * radius
   const strokeDashoffset = circumference - (percentage / 100) * circumference
   const center = size / 2
+  
+  // Dynamic font sizes based on chart size - smaller percentage font
+  const percentageFontSize = Math.max(size / 7, 20)
+  const labelFontSize = Math.max(size / 14, 12)
 
   return (
     <div className="relative inline-flex items-center justify-center">
@@ -138,10 +143,16 @@ const DonutChart = ({
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-4xl font-bold text-gray-900 dark:text-gray-100">
+        <span 
+          className="font-bold text-gray-900 dark:text-gray-100"
+          style={{ fontSize: `${percentageFontSize}px` }}
+        >
           {percentage.toFixed(1)}%
         </span>
-        <span className="text-sm text-gray-500 dark:text-gray-400 font-medium">
+        <span 
+          className="text-gray-500 dark:text-gray-400 font-medium"
+          style={{ fontSize: `${labelFontSize}px` }}
+        >
           Pass Rate
         </span>
       </div>
@@ -299,7 +310,10 @@ export default function EvaluationSummary({ params }: EvaluationSummaryProps) {
     }
   }, [results, prompt])
 
-  // Get unique metric keys from all results
+  // Static metric - Turn Latency threshold (default 5 seconds)
+  const turnLatencyThreshold = 5
+
+  // Get unique metric keys from all results (including Turn Latency static metric)
   const metricKeys = useMemo(() => {
     if (!results || results.length === 0) return []
     
@@ -315,6 +329,9 @@ export default function EvaluationSummary({ params }: EvaluationSummaryProps) {
     if (keys.size === 0) {
       keys.add('overall_score')
     }
+    
+    // Add Turn Latency as a static metric
+    keys.add('turn_latency')
     
     return Array.from(keys)
   }, [results])
@@ -332,6 +349,9 @@ export default function EvaluationSummary({ params }: EvaluationSummaryProps) {
       
       if (Object.keys(parsedScores).length > 0) {
         metricKeys.forEach(key => {
+          // Skip turn_latency here, we'll add it separately
+          if (key === 'turn_latency') return
+          
           const value = parsedScores[key]
           const isPassing = value === true || String(value) === 'true' || value === 1 || 
                            (typeof value === 'number' && value >= 0.7) ||
@@ -342,6 +362,20 @@ export default function EvaluationSummary({ params }: EvaluationSummaryProps) {
         // Use overall_score if no parsed scores
         const isPassing = overallScore === true || String(overallScore) === 'true' || overallScore === 1
         scores['overall_score'] = { value: overallScore, isPassing }
+      }
+      
+      // Add Turn Latency static metric (from parsedScores if available, otherwise show as N/A or calculate later)
+      // Check if turn_latency exists in parsed_scores
+      if (parsedScores['turn_latency'] !== undefined) {
+        const latencyValue = parsedScores['turn_latency']
+        const isPassing = typeof latencyValue === 'number' ? latencyValue < turnLatencyThreshold : true
+        scores['turn_latency'] = { 
+          value: typeof latencyValue === 'number' ? `${latencyValue.toFixed(1)}s` : latencyValue, 
+          isPassing 
+        }
+      } else {
+        // Default: show as passing (no latency data means we assume it's fine)
+        scores['turn_latency'] = { value: '✓', isPassing: true }
       }
       
       // Calculate final result - FAIL if any metric fails
@@ -355,7 +389,7 @@ export default function EvaluationSummary({ params }: EvaluationSummaryProps) {
         createdAt: result.created_at
       }
     })
-  }, [results, metricKeys])
+  }, [results, metricKeys, turnLatencyThreshold])
 
   // Summary statistics per metric
   const metricSummaries = useMemo(() => {
@@ -441,8 +475,8 @@ export default function EvaluationSummary({ params }: EvaluationSummaryProps) {
               <div className="flex-shrink-0">
                 <DonutChart 
                   percentage={overallMetrics.passRate} 
-                  size={200}
-                  strokeWidth={24}
+                  size={280}
+                  strokeWidth={28}
                   color="#22c55e"
                   bgColor="#ef4444"
                 />
@@ -572,9 +606,9 @@ export default function EvaluationSummary({ params }: EvaluationSummaryProps) {
                             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-600 flex items-center justify-center text-xs font-semibold text-gray-600 dark:text-gray-300">
                               {index + 1}
                             </div>
-                            <span className="text-sm font-medium text-gray-900 dark:text-gray-100 font-mono">
-                              {result.callId.length > 12 
-                                ? `${result.callId.slice(0, 6)}...${result.callId.slice(-4)}` 
+                            <span className="text-sm font-medium text-gray-900 dark:text-gray-100 font-mono" title={result.callId}>
+                              {result.callId.length > 16 
+                                ? `...${result.callId.slice(-8)}` 
                                 : result.callId
                               }
                             </span>
