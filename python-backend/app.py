@@ -1,5 +1,5 @@
 import os
-import asyncio
+import time
 from pathlib import Path
 import tempfile
 import shutil
@@ -339,7 +339,7 @@ def format_diarized_transcript(transcript_data):
             }
         }
     except Exception as e:
-        print(f"Error formatting transcript: {str(e)}")
+        logger.info(f"Error formatting transcript: {str(e)}")
         import traceback
         traceback.print_exc()
         return {
@@ -356,13 +356,23 @@ def translate_text(text, target_language='en-IN'):
         api_subscription_key=os.getenv('SARVAM_API_KEY')
     )
 
-    response = client.text.translate(
-        input=text,
-        source_language_code='auto',
-        target_language_code=target_language
-    )
+    for _ in range(5):
+        try:
+            response = client.text.translate(
+                input=text,
+                source_language_code='auto',
+                target_language_code=target_language
+            )
 
-    return response.translated_text
+            return response.translated_text
+
+        except Exception as e:
+            logger.info(f"Translation error: {str(e)}, Trying again...")
+            time.sleep(30)
+        
+    logger.info("Translation failed after multiple attempts.")
+    return "" # Return empty string if translation fails
+
 
 if __name__ == '__main__':
     import uvicorn

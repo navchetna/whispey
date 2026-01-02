@@ -94,7 +94,7 @@ psql -U admin -d agent_evals -c "\dt"
 - Database: `agent_evals`
 
 **Application Admin User:**
-- Email: `admin@agent_evals.local`
+- Email: `admin@gmail.com`
 - Password: `admin123`
 
 ⚠️ **Important:** Change these default passwords after first login in production!
@@ -145,7 +145,7 @@ The application will be available at `http://localhost:3000`
 ## 🔐 Initial Login
 
 **Default Admin Credentials:**
-- Email: `admin@whispey.local`
+- Email: `admin@gmail.com`
 - Password: `admin123`
 
 **⚠️ IMPORTANT:** Change the default password immediately after first login!
@@ -269,6 +269,12 @@ pg_dump -h localhost -U whispey_user -d whispey > whispey_backup_$(date +%Y%m%d_
 psql -h localhost -U whispey_user -d whispey < whispey_backup_YYYYMMDD_HHMMSS.sql
 ```
 
+### Update the database of an existing db container
+
+```bash
+docker exec -i voiceharness-database psql -U admin -d agent_evals < setup-db.sql
+```
+
 ### Database Maintenance
 
 ```bash
@@ -305,7 +311,7 @@ SELECT cleanup_expired_sessions();
 ### Security Configuration
 
 1. **Change Default Credentials**
-   - Login with admin@whispey.local / admin123
+   - Login with admin@gmail.com / admin123
    - Go to Settings > User Management
    - Change password immediately
 

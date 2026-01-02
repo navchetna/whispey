@@ -34,6 +34,9 @@ const tableToEndpoint = (table: string): string => {
     'pype_voice_evaluation_prompts': '/api/evaluations/prompts',
     'pype_voice_evaluation_results': '/api/evaluations/results',
     'pype_voice_evaluation_summaries': '/api/evaluations/summaries',
+    'pype_voice_developer_settings': '/api/developer-settings',
+    'pype_voice_agent_persona_templates': '/api/persona-templates',
+    'pype_voice_agent_personas': '/api/agent-personas',
   }
   return mapping[table] || `/api/${table.replace('pype_voice_', '')}`
 }

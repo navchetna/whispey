@@ -1,0 +1,111 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database with automatic initialization
+  database:
+    image: postgres:15-alpine
+    container_name: voiceharness-database
+    restart: unless-stopped
+    environment: 
+      POSTGRES_USER: ${DB_USER:-admin}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-admin123}
+      POSTGRES_DB: ${DB_NAME:-agent_evals}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    # ports: - Not exposing to host, only internal Docker network access
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # PostgreSQL automatically runs scripts in /docker-entrypoint-initdb.d/ on first startup
+      - ./setup-db.sql:/docker-entrypoint-initdb.d/01-setup-db.sql:ro
+      - ./migrations:/docker-entrypoint-initdb.d/migrations:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-admin} -d ${DB_NAME:-agent_evals}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - agent-evals
+  
+  # Next.js Frontend Application
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: frontend:latest
+    container_name: voiceharness-frontend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      # Enable debug logging (set to false in production after debugging)
+      - DEBUG=true
+      # PostgreSQL connection - use service name 'database' as hostname
+      - POSTGRES_HOST=database
+      - POSTGRES_PORT=5432
+      - POSTGRES_DATABASE=${DB_NAME:-agent_evals}
+      - POSTGRES_USER=${DB_USER:-admin}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-admin123}
+      - POSTGRES_SSL=false
+      # Other required env vars
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3000/api/}
+      - JWT_SECRET=${JWT_SECRET:-2c2c2e1e5e1491abe5d7e11233a047edf017e509b7b7bca236288e127df85711}
+      - WHISPEY_MASTER_KEY=${WHISPEY_MASTER_KEY:-change-this-master-key}
+      - VAPI_MASTER_KEY=${VAPI_MASTER_KEY:-change-this-vapi-key}
+      - PYTHON_BACKEND_URL=http://python-backend:8001
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    stdin_open: true
+    tty: true
+    volumes:
+      - audios:/app/audios
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - agent-evals
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  python-backend:
+    build:
+      context: ./python-backend
+      dockerfile: Dockerfile
+    image: python-backend:latest
+    container_name: voiceharness-python-backend
+    restart: unless-stopped
+    environment:
+      # NOT required currently
+      - POSTGRES_HOST=database
+      - POSTGRES_PORT=5432
+      - POSTGRES_DATABASE=${DB_NAME:-agent_evals}
+      - POSTGRES_USER=${DB_USER:-admin}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-admin123}
+      - POSTGRES_SSL=false
+      - PYTHON_BACKEND_PORT=8001
+      - SARVAM_API_KEY=sk_k5cl8aay_tmadETYgFuixiqLiAVbDnQ39
+    ports:
+      - "${PYTHON_BACKEND_PORT:-8001}:8001"
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - agent-evals
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  postgres_data:
+    driver: local
+  audios:
+    driver: local
+  
+  
+networks:
+  agent-evals:
+    driver: bridge

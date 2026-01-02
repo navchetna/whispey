@@ -1,12 +1,13 @@
 'use client'
 
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { use } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useSupabaseQuery } from '@/hooks/useApi'
+import { usePeriodFilterWithURL, PeriodFilterControlled } from '@/components/shared/PeriodFilter'
 import { 
   BarChart3, 
   CheckCircle, 
@@ -279,6 +280,16 @@ interface EvaluationResult {
 export default function EvalsSummaryPage({ params }: EvalsSummaryPageProps) {
   const resolvedParams = use(params)
   const router = useRouter()
+  
+  // Period filter state (URL-based for consistency across pages)
+  const {
+    quickFilter,
+    dateRange,
+    isCustomRange,
+    apiDateRange,
+    handleQuickFilter,
+    handleDateRangeSelect
+  } = usePeriodFilterWithURL('7d')
 
   // Fetch all evaluation prompts for this project
   const { data: allPrompts, loading: promptsLoading } = useSupabaseQuery('pype_voice_evaluation_prompts', {
@@ -287,7 +298,7 @@ export default function EvalsSummaryPage({ params }: EvalsSummaryPageProps) {
     orderBy: { column: 'created_at', ascending: false }
   })
 
-  // Fetch all evaluation results for this agent
+  // Fetch all evaluation results for this agent with date filtering
   const { data: results, loading: resultsLoading } = useSupabaseQuery('pype_voice_evaluation_results', {
     select: `
       id,
@@ -301,7 +312,11 @@ export default function EvalsSummaryPage({ params }: EvalsSummaryPageProps) {
       status,
       created_at
     `,
-    filters: [{ column: 'agent_id', operator: 'eq', value: resolvedParams.agentid }],
+    filters: [
+      { column: 'agent_id', operator: 'eq', value: resolvedParams.agentid },
+      { column: 'date_from', operator: 'eq', value: apiDateRange.from },
+      { column: 'date_to', operator: 'eq', value: apiDateRange.to }
+    ],
     orderBy: { column: 'created_at', ascending: true }
   })
 
@@ -455,30 +470,43 @@ export default function EvalsSummaryPage({ params }: EvalsSummaryPageProps) {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="max-w-7xl mx-auto p-6">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-600 rounded-lg">
-                <Sparkles className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">
-                  Evaluation Summary
-                </h1>
-                <p className="text-gray-600 dark:text-gray-400 mt-1">
-                  Quality assessment overview for all evaluations
-                </p>
+        <div className="flex flex-col gap-4 mb-8">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-purple-600 rounded-lg">
+                  <Sparkles className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+                    Evaluation Summary
+                  </h1>
+                  <p className="text-gray-600 dark:text-gray-400 mt-1">
+                    Quality assessment overview for all evaluations
+                  </p>
+                </div>
               </div>
             </div>
+            
+            <Button
+              onClick={() => router.push(`/${resolvedParams.projectid}/agents/${resolvedParams.agentid}/evals-results`)}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              View All Results
+              <ChevronRight className="w-4 h-4" />
+            </Button>
           </div>
           
-          <Button
-            onClick={() => router.push(`/${resolvedParams.projectid}/agents/${resolvedParams.agentid}/evals-results`)}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white"
-          >
-            View All Results
-            <ChevronRight className="w-4 h-4" />
-          </Button>
+          {/* Period Filter */}
+          <div className="flex items-center justify-end">
+            <PeriodFilterControlled
+              quickFilter={quickFilter}
+              dateRange={dateRange}
+              isCustomRange={isCustomRange}
+              onQuickFilterChange={handleQuickFilter}
+              onDateRangeSelect={handleDateRangeSelect}
+            />
+          </div>
         </div>
 
         {/* Main Overview Card with Donut Chart */}

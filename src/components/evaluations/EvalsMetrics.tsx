@@ -11,8 +11,9 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
-import { AlertCircle, Plus, Settings, MoreHorizontal, Edit2, Trash2, Copy, Eye, Brain, TrendingUp, BarChart3, Activity, CheckCircle, Clock, Users, Target } from 'lucide-react'
+import { AlertCircle, Plus, Settings, MoreHorizontal, Edit2, Trash2, Copy, Eye, Brain, TrendingUp, BarChart3, Activity, CheckCircle, Clock, Users, Target, Languages, XCircle, Timer, Gauge, FileText, Download, CheckSquare } from 'lucide-react'
 import { query } from "../../lib/postgres"
 import { DatabaseService } from "@/lib/database"
 
@@ -241,13 +242,37 @@ interface EvalsMetricsProps {
   params: { projectid: string; agentid: string }
 }
 
+// Static metric configuration interface
+interface StaticMetricConfig {
+  id: string
+  name: string
+  description: string
+  enabled: boolean
+  threshold: number
+  unit: string
+}
+
 export default function EvalsMetrics({ params }: EvalsMetricsProps) {
   const router = useRouter()
   const [showCreatePrompt, setShowCreatePrompt] = useState(false)
   const [editingPrompt, setEditingPrompt] = useState<EvaluationPrompt | null>(null)
   const [showCreateJob, setShowCreateJob] = useState(false)
   const [selectedPrompts, setSelectedPrompts] = useState<string[]>([])
-  const [selectedTranscript, setSelectedTranscript] = useState<{callId: string, transcript: string} | null>(null)
+  const [selectedTranscript, setSelectedTranscript] = useState<{callId: string, transcript: string, translatedTranscript?: string} | null>(null)
+  const [showTranslated, setShowTranslated] = useState<boolean>(false)
+
+  // Static metrics state
+  const [staticMetrics, setStaticMetrics] = useState<StaticMetricConfig[]>([
+    {
+      id: 'turn_latency',
+      name: 'Turn Latency',
+      description: 'All individual turn latencies must be less than the threshold',
+      enabled: true,
+      threshold: 5,
+      unit: 'seconds'
+    }
+  ])
+  const [editingStaticMetric, setEditingStaticMetric] = useState<StaticMetricConfig | null>(null)
 
   // Fetch prompts
   const { data: prompts, loading: promptsLoading, refetch: refetchPrompts } = useSupabaseQuery('pype_voice_evaluation_prompts', {
@@ -541,8 +566,32 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
           })
           .join('\n\n')
 
+        // Format the translated transcript data
+        const formattedTranslatedTranscript = transcriptTurns
+          .filter((turn: any) => turn.translated_text || turn.user_transcript || turn.agent_response)
+          .map((turn: any) => {
+            const messages: string[] = []
+            
+            // Use translated_text if available, otherwise fall back to original
+            if (turn.user_transcript && turn.user_transcript.trim()) {
+              const translatedUser = turn.translated_text && turn.user_transcript ? turn.translated_text : turn.user_transcript
+              messages.push(`USER: ${translatedUser}`)
+            }
+            if (turn.agent_response && turn.agent_response.trim()) {
+              // Agent responses typically don't need translation (they're already in the target language)
+              messages.push(`AGENT: ${turn.agent_response}`)
+            }
+            
+            return messages.join('\n')
+          })
+          .join('\n\n')
+
         if (formattedTranscript.trim()) {
-          setSelectedTranscript({ callId, transcript: formattedTranscript })
+          setSelectedTranscript({ 
+            callId, 
+            transcript: formattedTranscript,
+            translatedTranscript: formattedTranslatedTranscript !== formattedTranscript ? formattedTranslatedTranscript : undefined
+          })
         } else {
           setSelectedTranscript({ callId, transcript: 'Empty Transcript: No meaningful conversation content found.' })
         }
@@ -879,6 +928,71 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
                 </Card>
                 ))}
               </div>
+
+              {/* Static Metrics Section */}
+              <div className="mt-8">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                      <Gauge className="w-5 h-5 text-orange-600" />
+                      Static Metrics
+                    </h2>
+                    <p className="text-sm text-gray-500 mt-1">Non-prompt based metrics with configurable thresholds</p>
+                  </div>
+                </div>
+                
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {staticMetrics.map((metric) => (
+                    <Card key={metric.id} className={`hover:shadow-md transition-shadow ${metric.enabled ? 'border-orange-200 bg-orange-50/30' : 'border-gray-200 bg-gray-50/30'}`}>
+                      <CardHeader className="pb-3">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <CardTitle className="text-lg mb-2 flex items-center gap-2">
+                              <Timer className="w-5 h-5 text-orange-600" />
+                              {metric.name}
+                            </CardTitle>
+                            <Badge className={`text-xs ${metric.enabled ? 'bg-orange-100 text-orange-700 border-orange-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                              Static Metric
+                            </Badge>
+                          </div>
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => setEditingStaticMetric(metric)}
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-sm text-gray-600 mb-4">
+                          {metric.description}
+                        </p>
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-gray-500">Threshold:</span>
+                            <span className="text-sm font-medium text-orange-700 bg-orange-100 px-2 py-1 rounded">
+                              {metric.threshold} {metric.unit}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-gray-500">Success Criteria:</span>
+                            <span className="text-xs text-gray-600">
+                              All turns &lt; {metric.threshold}s
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-gray-500">Status:</span>
+                            <span className={`px-2 py-1 rounded-full text-xs ${metric.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                              {metric.enabled ? 'Enabled' : 'Disabled'}
+                            </span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -971,21 +1085,67 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
         <Dialog 
           open={!!selectedTranscript} 
           onOpenChange={(open) => {
-            if (!open) setSelectedTranscript(null)
+            if (!open) {
+              setSelectedTranscript(null)
+              setShowTranslated(false)
+            }
           }}
         >
           <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
             <DialogHeader>
-              <DialogTitle>
-                Call Transcript - {selectedTranscript?.callId}
+              <DialogTitle className="flex items-center justify-between">
+                <span>Call Transcript - {selectedTranscript?.callId}</span>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => setSelectedTranscript(null)}
+                  className="h-6 w-6 p-0 hover:bg-gray-100"
+                >
+                  <XCircle className="h-4 w-4" />
+                </Button>
               </DialogTitle>
             </DialogHeader>
             <div className="mt-4 overflow-y-auto max-h-[60vh]">
-              <div className="bg-gray-50 rounded-lg p-4">
-                <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono leading-relaxed">
-                  {selectedTranscript?.transcript}
-                </pre>
-              </div>
+              {selectedTranscript?.translatedTranscript ? (
+                <Tabs defaultValue="original" className="w-full">
+                  <TabsList className="grid w-full grid-cols-2 mb-4">
+                    <TabsTrigger value="original" className="flex items-center gap-2">
+                      <FileText className="w-4 h-4" />
+                      Original
+                    </TabsTrigger>
+                    <TabsTrigger value="translated" className="flex items-center gap-2">
+                      <Languages className="w-4 h-4" />
+                      Translated
+                    </TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="original">
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono leading-relaxed">
+                        {selectedTranscript?.transcript}
+                      </pre>
+                    </div>
+                  </TabsContent>
+                  <TabsContent value="translated">
+                    <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+                      <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono leading-relaxed">
+                        {selectedTranscript?.translatedTranscript}
+                      </pre>
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              ) : (
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono leading-relaxed">
+                    {selectedTranscript?.transcript}
+                  </pre>
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <div className="flex items-center gap-2">
+                      <Languages className="w-4 h-4 text-gray-400" />
+                      <span className="text-xs text-gray-500 italic">No translated version available for this transcript.</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </DialogContent>
         </Dialog>
@@ -1014,6 +1174,103 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
           onSubmit={handleCreateJob}
           params={params}
         />
+
+        {/* Edit Static Metric Dialog */}
+        <Dialog open={!!editingStaticMetric} onOpenChange={(open) => !open && setEditingStaticMetric(null)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Timer className="w-5 h-5 text-orange-600" />
+                Edit Static Metric
+              </DialogTitle>
+            </DialogHeader>
+            {editingStaticMetric && (
+              <div className="space-y-4 mt-4">
+                <div>
+                  <Label className="text-sm font-medium text-gray-700">Metric Name</Label>
+                  <p className="text-sm text-gray-900 mt-1 font-medium">{editingStaticMetric.name}</p>
+                </div>
+                
+                <div>
+                  <Label className="text-sm font-medium text-gray-700">Description</Label>
+                  <p className="text-sm text-gray-600 mt-1">{editingStaticMetric.description}</p>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="threshold" className="text-sm font-medium text-gray-700">
+                    Threshold ({editingStaticMetric.unit})
+                  </Label>
+                  <Input
+                    id="threshold"
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    max="60"
+                    value={editingStaticMetric.threshold}
+                    onChange={(e) => {
+                      const newThreshold = parseFloat(e.target.value) || 5
+                      setEditingStaticMetric({
+                        ...editingStaticMetric,
+                        threshold: newThreshold
+                      })
+                    }}
+                    className="w-full"
+                  />
+                  <p className="text-xs text-gray-500">
+                    Success Criteria: All individual turn latencies must be less than {editingStaticMetric.threshold} {editingStaticMetric.unit}
+                  </p>
+                </div>
+                
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="enabled" className="text-sm font-medium text-gray-700">
+                    Enable Metric
+                  </Label>
+                  <button
+                    id="enabled"
+                    onClick={() => {
+                      setEditingStaticMetric({
+                        ...editingStaticMetric,
+                        enabled: !editingStaticMetric.enabled
+                      })
+                    }}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      editingStaticMetric.enabled ? 'bg-orange-600' : 'bg-gray-300'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        editingStaticMetric.enabled ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+                
+                <div className="flex justify-end gap-3 pt-4 border-t">
+                  <Button
+                    variant="outline"
+                    onClick={() => setEditingStaticMetric(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      // Update the static metrics
+                      setStaticMetrics(prev => 
+                        prev.map(m => 
+                          m.id === editingStaticMetric.id ? editingStaticMetric : m
+                        )
+                      )
+                      setEditingStaticMetric(null)
+                    }}
+                    className="bg-orange-600 hover:bg-orange-700"
+                  >
+                    Save Changes
+                  </Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   )
@@ -1405,23 +1662,25 @@ Provide only the JSON response, nothing else.`,
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Edit Evaluation Prompt' : 'Create Evaluation Prompt'}</DialogTitle>
+          <DialogTitle>{isEdit ? 'Edit Evaluation Prompt' : 'Create Evaluation Metric'}</DialogTitle>
         </DialogHeader>
         
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="name">Prompt Name</Label>
-              <Input
-                id="name"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="e.g., Conversation Quality Check"
-                required
-              />
-            </div>
+        {isEdit ? (
+          // Edit mode - show the form directly without tabs
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="name">Prompt Name</Label>
+                <Input
+                  id="name"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="e.g., Conversation Quality Check"
+                  required
+                />
+              </div>
             <div>
               <Label htmlFor="evaluation_type">Evaluation Type</Label>
               <Select 
@@ -1740,8 +1999,500 @@ Provide your evaluation in JSON format:
             </Button>
           </div>
         </form>
+        ) : (
+          // Create mode - show tabs for Import from Defaults and Create New
+          <CreateMetricTabs 
+            projectId={projectId} 
+            agentId={agentId}
+            onSuccess={onSuccess}
+            onClose={() => onOpenChange(false)}
+          />
+        )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+// Tabs component for Create Metric dialog
+function CreateMetricTabs({ projectId, agentId, onSuccess, onClose }: {
+  projectId: string
+  agentId: string
+  onSuccess: () => void
+  onClose: () => void
+}) {
+  const [activeTab, setActiveTab] = useState<'import' | 'create'>('import')
+  const [defaultMetrics, setDefaultMetrics] = useState<any[]>([])
+  const [loadingDefaults, setLoadingDefaults] = useState(true)
+  const [selectedDefaultMetrics, setSelectedDefaultMetrics] = useState<string[]>([])
+  const [importingMetrics, setImportingMetrics] = useState(false)
+
+  // Form state for create new
+  const [formData, setFormData] = useState({
+    name: '',
+    description: '',
+    evaluation_type: 'quality',
+    prompt_template: `Please evaluate the following customer service conversation for overall quality.
+
+**Conversation Transcript:**
+{{transcript}}
+
+**Evaluation Criteria:**
+- Overall conversation quality (1-10)
+- Agent professionalism and helpfulness
+- Problem resolution effectiveness
+- Communication clarity
+
+**Instructions:**
+Analyze the conversation and provide your evaluation in the following JSON format:
+
+{
+  "score": <overall_score_from_1_to_10>,
+  "reasoning": "<detailed_explanation_of_your_evaluation>"
+}
+
+Provide only the JSON response, nothing else.`,
+    llm_provider: 'openai',
+    model: 'gpt-4o-mini',
+    api_url: 'https://api.openai.com/v1',
+    api_key: '',
+    scoring_output_type: 'float',
+    success_criteria: 'higher_is_better',
+    temperature: 0.0,
+    max_tokens: 1000
+  })
+
+  // Fetch default metrics
+  useEffect(() => {
+    const fetchDefaultMetrics = async () => {
+      try {
+        const response = await fetch('/api/default-metrics')
+        const result = await response.json()
+        if (response.ok) {
+          setDefaultMetrics(result.data || [])
+        }
+      } catch (error) {
+        console.error('Failed to fetch default metrics:', error)
+      } finally {
+        setLoadingDefaults(false)
+      }
+    }
+    fetchDefaultMetrics()
+  }, [])
+
+  const handleImportMetrics = async () => {
+    if (selectedDefaultMetrics.length === 0) {
+      alert('Please select at least one metric to import')
+      return
+    }
+
+    setImportingMetrics(true)
+
+    try {
+      // Get selected metrics details
+      const metricsToImport = defaultMetrics.filter(m => selectedDefaultMetrics.includes(m.id))
+      
+      // Create prompts for each selected metric
+      for (const metric of metricsToImport) {
+        const response = await fetch('/api/evaluations/prompts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            project_id: projectId,
+            agent_id: agentId,
+            name: metric.name,
+            description: metric.description || `Imported from default: ${metric.name}`,
+            evaluation_type: metric.evaluation_type,
+            prompt_template: metric.prompt_template,
+            llm_provider: 'openai', // Default provider - user will configure later
+            model: 'gpt-4o-mini', // Default model - user will configure later
+            api_url: 'https://api.openai.com/v1',
+            api_key: '', // Empty - user needs to configure
+            scoring_output_type: metric.scoring_output_type,
+            success_criteria: metric.success_criteria,
+            temperature: 0.0,
+            max_tokens: 1000,
+            expected_output_format: {},
+            scoring_criteria: {}
+          })
+        })
+
+        if (!response.ok) {
+          const result = await response.json()
+          throw new Error(result.error || `Failed to import metric: ${metric.name}`)
+        }
+      }
+
+      alert(`✅ Successfully imported ${metricsToImport.length} metric(s)! Please configure the LLM settings for each imported metric.`)
+      onSuccess()
+      onClose()
+    } catch (error) {
+      alert(`Failed to import metrics: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setImportingMetrics(false)
+    }
+  }
+
+  const toggleMetricSelection = (metricId: string) => {
+    setSelectedDefaultMetrics(prev => 
+      prev.includes(metricId) 
+        ? prev.filter(id => id !== metricId)
+        : [...prev, metricId]
+    )
+  }
+
+  // Provider-specific model options
+  const getModelOptions = (provider: string) => {
+    switch (provider) {
+      case 'openai':
+        return [
+          { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+          { value: 'gpt-4o', label: 'GPT-4o' },
+          { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
+          { value: 'gpt-4', label: 'GPT-4' }
+        ]
+      case 'gemini':
+        return [
+          { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+          { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+          { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' }
+        ]
+      case 'groq':
+        return [
+          { value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B Versatile' },
+          { value: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B Instant' },
+          { value: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B' }
+        ]
+      default:
+        return []
+    }
+  }
+
+  const getDefaultApiUrl = (provider: string) => {
+    switch (provider) {
+      case 'openai': return 'https://api.openai.com/v1'
+      case 'gemini': return 'https://generativelanguage.googleapis.com/v1beta/'
+      case 'groq': return 'https://api.groq.com/openai/v1'
+      default: return ''
+    }
+  }
+
+  const handleProviderChange = (provider: string) => {
+    const models = getModelOptions(provider)
+    setFormData({
+      ...formData,
+      llm_provider: provider,
+      model: models.length > 0 ? models[0].value : '',
+      api_url: getDefaultApiUrl(provider)
+    })
+  }
+
+  const handleCreateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (!formData.name?.trim()) {
+      alert('Please enter a prompt name')
+      return
+    }
+    if (!formData.prompt_template?.trim()) {
+      alert('Please enter a prompt template')
+      return
+    }
+    if (!formData.prompt_template.includes('{{transcript}}')) {
+      alert('Your prompt template must include {{transcript}} variable')
+      return
+    }
+    if (!formData.api_key?.trim()) {
+      alert('Please enter an API key')
+      return
+    }
+
+    try {
+      const response = await fetch('/api/evaluations/prompts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...formData,
+          project_id: projectId,
+          agent_id: agentId,
+          expected_output_format: {},
+          scoring_criteria: {}
+        })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to create prompt')
+      }
+
+      onSuccess()
+      onClose()
+    } catch (error) {
+      alert(`Failed to create prompt: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  return (
+    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'import' | 'create')} className="w-full">
+      <TabsList className="grid w-full grid-cols-2 mb-6">
+        <TabsTrigger value="import" className="flex items-center gap-2">
+          <Download className="w-4 h-4" />
+          Import from Defaults
+        </TabsTrigger>
+        <TabsTrigger value="create" className="flex items-center gap-2">
+          <Plus className="w-4 h-4" />
+          Create New
+        </TabsTrigger>
+      </TabsList>
+
+      {/* Import from Defaults Tab */}
+      <TabsContent value="import" className="space-y-4">
+        {loadingDefaults ? (
+          <div className="text-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+            <p className="text-gray-600 mt-2">Loading default metrics...</p>
+          </div>
+        ) : defaultMetrics.length === 0 ? (
+          <div className="text-center py-8">
+            <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No default metrics available</h3>
+            <p className="text-gray-600">
+              No default metrics have been configured by the administrator yet.
+              Use the "Create New" tab to create your own metric.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+              <p><strong>💡 Tip:</strong> Select one or more default metrics to import. After importing, you'll need to configure the LLM settings (provider, model, API key) for each metric.</p>
+            </div>
+
+            <div className="space-y-3 max-h-[400px] overflow-y-auto">
+              {defaultMetrics.map((metric) => (
+                <div 
+                  key={metric.id}
+                  onClick={() => toggleMetricSelection(metric.id)}
+                  className={`p-4 border rounded-lg cursor-pointer transition-all ${
+                    selectedDefaultMetrics.includes(metric.id)
+                      ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
+                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <CheckSquare className={`w-5 h-5 ${
+                          selectedDefaultMetrics.includes(metric.id) ? 'text-blue-600' : 'text-gray-300'
+                        }`} />
+                        <h4 className="font-medium text-gray-900">{metric.name}</h4>
+                        <Badge className="text-xs bg-gray-100 text-gray-600">
+                          {metric.evaluation_type}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-gray-600 ml-7 line-clamp-2">
+                        {metric.description || 'No description'}
+                      </p>
+                      <div className="flex gap-3 mt-2 ml-7 text-xs text-gray-500">
+                        <span>Output: {getScoringOutputTypeInfo(metric.scoring_output_type).label}</span>
+                        <span>•</span>
+                        <span>Success: {getSuccessCriteriaDisplayText(metric.success_criteria)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-between items-center pt-4 border-t">
+              <span className="text-sm text-gray-600">
+                {selectedDefaultMetrics.length} metric(s) selected
+              </span>
+              <div className="flex gap-3">
+                <Button type="button" variant="outline" onClick={onClose}>
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={handleImportMetrics}
+                  disabled={selectedDefaultMetrics.length === 0 || importingMetrics}
+                >
+                  {importingMetrics ? 'Importing...' : `Import ${selectedDefaultMetrics.length} Metric(s)`}
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
+      </TabsContent>
+
+      {/* Create New Tab */}
+      <TabsContent value="create">
+        <form onSubmit={handleCreateSubmit} className="space-y-6">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="create_name">Prompt Name</Label>
+              <Input
+                id="create_name"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="e.g., Conversation Quality Check"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="create_evaluation_type">Evaluation Type</Label>
+              <Select 
+                value={formData.evaluation_type} 
+                onValueChange={(value) => setFormData({ ...formData, evaluation_type: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="quality">Quality</SelectItem>
+                  <SelectItem value="sentiment">Sentiment</SelectItem>
+                  <SelectItem value="accuracy">Accuracy</SelectItem>
+                  <SelectItem value="compliance">Compliance</SelectItem>
+                  <SelectItem value="custom">Custom</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="create_scoring_output_type">Scoring Output Type</Label>
+              <Select 
+                value={formData.scoring_output_type} 
+                onValueChange={(value) => {
+                  const defaultCriteria = value === 'bool' ? 'true' : 'higher_is_better'
+                  setFormData({ 
+                    ...formData, 
+                    scoring_output_type: value,
+                    success_criteria: defaultCriteria
+                  })
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="bool">Boolean (True/False)</SelectItem>
+                  <SelectItem value="int">Integer (Whole Numbers)</SelectItem>
+                  <SelectItem value="percentage">Percentage (0-100%)</SelectItem>
+                  <SelectItem value="float">Float (Decimal Numbers)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="create_success_criteria">Success Criteria</Label>
+              <Select 
+                value={formData.success_criteria} 
+                onValueChange={(value) => setFormData({ ...formData, success_criteria: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {getScoringOutputTypeInfo(formData.scoring_output_type).successCriteriaOptions?.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {getSuccessCriteriaDisplayText(option)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div>
+            <Label htmlFor="create_description">Description</Label>
+            <Input
+              id="create_description"
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              placeholder="Brief description of what this evaluation measures"
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="create_prompt_template">Prompt Template</Label>
+            <Textarea
+              id="create_prompt_template"
+              value={formData.prompt_template}
+              onChange={(e) => setFormData({ ...formData, prompt_template: e.target.value })}
+              rows={8}
+              className="font-mono text-sm"
+              required
+            />
+            <p className="text-xs text-amber-600 mt-1">
+              ⚠️ Template must include {'{{transcript}}'} for the conversation content.
+            </p>
+          </div>
+
+          {/* LLM Configuration */}
+          <div className="space-y-4 border rounded-lg p-4 bg-gray-50">
+            <h3 className="text-lg font-semibold text-gray-900">LLM Configuration</h3>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="create_llm_provider">Provider</Label>
+                <Select 
+                  value={formData.llm_provider} 
+                  onValueChange={handleProviderChange}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="openai">OpenAI</SelectItem>
+                    <SelectItem value="gemini">Google Gemini</SelectItem>
+                    <SelectItem value="groq">Groq</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <Label htmlFor="create_model">Model</Label>
+                <Select 
+                  value={formData.model} 
+                  onValueChange={(value) => setFormData({ ...formData, model: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {getModelOptions(formData.llm_provider).map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="create_api_key">API Key</Label>
+              <Input
+                id="create_api_key"
+                type="password"
+                value={formData.api_key}
+                onChange={(e) => setFormData({ ...formData, api_key: e.target.value })}
+                placeholder="Enter your API key"
+                required
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3">
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit">
+              Create Metric
+            </Button>
+          </div>
+        </form>
+      </TabsContent>
+    </Tabs>
   )
 }
 

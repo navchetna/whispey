@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSupabaseQuery } from '../../hooks/useApi'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { 
   BarChart3, 
@@ -32,11 +33,13 @@ import {
   Trash2,
   FileSpreadsheet,
   Loader2,
-  PieChart
+  PieChart,
+  Languages
 } from 'lucide-react'
 import { query } from "../../lib/postgres"
 import { DatabaseService } from "@/lib/database"
 import * as XLSX from 'xlsx'
+import { usePeriodFilterWithURL, PeriodFilterControlled } from '@/components/shared/PeriodFilter'
 
 // Helper function to parse boolean from various formats
 const parseBooleanScore = (value: any): boolean => {
@@ -218,17 +221,29 @@ interface EvalsResultsProps {
 export default function EvalsResults({ params }: EvalsResultsProps) {
   const router = useRouter()
   const [selectedJobId, setSelectedJobId] = useState<string>('')
-  const [selectedTranscript, setSelectedTranscript] = useState<{callId: string, transcript: string} | null>(null)
+  const [selectedTranscript, setSelectedTranscript] = useState<{callId: string, transcript: string, translatedTranscript?: string} | null>(null)
   const [selectedRawResponse, setSelectedRawResponse] = useState<{callId: string, response: string} | null>(null)
   const [selectedDetails, setSelectedDetails] = useState<{callId: string, result: EvaluationResult} | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false)
   const [isDeleting, setIsDeleting] = useState<boolean>(false)
   const [isExporting, setIsExporting] = useState<boolean>(false)
+  const [showTranslated, setShowTranslated] = useState<boolean>(false)
+  
+  // Period filter state (URL-based for consistency across pages)
+  const {
+    quickFilter,
+    dateRange,
+    isCustomRange,
+    apiDateRange,
+    handleQuickFilter,
+    handleDateRangeSelect
+  } = usePeriodFilterWithURL('7d')
   
   // Filter states
   const [filterType, setFilterType] = useState<string>('all')
-  const [filterDate, setFilterDate] = useState<string>('')
   const [filterCallId, setFilterCallId] = useState<string>('')
+  const [filterPassFail, setFilterPassFail] = useState<string>('all')
+  const [filterMetricName, setFilterMetricName] = useState<string>('all')
 
   // Fetch jobs
   const { data: jobs, loading: jobsLoading, refetch: refetchJobs } = useSupabaseQuery('pype_voice_evaluation_jobs', {
@@ -313,6 +328,27 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
     orderBy: { column: 'created_at', ascending: false }
   })
 
+  // Helper function to determine if a result passes based on scoring type
+  const isResultPassing = (result: EvaluationResult, scoringType: string = 'float') => {
+    const score = result.evaluation_score?.overall_score
+    if (scoringType === 'bool') {
+      return score === 1 || String(score) === 'true' || String(score) === '1'
+    }
+    const numScore = Number(score) || 0
+    return scoringType === 'percentage' ? numScore >= 70 : numScore >= 0.7
+  }
+
+  // Get metric names from configured prompts (Evals-Metrics)
+  const availableMetrics = React.useMemo(() => {
+    const metrics: string[] = []
+    allPrompts?.forEach((prompt: any) => {
+      if (prompt.name) {
+        metrics.push(prompt.name)
+      }
+    })
+    return metrics
+  }, [allPrompts])
+
   // Apply filters to results
   const results = allResults?.filter((result: EvaluationResult) => {
     // Filter by evaluation type
@@ -320,10 +356,13 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
       return false
     }
     
-    // Filter by date (if specified)
-    if (filterDate) {
-      const resultDate = new Date(result.created_at).toISOString().split('T')[0]
-      if (resultDate !== filterDate) {
+    // Filter by date range (Period filter)
+    if (apiDateRange.from && apiDateRange.to) {
+      const resultDate = new Date(result.created_at)
+      const fromDate = new Date(apiDateRange.from)
+      const toDate = new Date(apiDateRange.to)
+      toDate.setHours(23, 59, 59, 999) // Include the entire end day
+      if (resultDate < fromDate || resultDate > toDate) {
         return false
       }
     }
@@ -332,6 +371,26 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
     if (filterCallId) {
       const callId = result.call_id || result.trace_id || ''
       if (!callId.toLowerCase().includes(filterCallId.toLowerCase())) {
+        return false
+      }
+    }
+
+    // Filter by pass/fail status
+    if (filterPassFail !== 'all') {
+      // Get the scoring type from the prompt associated with this result
+      const resultPromptId = result.prompt_id
+      const resultPromptInfo = promptsMap.get(resultPromptId)
+      const scoringType = resultPromptInfo?.scoring_output_type || 'float'
+      const isPassing = isResultPassing(result, scoringType)
+      if (filterPassFail === 'pass' && !isPassing) return false
+      if (filterPassFail === 'fail' && isPassing) return false
+    }
+
+    // Filter by specific metric name (prompt name)
+    if (filterMetricName !== 'all') {
+      // Find the prompt with this name and check if the result belongs to it
+      const matchingPrompt = allPrompts?.find((p: any) => p.name === filterMetricName)
+      if (!matchingPrompt || result.prompt_id !== matchingPrompt.id) {
         return false
       }
     }
@@ -498,13 +557,28 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
           : callLog.transcript_json
         
         let formattedTranscript = ''
+        let formattedTranslatedTranscript = ''
         
         // Handle turns array format (from Python diarization backend)
         if (transcriptData?.turns && Array.isArray(transcriptData.turns)) {
+          // Original transcript
           formattedTranscript = transcriptData.turns
             .map((turn: any) => {
               const role = (turn.role === 'agent' || turn.role === 'assistant') ? 'AGENT' : 'USER'
               const content = turn.content || turn.text || ''
+              return `${role}: ${content}`
+            })
+            .join('\n\n')
+          
+          // Translated transcript - use translated_text if available
+          formattedTranslatedTranscript = transcriptData.turns
+            .map((turn: any) => {
+              const role = (turn.role === 'agent' || turn.role === 'assistant') ? 'AGENT' : 'USER'
+              // For user turns, use translated_text if available, otherwise fall back to content
+              // Agent responses typically don't need translation
+              const content = (role === 'USER' && turn.translated_text) 
+                ? turn.translated_text 
+                : (turn.content || turn.text || '')
               return `${role}: ${content}`
             })
             .join('\n\n')
@@ -524,10 +598,35 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
             })
             .filter(Boolean)
             .join('\n\n')
+          
+          // Translated version for array format
+          formattedTranslatedTranscript = transcriptData
+            .map((item: any) => {
+              if (item.role && item.content) {
+                const role = (item.role === 'agent' || item.role === 'assistant') ? 'AGENT' : 'USER'
+                const content = (role === 'USER' && item.translated_text) 
+                  ? item.translated_text 
+                  : item.content
+                return `${role}: ${content}`
+              }
+              const messages: string[] = []
+              if (item.user_transcript) {
+                const userText = item.translated_text || item.user_transcript
+                messages.push(`USER: ${userText}`)
+              }
+              if (item.agent_response) messages.push(`AGENT: ${item.agent_response}`)
+              return messages.join('\n')
+            })
+            .filter(Boolean)
+            .join('\n\n')
         }
         
         if (formattedTranscript.trim()) {
-          setSelectedTranscript({ callId, transcript: formattedTranscript })
+          setSelectedTranscript({ 
+            callId, 
+            transcript: formattedTranscript,
+            translatedTranscript: formattedTranslatedTranscript !== formattedTranscript ? formattedTranslatedTranscript : undefined
+          })
           return
         }
       }
@@ -561,8 +660,32 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
           })
           .join('\n\n')
 
+        // Format the translated transcript data
+        const formattedTranslatedTranscript = transcriptTurns
+          .filter((turn: any) => turn.translated_text || turn.user_transcript || turn.agent_response)
+          .map((turn: any) => {
+            const messages: string[] = []
+            
+            // Use translated_text if available, otherwise fall back to original
+            if (turn.user_transcript && turn.user_transcript.trim()) {
+              const translatedUser = turn.translated_text && turn.user_transcript ? turn.translated_text : turn.user_transcript
+              messages.push(`USER: ${translatedUser}`)
+            }
+            if (turn.agent_response && turn.agent_response.trim()) {
+              // Agent responses typically don't need translation (they're already in the target language)
+              messages.push(`AGENT: ${turn.agent_response}`)
+            }
+            
+            return messages.join('\n')
+          })
+          .join('\n\n')
+
         if (formattedTranscript.trim()) {
-          setSelectedTranscript({ callId, transcript: formattedTranscript })
+          setSelectedTranscript({ 
+            callId, 
+            transcript: formattedTranscript,
+            translatedTranscript: formattedTranslatedTranscript !== formattedTranscript ? formattedTranslatedTranscript : undefined
+          })
         } else {
           setSelectedTranscript({ callId, transcript: 'Empty Transcript: No meaningful conversation content found.' })
         }
@@ -1111,6 +1234,16 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                   </Select>
                 </div>
               )}
+              
+              {/* Period Filter */}
+              <PeriodFilterControlled
+                quickFilter={quickFilter}
+                dateRange={dateRange}
+                isCustomRange={isCustomRange}
+                onQuickFilterChange={handleQuickFilter}
+                onDateRangeSelect={handleDateRangeSelect}
+              />
+              
               <Button 
                 variant="outline" 
                 className="flex items-center gap-2"
@@ -1408,17 +1541,15 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                           </Select>
                         </div>
 
-                        {/* Date Filter */}
+                        {/* Date Filter - Now handled by Period Filter in header */}
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Date
+                            Date Range
                           </label>
-                          <input
-                            type="date"
-                            value={filterDate}
-                            onChange={(e) => setFilterDate(e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          />
+                          <div className="px-3 py-2 border border-gray-200 rounded-md text-sm bg-gray-50 text-gray-600">
+                            {apiDateRange.from} to {apiDateRange.to}
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">Use Period filter above to change</p>
                         </div>
 
                         {/* Call ID Filter */}
@@ -1434,9 +1565,58 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                             className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
+
+                        {/* Pass/Fail Filter */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Result Status
+                          </label>
+                          <Select value={filterPassFail} onValueChange={setFilterPassFail}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="All results" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Results</SelectItem>
+                              <SelectItem value="pass">
+                                <div className="flex items-center gap-2">
+                                  <CheckCircle className="w-4 h-4 text-green-600" />
+                                  Pass (True)
+                                </div>
+                              </SelectItem>
+                              <SelectItem value="fail">
+                                <div className="flex items-center gap-2">
+                                  <XCircle className="w-4 h-4 text-red-600" />
+                                  Fail (False)
+                                </div>
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Metric Name Filter */}
+                        {availableMetrics.length > 0 && (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Filter by Metric
+                            </label>
+                            <Select value={filterMetricName} onValueChange={setFilterMetricName}>
+                              <SelectTrigger>
+                                <SelectValue placeholder="All metrics" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">All Metrics</SelectItem>
+                                {availableMetrics.map((metric: string) => (
+                                  <SelectItem key={metric} value={metric}>
+                                    {metric.replace(/_/g, ' ')}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
                       </div>
                       
-                      {(filterType !== 'all' || filterDate || filterCallId) && (
+                      {(filterType !== 'all' || filterCallId || filterPassFail !== 'all' || filterMetricName !== 'all') && (
                         <div className="mt-4 flex items-center justify-between">
                           <div className="text-sm text-gray-600">
                             Showing {results.length} of {allResults?.length || 0} results
@@ -1446,8 +1626,9 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                             size="sm"
                             onClick={() => {
                               setFilterType('all')
-                              setFilterDate('')
                               setFilterCallId('')
+                              setFilterPassFail('all')
+                              setFilterMetricName('all')
                             }}
                           >
                             Clear Filters
@@ -1609,7 +1790,10 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
       <Dialog 
         open={!!selectedTranscript} 
         onOpenChange={(open) => {
-          if (!open) setSelectedTranscript(null)
+          if (!open) {
+            setSelectedTranscript(null)
+            setShowTranslated(false)
+          }
         }}
       >
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
@@ -1627,11 +1811,46 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
             </DialogTitle>
           </DialogHeader>
           <div className="mt-4 overflow-y-auto max-h-[60vh]">
-            <div className="bg-gray-50 rounded-lg p-4">
-              <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono leading-relaxed">
-                {selectedTranscript?.transcript}
-              </pre>
-            </div>
+            {selectedTranscript?.translatedTranscript ? (
+              <Tabs defaultValue="original" className="w-full">
+                <TabsList className="grid w-full grid-cols-2 mb-4">
+                  <TabsTrigger value="original" className="flex items-center gap-2">
+                    <FileText className="w-4 h-4" />
+                    Original
+                  </TabsTrigger>
+                  <TabsTrigger value="translated" className="flex items-center gap-2">
+                    <Languages className="w-4 h-4" />
+                    Translated
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="original">
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono leading-relaxed">
+                      {selectedTranscript?.transcript}
+                    </pre>
+                  </div>
+                </TabsContent>
+                <TabsContent value="translated">
+                  <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+                    <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono leading-relaxed">
+                      {selectedTranscript?.translatedTranscript}
+                    </pre>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            ) : (
+              <div className="bg-gray-50 rounded-lg p-4">
+                <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono leading-relaxed">
+                  {selectedTranscript?.transcript}
+                </pre>
+                <div className="mt-4 pt-4 border-t border-gray-200">
+                  <div className="flex items-center gap-2">
+                    <Languages className="w-4 h-4 text-gray-400" />
+                    <span className="text-xs text-gray-500 italic">No translated version available for this transcript.</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>

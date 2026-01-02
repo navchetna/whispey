@@ -473,6 +473,31 @@ CREATE TABLE IF NOT EXISTS public.pype_voice_evaluation_summaries (
     updated_at timestamp with time zone DEFAULT now()
 );
 
+-- Table for storing default evaluation metrics (admin-managed, global metrics)
+-- These are template metrics that can be imported by users to their projects
+CREATE TABLE IF NOT EXISTS public.pype_voice_default_metrics (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    name varchar(255) NOT NULL UNIQUE,
+    description text,
+    metric_type varchar(20) NOT NULL DEFAULT 'llm' CHECK (metric_type IN ('llm', 'static')),
+    evaluation_type varchar(100) DEFAULT 'custom',
+    prompt_template text NOT NULL,
+    scoring_output_type varchar(20) DEFAULT 'float' CHECK (scoring_output_type IN ('bool', 'int', 'percentage', 'float')),
+    success_criteria varchar(20) DEFAULT NULL CHECK (success_criteria IN ('true', 'false', 'higher_is_better', 'lower_is_better')),
+    is_active boolean DEFAULT true,
+    created_by uuid REFERENCES public.pype_voice_users(id),
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now()
+);
+
+-- Index for default metrics
+CREATE INDEX IF NOT EXISTS idx_default_metrics_active ON public.pype_voice_default_metrics(is_active) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_default_metrics_type ON public.pype_voice_default_metrics(metric_type);
+CREATE INDEX IF NOT EXISTS idx_default_metrics_evaluation_type ON public.pype_voice_default_metrics(evaluation_type);
+
+-- Grant permissions on default metrics table
+GRANT ALL PRIVILEGES ON public.pype_voice_default_metrics TO admin;
+
 -- Table for storing uploaded audio files
 CREATE TABLE IF NOT EXISTS public.pype_voice_audio_files (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -493,6 +518,130 @@ CREATE TABLE IF NOT EXISTS public.pype_voice_audio_files (
 
 -- Grant permissions on all newly created tables
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO admin;
+
+-- ==============================================
+-- AGENT PERSONAS SYSTEM TABLES
+-- ==============================================
+
+-- Table for storing predefined/template agent personas (global templates)
+CREATE TABLE IF NOT EXISTS public.pype_voice_agent_persona_templates (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    name varchar(255) NOT NULL,
+    description text,
+    category varchar(100) DEFAULT 'general', -- e.g., 'customer_service', 'sales', 'support', 'general'
+    
+    -- Persona characteristics
+    persona_name varchar(255), -- Name of the AI agent persona (e.g., "Sarah", "Alex")
+    persona_role varchar(255), -- Role description (e.g., "Customer Service Representative")
+    persona_background text, -- Background story/context for the persona
+    
+    -- Communication style
+    tone varchar(50) DEFAULT 'professional', -- e.g., 'professional', 'friendly', 'formal', 'casual'
+    communication_style text, -- Detailed communication style guidelines
+    language_preferences jsonb DEFAULT '{}', -- e.g., {"formality_level": "medium", "use_contractions": true}
+    
+    -- Behavioral guidelines
+    behavioral_guidelines text, -- How the agent should behave in different scenarios
+    do_list jsonb DEFAULT '[]', -- Things the agent should do
+    dont_list jsonb DEFAULT '[]', -- Things the agent should NOT do
+    
+    -- Response patterns
+    greeting_templates jsonb DEFAULT '[]', -- Array of greeting message templates
+    closing_templates jsonb DEFAULT '[]', -- Array of closing message templates
+    fallback_responses jsonb DEFAULT '[]', -- Responses for unknown scenarios
+    
+    -- Knowledge and expertise
+    expertise_areas jsonb DEFAULT '[]', -- Areas the agent is knowledgeable about
+    knowledge_base_context text, -- Additional context for the agent's knowledge
+    
+    -- Emotional intelligence
+    empathy_level varchar(20) DEFAULT 'medium', -- 'low', 'medium', 'high'
+    patience_level varchar(20) DEFAULT 'high', -- 'low', 'medium', 'high'
+    escalation_triggers jsonb DEFAULT '[]', -- Scenarios that should trigger escalation
+    
+    -- System prompt template
+    system_prompt_template text, -- Full system prompt incorporating all persona elements
+    
+    -- Metadata
+    is_default boolean DEFAULT false, -- Mark as a default/recommended persona
+    is_active boolean DEFAULT true,
+    tags jsonb DEFAULT '[]', -- Tags for categorization
+    created_by varchar(255),
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now()
+);
+
+-- Table for agent-specific persona configurations (inherits from templates)
+CREATE TABLE IF NOT EXISTS public.pype_voice_agent_personas (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    agent_id uuid NOT NULL REFERENCES public.pype_voice_agents(id) ON DELETE CASCADE,
+    project_id uuid NOT NULL REFERENCES public.pype_voice_projects(id) ON DELETE CASCADE,
+    
+    -- Template reference (optional - if inheriting from a template)
+    template_id uuid REFERENCES public.pype_voice_agent_persona_templates(id) ON DELETE SET NULL,
+    
+    -- Override fields (null means inherit from template)
+    name varchar(255), -- Custom name or null to use template name
+    description text,
+    
+    -- Persona characteristics (override template values)
+    persona_name varchar(255),
+    persona_role varchar(255),
+    persona_background text,
+    
+    -- Communication style
+    tone varchar(50),
+    communication_style text,
+    language_preferences jsonb,
+    
+    -- Behavioral guidelines
+    behavioral_guidelines text,
+    do_list jsonb,
+    dont_list jsonb,
+    
+    -- Response patterns
+    greeting_templates jsonb,
+    closing_templates jsonb,
+    fallback_responses jsonb,
+    
+    -- Knowledge and expertise
+    expertise_areas jsonb,
+    knowledge_base_context text,
+    
+    -- Emotional intelligence
+    empathy_level varchar(20),
+    patience_level varchar(20),
+    escalation_triggers jsonb,
+    
+    -- Final computed system prompt (after merging template + overrides)
+    system_prompt text,
+    
+    -- Status
+    is_active boolean DEFAULT true,
+    
+    -- Metadata
+    created_by varchar(255),
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    
+    -- Ensure only one active persona per agent
+    UNIQUE(agent_id) -- Each agent can have only one persona configuration
+);
+
+-- Indexes for persona templates
+CREATE INDEX IF NOT EXISTS idx_agent_persona_templates_category ON public.pype_voice_agent_persona_templates(category);
+CREATE INDEX IF NOT EXISTS idx_agent_persona_templates_active ON public.pype_voice_agent_persona_templates(is_active) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_agent_persona_templates_default ON public.pype_voice_agent_persona_templates(is_default) WHERE is_default = true;
+
+-- Indexes for agent personas
+CREATE INDEX IF NOT EXISTS idx_agent_personas_agent_id ON public.pype_voice_agent_personas(agent_id);
+CREATE INDEX IF NOT EXISTS idx_agent_personas_project_id ON public.pype_voice_agent_personas(project_id);
+CREATE INDEX IF NOT EXISTS idx_agent_personas_template_id ON public.pype_voice_agent_personas(template_id);
+CREATE INDEX IF NOT EXISTS idx_agent_personas_active ON public.pype_voice_agent_personas(is_active) WHERE is_active = true;
+
+-- Grant permissions on persona tables
+GRANT ALL ON public.pype_voice_agent_persona_templates TO admin;
+GRANT ALL ON public.pype_voice_agent_personas TO admin;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO admin;
 
 -- ==============================================
@@ -1115,13 +1264,121 @@ CREATE TRIGGER trigger_update_evaluation_job_completion
     EXECUTE FUNCTION update_evaluation_job_completion();
 
 -- ==============================================
+-- AGENT PERSONA FUNCTIONS AND TRIGGERS
+-- ==============================================
+
+-- Trigger function for updating timestamps on persona tables
+CREATE OR REPLACE FUNCTION update_agent_persona_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Apply trigger to persona templates
+DROP TRIGGER IF EXISTS trigger_update_persona_template_updated_at ON public.pype_voice_agent_persona_templates;
+CREATE TRIGGER trigger_update_persona_template_updated_at
+    BEFORE UPDATE ON public.pype_voice_agent_persona_templates
+    FOR EACH ROW
+    EXECUTE FUNCTION update_agent_persona_updated_at();
+
+-- Apply trigger to agent personas
+DROP TRIGGER IF EXISTS trigger_update_agent_persona_updated_at ON public.pype_voice_agent_personas;
+CREATE TRIGGER trigger_update_agent_persona_updated_at
+    BEFORE UPDATE ON public.pype_voice_agent_personas
+    FOR EACH ROW
+    EXECUTE FUNCTION update_agent_persona_updated_at();
+
+-- ==============================================
 -- INITIAL DATA
 -- ==============================================
+
+-- Insert default persona templates
+INSERT INTO public.pype_voice_agent_persona_templates (
+    name, description, category, persona_name, persona_role, persona_background,
+    tone, communication_style, behavioral_guidelines,
+    do_list, dont_list, empathy_level, patience_level,
+    system_prompt_template, is_default, tags
+) VALUES 
+(
+    'Professional Customer Service Agent',
+    'A professional and helpful customer service representative focused on resolving customer issues efficiently.',
+    'customer_service',
+    'Alex',
+    'Customer Service Representative',
+    'Alex is an experienced customer service professional with years of experience helping customers resolve their issues quickly and efficiently.',
+    'professional',
+    'Clear, concise, and empathetic communication. Uses proper grammar and avoids slang. Always acknowledges customer concerns before providing solutions.',
+    'Always greet customers warmly. Listen actively to understand the issue. Provide clear and actionable solutions. Follow up to ensure satisfaction.',
+    '["Greet customers warmly", "Listen actively", "Acknowledge concerns", "Provide clear solutions", "Follow up on resolutions", "Thank customers for their patience"]',
+    '["Use slang or informal language", "Interrupt the customer", "Make promises you cannot keep", "Share personal opinions", "Argue with customers"]',
+    'high',
+    'high',
+    'You are Alex, a professional Customer Service Representative. Your role is to help customers resolve their issues efficiently while maintaining a warm and professional demeanor. Always acknowledge the customer''s concerns, provide clear solutions, and ensure they feel heard and valued.',
+    true,
+    '["customer_service", "professional", "support"]'
+),
+(
+    'Friendly Sales Assistant',
+    'An enthusiastic and knowledgeable sales assistant focused on understanding customer needs and recommending suitable products.',
+    'sales',
+    'Jordan',
+    'Sales Assistant',
+    'Jordan is a passionate sales professional who loves helping customers find the perfect products for their needs.',
+    'friendly',
+    'Warm, enthusiastic, and consultative. Uses conversational language while maintaining professionalism. Asks questions to understand needs before making recommendations.',
+    'Focus on understanding customer needs first. Provide helpful recommendations without being pushy. Highlight value and benefits rather than just features.',
+    '["Ask discovery questions", "Listen to customer needs", "Provide personalized recommendations", "Explain product benefits", "Offer alternatives when needed", "Create a positive buying experience"]',
+    '["Be pushy or aggressive", "Oversell products", "Ignore customer budget constraints", "Make false claims", "Rush the customer"]',
+    'medium',
+    'high',
+    'You are Jordan, a friendly and knowledgeable Sales Assistant. Your goal is to help customers find products that genuinely meet their needs. Start by understanding what they''re looking for, then provide thoughtful recommendations. Be enthusiastic but never pushy.',
+    true,
+    '["sales", "friendly", "consultative"]'
+),
+(
+    'Technical Support Specialist',
+    'A patient and knowledgeable technical support specialist who excels at explaining complex issues in simple terms.',
+    'support',
+    'Sam',
+    'Technical Support Specialist',
+    'Sam is a technical expert who has helped thousands of users resolve their technical issues. Known for patience and ability to explain complex concepts simply.',
+    'professional',
+    'Patient, methodical, and clear. Breaks down complex issues into simple steps. Uses analogies to explain technical concepts. Confirms understanding at each step.',
+    'Guide users step-by-step through troubleshooting. Verify each step is completed before moving on. Offer alternative solutions if the first approach doesn''t work.',
+    '["Explain steps clearly", "Confirm understanding", "Provide multiple solutions", "Document issues for reference", "Follow up on complex issues", "Offer to escalate when needed"]',
+    '["Use excessive jargon", "Rush through steps", "Assume user knowledge level", "Skip verification steps", "Be condescending"]',
+    'high',
+    'high',
+    'You are Sam, a Technical Support Specialist. Your expertise is in helping users resolve technical issues through patient, step-by-step guidance. Always explain things clearly, confirm the user understands each step, and offer alternative solutions when needed.',
+    true,
+    '["technical", "support", "patient"]'
+),
+(
+    'Empathetic Healthcare Assistant',
+    'A compassionate healthcare assistant focused on providing supportive and accurate health-related information.',
+    'healthcare',
+    'Morgan',
+    'Healthcare Assistant',
+    'Morgan is a caring healthcare professional dedicated to helping patients navigate their health journey with empathy and accurate information.',
+    'professional',
+    'Compassionate, reassuring, and informative. Uses simple language to explain medical concepts. Always emphasizes the importance of consulting healthcare providers.',
+    'Provide accurate health information while being empathetic. Always recommend consulting with healthcare providers for medical advice. Be sensitive to patient concerns and anxiety.',
+    '["Listen with empathy", "Provide accurate information", "Recommend professional consultation", "Be sensitive to concerns", "Offer reassurance", "Respect privacy"]',
+    '["Provide medical diagnoses", "Replace professional medical advice", "Dismiss patient concerns", "Share graphic details unnecessarily", "Make assumptions about conditions"]',
+    'high',
+    'high',
+    'You are Morgan, a Healthcare Assistant. Your role is to provide supportive, accurate health information while being compassionate and understanding. Always recommend that users consult with healthcare professionals for medical advice. Be empathetic and never dismiss concerns.',
+    true,
+    '["healthcare", "empathetic", "supportive"]'
+)
+ON CONFLICT DO NOTHING;
 
 -- Create default admin user (password: admin123)
 -- Note: In production, use a proper password hashing library
 INSERT INTO public.pype_voice_users (email, first_name, last_name, password_hash, is_admin)
-VALUES ('admin@agent_evals.local', 'Admin', 'User', crypt('admin123', gen_salt('bf')), true)
+VALUES ('admin@gmail.com', 'Admin', 'User', crypt('admin123', gen_salt('bf')), true)
 ON CONFLICT (email) DO NOTHING;
 
 -- Refresh the materialized view (safely with error handling)
@@ -1150,7 +1407,7 @@ GRANT ALL ON ALL ROUTINES IN SCHEMA public TO admin;
 DO $$
 BEGIN
     RAISE NOTICE 'Whispey database schema setup completed successfully!';
-    RAISE NOTICE 'Default admin user created: admin@agent_evals.local / admin123';
+    RAISE NOTICE 'Default admin user created: admin@gmail.com / admin123';
     RAISE NOTICE 'Please change the default password after first login.';
     RAISE NOTICE 'Database user: admin';
     RAISE NOTICE 'Remember to update the password in your .env.local file!';
