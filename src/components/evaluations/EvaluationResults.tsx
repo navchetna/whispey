@@ -33,7 +33,9 @@ import {
   Activity,
   Headphones,
   FileAudio,
-  Languages
+  Languages,
+  UserCheck,
+  Bot
 } from 'lucide-react'
 
 // Trace data interface for agent traces
@@ -189,7 +191,18 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
   const [selectedType, setSelectedType] = useState<string>('all')
   const [sortBy, setSortBy] = useState<'score' | 'date' | 'duration'>('score')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
-  const [selectedTranscript, setSelectedTranscript] = useState<{callId: string, transcript: string, translatedTranscript?: string} | null>(null)
+  const [selectedTranscript, setSelectedTranscript] = useState<{
+    callId: string, 
+    transcript: string, 
+    translatedTranscript?: string,
+    turns?: Array<{
+      user_transcript?: string,
+      agent_response?: string,
+      translated_text?: string,
+      start_time?: number,
+      end_time?: number
+    }>
+  } | null>(null)
   const [selectedRawResponse, setSelectedRawResponse] = useState<{callId: string, response: string} | null>(null)
   const [debugInfo, setDebugInfo] = useState<string>('')
   const [selectedTrace, setSelectedTrace] = useState<TraceData | null>(null)
@@ -338,150 +351,151 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
         return
       }
 
-      console.log('📡 [DEBUG] Step 1: Fetching call log entry...')
+      console.log('📡 [DEBUG] Fetching call log with transcript_json...')
 
-      // Step 1: First get the call log entry to get the internal ID
-      const callLogResponse = await fetch(`/api/call-logs?call_id=${encodeURIComponent(callId)}&limit=1`)
-      const callLogResult = await callLogResponse.json()
-      const callLogData = callLogResult.data
+      // Try fetching by call_id first
+      let callLogResponse = await fetch(`/api/call-logs?call_id=${encodeURIComponent(callId)}&limit=1`)
+      let callLogResult = await callLogResponse.json()
+      let callLogData = callLogResult.data
 
-      console.log('📊 [DEBUG] Call log query result:', { 
+      console.log('📊 [DEBUG] Call log query by call_id result:', { 
         data: callLogData, 
-        dataLength: callLogData?.length || 0
+        dataLength: callLogData?.length || 0,
+        hasTranscriptJson: !!callLogData?.[0]?.transcript_json
       })
+
+      // If not found by call_id, try by internal id (UUID)
+      if (callLogResponse.ok && (!callLogData || callLogData.length === 0)) {
+        console.log('📡 [DEBUG] No result by call_id, trying by internal id...')
+        callLogResponse = await fetch(`/api/call-logs?id=${encodeURIComponent(callId)}&limit=1`)
+        callLogResult = await callLogResponse.json()
+        callLogData = callLogResult.data
+        
+        console.log('📊 [DEBUG] Call log query by id result:', { 
+          data: callLogData, 
+          dataLength: callLogData?.length || 0,
+          hasTranscriptJson: !!callLogData?.[0]?.transcript_json
+        })
+      }
 
       if (!callLogResponse.ok) {
         console.error('❌ [ERROR] Database error fetching call log:', callLogResult.error)
-        setSelectedTranscript({ callId, transcript: 'Database Error: ' + callLogResult.error + '\n\nThis could be due to:\n• Database connection issues\n• Permission problems\n• Table doesn\'t exist' })
+        setSelectedTranscript({ callId, transcript: 'Database Error: ' + callLogResult.error })
         return
       }
 
       if (!callLogData || callLogData.length === 0) {
         console.warn('⚠️ [WARNING] No call log found for call_id:', callId)
-        
-        // Let's try to see what call_ids actually exist
-        const sampleResponse = await fetch('/api/call-logs?limit=5')
-        const sampleResult = await sampleResponse.json()
-        const sampleCallLogs = sampleResult.data
-        
-        console.log('📋 [DEBUG] Sample call_ids in database:', sampleCallLogs?.map((log: any) => log.call_id))
-        
         setSelectedTranscript({ 
           callId, 
-          transcript: `No call log found for call_id: "${callId}"\n\nPossible reasons:\n• This call_id doesn't exist in the database\n• The call log was not saved properly\n• There's a mismatch between evaluation results and call logs\n\nSample call_ids in database: ${sampleCallLogs?.map((log: any) => log.call_id).join(', ') || 'None found'}` 
+          transcript: `No call log found for call_id: "${callId}"\n\nPossible reasons:\n• This call_id doesn't exist in the database\n• The call log was not saved properly` 
         })
         return
       }
 
-      const callLogId = callLogData[0].id
-      console.log('✅ [SUCCESS] Found call log - Internal ID:', callLogId, 'External call_id:', callId)
-
-      console.log('📡 [DEBUG] Step 2: Fetching transcript data from metrics logs...')
-
-      // Step 2: Get transcript data from metrics logs using the call log ID as session_id
+      const callLog = callLogData[0]
+      console.log('📊 [DEBUG] Found call log:', { 
+        id: callLog.id, 
+        call_id: callLog.call_id,
+        hasTranscriptJson: !!callLog.transcript_json,
+        transcriptType: callLog.transcript_type
+      })
+      
+      // Check if transcript_json exists (same logic as TracesTable)
+      if (callLog.transcript_json) {
+        console.log('✅ [SUCCESS] Found transcript_json in call log')
+        
+        try {
+          const transcriptJson = typeof callLog.transcript_json === 'string' 
+            ? JSON.parse(callLog.transcript_json) 
+            : callLog.transcript_json
+          
+          if (transcriptJson?.turns && Array.isArray(transcriptJson.turns)) {
+            // Convert turns to the format expected by our dialog (same logic as TracesTable)
+            const turns = transcriptJson.turns.map((turn: any) => {
+              // Detect format: new format uses 'role' and 'content', old format uses 'speaker' and 'text'
+              const isNewFormat = 'role' in turn && 'content' in turn
+              const isUser = isNewFormat 
+                ? turn.role === 'user' 
+                : turn.speaker === 'Speaker 1' || turn.speaker === 'user'
+              const isAgent = isNewFormat 
+                ? turn.role === 'agent' 
+                : turn.speaker === 'Speaker 2' || turn.speaker === 'agent'
+              const textContent = isNewFormat ? turn.content : turn.text
+              
+              return {
+                user_transcript: isUser ? textContent : undefined,
+                agent_response: isAgent ? textContent : undefined,
+                translated_text: turn.translated_text,
+                start_time: turn.start_time,
+                end_time: turn.end_time
+              }
+            })
+            
+            // Create formatted transcript string for fallback display
+            const formattedTranscript = turns
+              .filter((turn: any) => turn.user_transcript || turn.agent_response)
+              .map((turn: any) => {
+                const messages: string[] = []
+                if (turn.user_transcript) messages.push(`USER: ${turn.user_transcript}`)
+                if (turn.agent_response) messages.push(`AGENT: ${turn.agent_response}`)
+                return messages.join('\n')
+              })
+              .join('\n\n')
+            
+            console.log('✅ [SUCCESS] Parsed transcript_json with', turns.length, 'turns')
+            setSelectedTranscript({ 
+              callId, 
+              transcript: formattedTranscript,
+              turns
+            })
+            return
+          }
+        } catch (parseError) {
+          console.error('❌ [ERROR] Failed to parse transcript_json:', parseError)
+        }
+      }
+      
+      // Fallback: Try to get transcript from metrics logs (original behavior)
+      console.log('📡 [DEBUG] No transcript_json found, falling back to metrics logs...')
+      
+      const callLogId = callLog.id
       const metricsResponse = await fetch(`/api/metrics-logs?session_id=${encodeURIComponent(callLogId)}&orderBy=unix_timestamp&order=asc`)
       const metricsResult = await metricsResponse.json()
       const transcriptTurns = metricsResult.data
 
-      console.log('📊 [DEBUG] Transcript query result:', { 
-        data: transcriptTurns, 
-        dataLength: transcriptTurns?.length || 0,
-        session_id: callLogId
-      })
-
-      if (!metricsResponse.ok) {
-        console.error('❌ [ERROR] Database error fetching transcript:', metricsResult.error)
-        setSelectedTranscript({ callId, transcript: 'Transcript Database Error: ' + metricsResult.error })
-        return
-      }
-
-      console.log('📝 [DEBUG] Processing transcript turns...')
-
-      if (transcriptTurns && transcriptTurns.length > 0) {
-        console.log('🔍 [DEBUG] Raw transcript turns:', transcriptTurns.map((turn: any, index: number) => ({
-          index,
-          user_transcript: turn.user_transcript ? turn.user_transcript.substring(0, 50) + '...' : null,
-          agent_response: turn.agent_response ? turn.agent_response.substring(0, 50) + '...' : null,
-          translated_text: turn.translated_text ? turn.translated_text.substring(0, 50) + '...' : null,
-          has_user: !!turn.user_transcript,
-          has_agent: !!turn.agent_response,
-          has_translated: !!turn.translated_text
-        })))
-
-        // Format the transcript data using the same logic as the processor
-        const formattedTranscript = transcriptTurns
+      if (metricsResponse.ok && transcriptTurns && transcriptTurns.length > 0) {
+        const turns = transcriptTurns
           .filter((turn: any) => turn.user_transcript || turn.agent_response)
+          .map((turn: any) => ({
+            user_transcript: turn.user_transcript,
+            agent_response: turn.agent_response,
+            translated_text: turn.translated_text
+          }))
+        
+        const formattedTranscript = turns
           .map((turn: any) => {
             const messages: string[] = []
-            
-            if (turn.user_transcript && turn.user_transcript.trim()) {
-              messages.push(`USER: ${turn.user_transcript}`)
-            }
-            if (turn.agent_response && turn.agent_response.trim()) {
-              messages.push(`AGENT: ${turn.agent_response}`)
-            }
-            
+            if (turn.user_transcript) messages.push(`USER: ${turn.user_transcript}`)
+            if (turn.agent_response) messages.push(`AGENT: ${turn.agent_response}`)
             return messages.join('\n')
           })
           .join('\n\n')
-
-        // Format the translated transcript data
-        const formattedTranslatedTranscript = transcriptTurns
-          .filter((turn: any) => turn.translated_text || turn.user_transcript || turn.agent_response)
-          .map((turn: any) => {
-            const messages: string[] = []
-            
-            // Use translated_text if available, otherwise fall back to original
-            if (turn.user_transcript && turn.user_transcript.trim()) {
-              const translatedUser = turn.translated_text && turn.user_transcript ? turn.translated_text : turn.user_transcript
-              messages.push(`USER: ${translatedUser}`)
-            }
-            if (turn.agent_response && turn.agent_response.trim()) {
-              // Agent responses typically don't need translation (they're already in the target language)
-              messages.push(`AGENT: ${turn.agent_response}`)
-            }
-            
-            return messages.join('\n')
-          })
-          .join('\n\n')
-
-        console.log('📄 [DEBUG] Formatted transcript length:', formattedTranscript.length)
-        console.log('📄 [DEBUG] Formatted transcript preview:', formattedTranscript.substring(0, 200) + '...')
-
+        
         if (formattedTranscript.trim()) {
-          console.log('✅ [SUCCESS] Transcript formatted successfully, opening dialog')
-          console.log('🖥️ [UI DEBUG] Setting selectedTranscript state with:', { callId, transcriptLength: formattedTranscript.length })
-          setSelectedTranscript({ 
-            callId, 
-            transcript: formattedTranscript,
-            translatedTranscript: formattedTranslatedTranscript !== formattedTranscript ? formattedTranslatedTranscript : undefined
-          })
-          // Force a small delay to ensure state update
-          setTimeout(() => {
-            console.log('🖥️ [UI DEBUG] Dialog should be open now, selectedTranscript set')
-          }, 100)
-        } else {
-          console.warn('⚠️ [WARNING] Transcript turns exist but no meaningful content found')
-          setSelectedTranscript({ callId, transcript: 'Empty Transcript: Found transcript entries but they contain no meaningful content.\n\nThis might be because:\n• Transcript fields are empty or contain only whitespace\n• Audio processing failed\n• No actual conversation took place' })
+          setSelectedTranscript({ callId, transcript: formattedTranscript, turns })
+          return
         }
-      } else {
-        console.warn('⚠️ [WARNING] No transcript turns found for session_id:', callLogId)
-        
-        // Let's check if there's any data in metrics logs at all
-        const sampleMetricsResponse = await fetch('/api/metrics-logs?limit=5')
-        const sampleMetricsResult = await sampleMetricsResponse.json()
-        const sampleMetrics = sampleMetricsResult.data
-        
-        console.log('📋 [DEBUG] Sample session_ids in metrics logs:', sampleMetrics?.map((m: any) => m.session_id))
-        
-        setSelectedTranscript({ 
-          callId, 
-          transcript: `No transcript data found for this call.\n\nDetails:\n• Call log ID: ${callLogId}\n• Call ID: ${callId}\n\nPossible reasons:\n• The conversation was not recorded\n• Transcript processing failed\n• No meaningful exchange occurred\n• Wrong session_id relationship\n\nSample session_ids in metrics: ${sampleMetrics?.map((m: any) => m.session_id).join(', ') || 'None found'}` 
-        })
       }
+      
+      // No transcript found anywhere
+      setSelectedTranscript({ 
+        callId, 
+        transcript: `No transcript data found for this call.\n\nDetails:\n• Call ID: ${callId}\n\nPossible reasons:\n• The conversation was not recorded\n• Transcript processing failed\n• No meaningful exchange occurred` 
+      })
     } catch (error) {
       console.error('💥 [FATAL ERROR] Unexpected error in handleViewTranscript:', error)
-      setSelectedTranscript({ callId, transcript: 'Unexpected Error: ' + (error as Error).message + '\n\nStack trace logged to console.' })
+      setSelectedTranscript({ callId, transcript: 'Unexpected Error: ' + (error as Error).message })
     }
   }
 
@@ -1056,8 +1070,10 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
                             size="sm" 
                             className="flex items-center gap-2"
                             onClick={() => {
-                              console.log('🖱️ [UI DEBUG] View Transcript button clicked for call_id:', result.call_id)
-                              handleViewTranscript(result.call_id)
+                              // Try call_id first, then trace_id as fallback (trace_id might contain internal UUID)
+                              const idToUse = result.call_id || result.trace_id
+                              console.log('🖱️ [UI DEBUG] View Transcript button clicked:', { call_id: result.call_id, trace_id: result.trace_id, using: idToUse })
+                              handleViewTranscript(idToUse)
                             }}
                           >
                             <Eye className="w-4 h-4" />
@@ -1068,8 +1084,9 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
                             size="sm" 
                             className="flex items-center gap-2 text-blue-600 border-blue-200 hover:bg-blue-50"
                             onClick={() => {
-                              console.log('🖱️ [UI DEBUG] View Agent Traces button clicked for call_id:', result.call_id)
-                              handleViewAgentTraces(result.call_id)
+                              const idToUse = result.call_id || result.trace_id
+                              console.log('🖱️ [UI DEBUG] View Agent Traces button clicked:', { call_id: result.call_id, trace_id: result.trace_id, using: idToUse })
+                              handleViewAgentTraces(idToUse)
                             }}
                           >
                             <Activity className="w-4 h-4" />
@@ -1192,7 +1209,7 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
               Call Transcript - {selectedTranscript?.callId}
             </DialogTitle>
             {/* Translation Toggle - Only show if translated content is available */}
-            {selectedTranscript?.translatedTranscript && (
+            {selectedTranscript?.turns?.some(t => t.translated_text) && (
               <div className="flex items-center gap-2 mr-8">
                 <span className={`text-xs ${!showTranslated ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>Original</span>
                 <button
@@ -1216,21 +1233,55 @@ export default function EvaluationResults({ params }: EvaluationResultsProps) {
           </div>
         </DialogHeader>
         <div className="mt-4 overflow-y-auto max-h-[60vh]">
-          <div className="bg-gray-50 rounded-lg p-4">
-            <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono leading-relaxed">
-              {showTranslated && selectedTranscript?.translatedTranscript 
-                ? selectedTranscript.translatedTranscript 
-                : selectedTranscript?.transcript}
-            </pre>
-            {!selectedTranscript?.translatedTranscript && (
-              <div className="mt-4 pt-4 border-t border-gray-200">
-                <div className="flex items-center gap-2">
-                  <Languages className="w-4 h-4 text-gray-400" />
-                  <span className="text-xs text-gray-500 italic">No translated version available for this transcript.</span>
+          {/* Turn-wise display when turns are available */}
+          {selectedTranscript?.turns && selectedTranscript.turns.length > 0 ? (
+            <div className="space-y-3">
+              {selectedTranscript.turns.map((turn, index) => (
+                <div key={index} className="border rounded-lg overflow-hidden">
+                  {turn.user_transcript && (
+                    <div className="bg-blue-50 p-3 border-b border-blue-100">
+                      <div className="flex items-center gap-2 mb-1">
+                        <UserCheck className="w-4 h-4 text-blue-600" />
+                        <span className="text-blue-600 font-medium text-sm">Evaluator</span>
+                        {turn.start_time !== undefined && (
+                          <span className="text-xs text-blue-400 font-mono ml-auto">
+                            {turn.start_time.toFixed(1)}s
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-800 leading-relaxed">{turn.user_transcript}</p>
+                      {showTranslated && turn.translated_text && (
+                        <p className="text-xs text-gray-600 font-medium mt-1 italic">
+                          ({turn.translated_text})
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {turn.agent_response && (
+                    <div className="bg-green-50 p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Bot className="w-4 h-4 text-green-600" />
+                        <span className="text-green-600 font-medium text-sm">Voice Agent</span>
+                        {turn.start_time !== undefined && !turn.user_transcript && (
+                          <span className="text-xs text-green-400 font-mono ml-auto">
+                            {turn.start_time.toFixed(1)}s
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-800 leading-relaxed">{turn.agent_response}</p>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
-          </div>
+              ))}
+            </div>
+          ) : (
+            /* Fallback to plain text display */
+            <div className="bg-gray-50 rounded-lg p-4">
+              <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono leading-relaxed">
+                {selectedTranscript?.transcript}
+              </pre>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>

@@ -1,9 +1,16 @@
 // src/app/api/agents/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { query } from "@/lib/postgres"
+import { auth } from "@/lib/auth-server"
+import { checkProjectAccess, getUserAccessibleProjectIds } from "@/lib/project-access"
 
 export async function POST(request: NextRequest) {
   try {
+    const { userId } = await auth()
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const body = await request.json()
     const { name, agent_type, configuration, project_id, environment } = body
 
@@ -26,6 +33,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Project ID is required' },
         { status: 400 }
+      )
+    }
+
+    // Check if user has access to this project (admin role required to create agents)
+    const access = await checkProjectAccess(project_id, userId, ['admin'])
+    if (!access.hasAccess) {
+      return NextResponse.json(
+        { error: 'Access denied: You do not have permission to create agents in this project' },
+        { status: 403 }
       )
     }
 
@@ -109,6 +125,11 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const { userId } = await auth()
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const { searchParams } = new URL(request.url)
     const projectId = searchParams.get('project_id')
     const agentId = searchParams.get('id')
@@ -116,6 +137,17 @@ export async function GET(request: NextRequest) {
     const offset = searchParams.get('offset') ? parseInt(searchParams.get('offset')!) : 0
     const orderBy = searchParams.get('orderBy') || 'created_at'
     const order = searchParams.get('order') === 'asc' ? 'ASC' : 'DESC'
+
+    // If a specific project is requested, check access
+    if (projectId) {
+      const access = await checkProjectAccess(projectId, userId)
+      if (!access.hasAccess) {
+        return NextResponse.json(
+          { error: 'Access denied: You do not have access to this project' },
+          { status: 403 }
+        )
+      }
+    }
 
     // Build WHERE conditions
     const conditions: string[] = []
@@ -125,6 +157,16 @@ export async function GET(request: NextRequest) {
     if (projectId) {
       conditions.push(`project_id = $${paramIndex}`)
       params.push(projectId)
+      paramIndex++
+    } else {
+      // If no specific project requested, filter to only accessible projects
+      const accessibleProjectIds = await getUserAccessibleProjectIds(userId)
+      if (accessibleProjectIds.length === 0) {
+        // User has no accessible projects
+        return NextResponse.json({ data: [], count: 0 })
+      }
+      conditions.push(`project_id = ANY($${paramIndex}::uuid[])`)
+      params.push(accessibleProjectIds)
       paramIndex++
     }
 
