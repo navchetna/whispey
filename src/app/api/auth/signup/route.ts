@@ -2,6 +2,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/postgres'
 import bcrypt from 'bcryptjs'
+import crypto from 'crypto'
+
+// Generate a secure session token
+function generateSessionToken(): string {
+  return crypto.randomBytes(32).toString('hex')
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -50,7 +56,19 @@ export async function POST(request: NextRequest) {
 
     const user = result.rows[0]
 
-    return NextResponse.json({
+    // Create a session for the new user (so they're immediately logged in)
+    const sessionToken = generateSessionToken()
+    const expiresAt = new Date()
+    expiresAt.setDate(expiresAt.getDate() + 7) // Session expires in 7 days
+
+    await query(
+      `INSERT INTO pype_voice_user_sessions (user_id, session_token, expires_at)
+       VALUES ($1, $2, $3)`,
+      [user.id, sessionToken, expiresAt.toISOString()]
+    )
+
+    // Create response with user data
+    const response = NextResponse.json({
       user: {
         id: user.id,
         email: user.email,
@@ -59,6 +77,17 @@ export async function POST(request: NextRequest) {
         isAdmin: user.is_admin
       }
     }, { status: 201 })
+
+    // Set session cookie (HTTP-only for security)
+    response.cookies.set('whispey_session', sessionToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      expires: expiresAt
+    })
+
+    return response
 
   } catch (error) {
     console.error('Signup error:', error)

@@ -1,5 +1,6 @@
 import os
 import time
+import asyncio
 from pathlib import Path
 import tempfile
 import shutil
@@ -71,7 +72,7 @@ async def transcribe(request: Request, file: UploadFile = File(None)):
             logger.error("No file found in request")
             raise HTTPException(status_code=400, detail="Audio file is required. Send as multipart/form-data with field name 'file'")
         
-        print(f"📁 Received file: {file.filename}, content_type: {file.content_type}")
+        logger.info(f"Received file: {file.filename}, content_type: {file.content_type}")
         
         # Save uploaded file to a temporary location
         suffix = Path(file.filename).suffix if file.filename else '.wav'
@@ -119,114 +120,123 @@ async def transcribe(request: Request, file: UploadFile = File(None)):
             os.unlink(temp_file_path)
 
 async def transcribe_audio(audio_file_path: str, api_key: str):
-    try:
-        # Initialize SarvamAI client
-        client = AsyncSarvamAI(api_subscription_key=api_key)
-        
-        # Create transcription job
-        logger.info("Creating transcription job...")
-        job = await client.speech_to_text_job.create_job(
-            model="saarika:v2.5",
-            with_diarization=True,
-            num_speakers=2,
-        )
-        
-        # Upload audio file
-        await job.upload_files(file_paths=[audio_file_path])
-        
-        # Start job
-        await job.start()
-        
-        # Wait for completion (this handles the 5+ minute wait)
-        final_status = await job.wait_until_complete()
-        
-        # Check if failed
-        if await job.is_failed():
-            return {
-                "success": False,
-                "error": "STT job failed"
-            }
-        
-        # Download outputs
-        logger.info("Downloading transcript...")
-        output_dir = "/tmp/sarvam_output"
-        
-        # Clean output directory before download
-        if os.path.exists(output_dir):
-            shutil.rmtree(output_dir)
-        os.makedirs(output_dir, exist_ok=True)
-        
-        await job.download_outputs(output_dir=output_dir)
-                
-        # Read the diarized transcript - check multiple possible filenames
-        possible_transcript_files = [
-            os.path.join(output_dir, "diarized_transcript.json"),
-            os.path.join(output_dir, "transcript.json"),
-            os.path.join(output_dir, "output.json"),
-        ]
-        
-        # Also check for any JSON file in the directory
-        json_files = []
-        for root, dirs, files in os.walk(output_dir):
-            for f in files:
-                if f.endswith('.json'):
-                    json_files.append(os.path.join(root, f))
-        
-        transcript_path = None
-        for path in possible_transcript_files + json_files:
-            if os.path.exists(path):
-                transcript_path = path
-                logger.info(f"Found transcript file: {transcript_path}")
-                break
-        
-        if transcript_path:
-            with open(transcript_path, 'r') as f:
-                transcript_data = json.load(f)
+    for _ in range(3):
+        try:
+            # Initialize SarvamAI client
+            client = AsyncSarvamAI(api_subscription_key=api_key)
             
-            # Format the transcript
-            formatted_transcript = format_diarized_transcript(transcript_data)
+            # Create transcription job
+            logger.info("Creating transcription job...")
+            job = await client.speech_to_text_job.create_job(
+                model="saarika:v2.5",
+                with_diarization=True,
+                num_speakers=2,
+            )
             
-            return {
-                "success": True,
-                "transcript": formatted_transcript
-            }
-        else:
-            # List what files we did find
-            all_files = []
+            # Upload audio file
+            await job.upload_files(file_paths=[audio_file_path])
+            
+            # Start job
+            await job.start()
+            
+            # Wait for completion (this handles the 5+ minute wait)
+            await job.wait_until_complete()
+
+
+            file_results = await job.get_file_results()
+
+            for f in file_results['successful']:
+                logger.info(f"{f['file_name']}")
+            
+
+            # Check if failed
+            if await job.is_failed():
+                return {
+                    "success": False,
+                    "error": "STT job failed"
+                }
+            
+            # Download outputs
+            logger.info("Downloading transcript...")
+            output_dir = "/tmp/sarvam_output"
+            
+            # Clean output directory before download
+            if os.path.exists(output_dir):
+                shutil.rmtree(output_dir)
+            os.makedirs(output_dir, exist_ok=True)
+            
+            await job.download_outputs(output_dir=output_dir)
+                    
+            # Read the diarized transcript - check multiple possible filenames
+            possible_transcript_files = [
+                os.path.join(output_dir, "diarized_transcript.json"),
+                os.path.join(output_dir, "transcript.json"),
+                os.path.join(output_dir, "output.json"),
+            ]
+            
+            # Also check for any JSON file in the directory
+            json_files = []
             for root, dirs, files in os.walk(output_dir):
                 for f in files:
-                    all_files.append(os.path.join(root, f))
-            logger.info(f"No transcript JSON found. Files in output: {all_files}")
-            return {
-                "success": False,
-                "error": f"Transcript file not found. Available files: {all_files}"
-            }
+                    if f.endswith('.json'):
+                        json_files.append(os.path.join(root, f))
             
-    except Exception as e:
-        # Extract clean error message from SarvamAI API errors
-        error_message = str(e)
-        
-        # Check if it's a SarvamAI ApiError with body containing error details
-        if hasattr(e, 'body') and isinstance(e.body, dict):
-            body = e.body
-            if 'error' in body:
-                error_info = body['error']
-                if isinstance(error_info, dict):
-                    error_message = error_info.get('message', str(e))
-                    error_code = error_info.get('code', '')
-                    if error_code:
-                        error_message = f"{error_message} ({error_code})"
-                else:
-                    error_message = str(error_info)
-            elif 'message' in body:
-                error_message = body['message']
-        
-        print(f"Transcription failed: {error_message}")
-        
-        return {
-            "success": False,
-            "error": error_message
-        }
+            transcript_path = None
+            for path in possible_transcript_files + json_files:
+                if os.path.exists(path):
+                    transcript_path = path
+                    logger.info(f"Found transcript file: {transcript_path}")
+                    break
+            
+            if transcript_path:
+                with open(transcript_path, 'r') as f:
+                    transcript_data = json.load(f)
+                
+                # Format the transcript
+                formatted_transcript = format_diarized_transcript(transcript_data)
+                
+                return {
+                    "success": True,
+                    "transcript": formatted_transcript
+                }
+            else:
+                # List what files we did find
+                all_files = []
+                for root, dirs, files in os.walk(output_dir):
+                    for f in files:
+                        all_files.append(os.path.join(root, f))
+                logger.info(f"No transcript JSON found. Files in output: {all_files}")
+                return {
+                    "success": False,
+                    "error": f"Transcript file not found. Available files: {all_files}"
+                }
+                
+        except Exception as e:
+            # Extract clean error message from SarvamAI API errors
+            error_message = str(e)
+            
+            # Check if it's a SarvamAI ApiError with body containing error details
+            if hasattr(e, 'body') and isinstance(e.body, dict):
+                body = e.body
+                if 'error' in body:
+                    error_info = body['error']
+                    if isinstance(error_info, dict):
+                        error_message = error_info.get('message', str(e))
+                        error_code = error_info.get('code', '')
+                        if error_code:
+                            error_message = f"{error_message} ({error_code})"
+                    else:
+                        error_message = str(error_info)
+                elif 'message' in body:
+                    error_message = body['message']
+            
+            logger.info(f"Transcription failed: {error_message}")
+            await asyncio.sleep(60)
+            
+    return {
+        "success": False,
+        "error": error_message
+    }
 
 def format_diarized_transcript(transcript_data):
     """Format SarvamAI transcript to match the expected structure.
@@ -368,7 +378,7 @@ def translate_text(text, target_language='en-IN'):
 
         except Exception as e:
             logger.info(f"Translation error: {str(e)}, Trying again...")
-            time.sleep(30)
+            time.sleep(60)
         
     logger.info("Translation failed after multiple attempts.")
     return "" # Return empty string if translation fails
@@ -377,6 +387,6 @@ def translate_text(text, target_language='en-IN'):
 if __name__ == '__main__':
     import uvicorn
     port = int(os.getenv('PYTHON_BACKEND_PORT', 5006))
-    print(f"Starting Python backend on port {port}")
-    print(f"API endpoint: http://localhost:{port}/transcribe")
+    logger.info(f"Starting Python backend on port {port}")
+    logger.info(f"API endpoint: http://localhost:{port}/transcribe")
     uvicorn.run(app, host='0.0.0.0', port=port, log_level="info")

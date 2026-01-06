@@ -14,13 +14,9 @@ import SessionTraceView from "./SessionTraceView"
 import WaterfallView from "./WaterFallView";
 import { getAgentPlatform } from "@/utils/agentDetection";
 
-// Custom Sarvam icon component
-const SarvamIcon = ({ className }: { className?: string }) => (
-  <img 
-    src="https://img.icons8.com/?size=100&id=cSTZGiTsAgJX&format=png&color=000000"
-    alt="Survey Bot"
-    className={className}
-  />
+// Voice Agent icon component
+const VoiceAgentIcon = ({ className }: { className?: string }) => (
+  <Bot className={className} />
 )
 
 interface TracesTableProps {
@@ -1006,14 +1002,14 @@ const handleRowClick = (trace: TraceLog) => {
                               hasBugReport && "text-red-700 dark:text-red-300 font-medium"
                             )}>
                               <div className="flex items-center gap-2 mb-1">
-                                <SarvamIcon className={cn(
+                                <VoiceAgentIcon className={cn(
                                   "w-3 h-3",
                                   hasBugReport ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"
                                 )} />
                                 <span className={cn(
                                   "font-medium text-sm",
                                   hasBugReport ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"
-                                )}>Sarvam</span>
+                                )}>Voice Agent</span>
                                 {hasBugReport && (
                                   <Badge variant="destructive" className="text-[10px] px-1 py-0">
                                     REPORTED
