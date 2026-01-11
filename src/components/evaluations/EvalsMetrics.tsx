@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { SlidePanel } from '@/components/ui/slide-panel'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
-import { AlertCircle, Plus, Settings, MoreHorizontal, Edit2, Trash2, Copy, Eye, Brain, TrendingUp, BarChart3, Activity, CheckCircle, Clock, Users, Target, Languages, XCircle, Timer, Gauge, FileText, Download, CheckSquare } from 'lucide-react'
+import { AlertCircle, Plus, Settings, MoreHorizontal, Edit2, Trash2, Copy, Eye, Brain, TrendingUp, BarChart3, Activity, CheckCircle, Clock, Users, Target, Languages, XCircle, Timer, Gauge, FileText, Download, CheckSquare, ChevronLeft } from 'lucide-react'
 import { query } from "../../lib/postgres"
 import { DatabaseService } from "@/lib/database"
 
@@ -275,6 +275,22 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
   ])
   const [editingStaticMetric, setEditingStaticMetric] = useState<StaticMetricConfig | null>(null)
 
+  // Fetch project and agent info for header
+  const { data: projectData, loading: projectLoading } = useSupabaseQuery('projects', {
+    select: 'id, name',
+    filters: [{ column: 'id', operator: 'eq', value: params.projectid }],
+    limit: 1
+  })
+
+  const { data: agentData, loading: agentLoading } = useSupabaseQuery('pype_voice_agents', {
+    select: 'id, name',
+    filters: [{ column: 'id', operator: 'eq', value: params.agentid }],
+    limit: 1
+  })
+
+  const projectName = projectData?.[0]?.name || 'Unknown Project'
+  const agentName = agentData?.[0]?.name || 'Unknown Agent'
+
   // Fetch prompts
   const { data: prompts, loading: promptsLoading, refetch: refetchPrompts } = useSupabaseQuery('pype_voice_evaluation_prompts', {
     select: `
@@ -363,8 +379,8 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
   })
 
   const handleEditPrompt = (prompt: EvaluationPrompt) => {
-    setEditingPrompt(prompt)
-    setShowCreatePrompt(true)
+    // Navigate to the edit page instead of opening a dialog
+    router.push(`/${params.projectid}/agents/${params.agentid}/evals-metrics/${prompt.id}/edit`)
   }
 
   const handleDuplicatePrompt = (prompt: EvaluationPrompt) => {
@@ -609,41 +625,50 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-      <div className="max-w-7xl mx-auto p-6">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-3">
-              <TrendingUp className="w-8 h-8 text-blue-600" />
-              Evals Metrics
-            </h1>
-            <p className="text-slate-600 mt-2">Configure and manage evaluation prompts for analyzing conversation quality</p>
-          </div>
-          
-          <div className="flex gap-3">
-            <Button 
-              onClick={() => {
-                setEditingPrompt(null)
-                setShowCreatePrompt(true)
-              }}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700"
-            >
-              <Plus className="w-4 h-4" />
-              New Metric
-            </Button>
-            <Button 
-              onClick={() => setShowCreateJob(true)}
-              variant="outline"
-              className="flex items-center gap-2 border-blue-200 text-blue-700 hover:bg-blue-50"
-              disabled={!prompts || prompts.length === 0}
-              title={!prompts || prompts.length === 0 ? "Create evaluation prompts first" : "Run evaluation on your agent's conversations"}
-            >
-              <Eye className="w-4 h-4" />
-              Run Evaluation
-            </Button>
+    <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+      {/* Header Bar */}
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
+        <div className="px-8 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => router.back()}
+                className="flex items-center justify-center w-9 h-9 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-xl transition-all duration-200"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100 tracking-tight">
+                {projectName} / {agentName}
+              </h1>
+            </div>
+            <div className="flex gap-3">
+              <Button 
+                onClick={() => {
+                  router.push(`/${params.projectid}/agents/${params.agentid}/evals-metrics/new/edit`)
+                }}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700"
+              >
+                <Plus className="w-4 h-4" />
+                New Metric
+              </Button>
+              <Button 
+                onClick={() => setShowCreateJob(true)}
+                variant="outline"
+                className="flex items-center gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-900/20"
+                disabled={!prompts || prompts.length === 0}
+                title={!prompts || prompts.length === 0 ? "Create evaluation prompts first" : "Run evaluation on your agent's conversations"}
+              >
+                <Eye className="w-4 h-4" />
+                Run Evaluation
+              </Button>
+            </div>
           </div>
         </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 overflow-auto bg-gradient-to-br from-slate-50 to-blue-50 dark:from-gray-900 dark:to-gray-800">
+        <div className="max-w-7xl mx-auto p-6">
 
         {/* Content */}
         <div className="space-y-6">
@@ -660,7 +685,7 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
                 <Brain className="w-12 h-12 text-blue-300 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-slate-800 mb-2">No evaluation prompts yet</h3>
                 <p className="text-slate-600 mb-4">Create your first evaluation prompt to start analyzing your voice agent conversations.</p>
-                <Button onClick={() => setShowCreatePrompt(true)} className="bg-blue-600 hover:bg-blue-700">
+                <Button onClick={() => router.push(`/${params.projectid}/agents/${params.agentid}/evals-metrics/new/edit`)} className="bg-blue-600 hover:bg-blue-700">
                   <Plus className="w-4 h-4 mr-2" />
                   Create First Prompt
                 </Button>
@@ -830,9 +855,11 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
             </div>
           )}
         </div>
+        </div>
+      </div>
 
-        {/* Transcript Slide Panel */}
-        <SlidePanel
+      {/* Transcript Slide Panel */}
+      <SlidePanel
           open={!!selectedTranscript}
           onClose={() => {
             setSelectedTranscript(null)
@@ -1007,7 +1034,6 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
             )}
           </DialogContent>
         </Dialog>
-      </div>
     </div>
   )
 }

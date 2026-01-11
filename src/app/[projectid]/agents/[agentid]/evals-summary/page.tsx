@@ -19,6 +19,7 @@ import {
   Star,
   Sparkles,
   ChevronRight,
+  ChevronLeft,
   PieChart
 } from 'lucide-react'
 
@@ -291,6 +292,22 @@ export default function EvalsSummaryPage({ params }: EvalsSummaryPageProps) {
     handleDateRangeSelect
   } = usePeriodFilterWithURL('7d')
 
+  // Fetch project and agent info for header
+  const { data: projectData, loading: projectLoading } = useSupabaseQuery('projects', {
+    select: 'id, name',
+    filters: [{ column: 'id', operator: 'eq', value: resolvedParams.projectid }],
+    limit: 1
+  })
+
+  const { data: agentData, loading: agentLoading } = useSupabaseQuery('pype_voice_agents', {
+    select: 'id, name',
+    filters: [{ column: 'id', operator: 'eq', value: resolvedParams.agentid }],
+    limit: 1
+  })
+
+  const projectName = projectData?.[0]?.name || 'Unknown Project'
+  const agentName = agentData?.[0]?.name || 'Unknown Agent'
+
   // Fetch all evaluation prompts for this project
   const { data: allPrompts, loading: promptsLoading } = useSupabaseQuery('pype_voice_evaluation_prompts', {
     select: '*',
@@ -467,47 +484,45 @@ export default function EvalsSummaryPage({ params }: EvalsSummaryPageProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <div className="max-w-7xl mx-auto p-6">
-        {/* Header */}
-        <div className="flex flex-col gap-4 mb-8">
+    <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+      {/* Header Bar */}
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
+        <div className="px-8 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-purple-600 rounded-lg">
-                  <Sparkles className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">
-                    Evaluation Summary
-                  </h1>
-                  <p className="text-gray-600 dark:text-gray-400 mt-1">
-                    Quality assessment overview for all evaluations
-                  </p>
-                </div>
-              </div>
+              <button
+                onClick={() => router.back()}
+                className="flex items-center justify-center w-9 h-9 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-xl transition-all duration-200"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100 tracking-tight">
+                {projectLoading ? 'Loading...' : projectName} / {agentLoading ? 'Loading...' : agentName}
+              </h1>
             </div>
-            
-            <Button
-              onClick={() => router.push(`/${resolvedParams.projectid}/agents/${resolvedParams.agentid}/evals-results`)}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              View All Results
-              <ChevronRight className="w-4 h-4" />
-            </Button>
-          </div>
-          
-          {/* Period Filter */}
-          <div className="flex items-center justify-end">
-            <PeriodFilterControlled
-              quickFilter={quickFilter}
-              dateRange={dateRange}
-              isCustomRange={isCustomRange}
-              onQuickFilterChange={handleQuickFilter}
-              onDateRangeSelect={handleDateRangeSelect}
-            />
+            <div className="flex items-center gap-4">
+              <PeriodFilterControlled
+                quickFilter={quickFilter}
+                dateRange={dateRange}
+                isCustomRange={isCustomRange}
+                onQuickFilterChange={handleQuickFilter}
+                onDateRangeSelect={handleDateRangeSelect}
+              />
+              <Button
+                onClick={() => router.push(`/${resolvedParams.projectid}/agents/${resolvedParams.agentid}/evals-results`)}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                View All Results
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
           </div>
         </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 overflow-auto">
+        <div className="max-w-7xl mx-auto p-6">
 
         {/* Main Overview Card with Donut Chart */}
         <Card className="mb-8 overflow-hidden border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
@@ -832,6 +847,7 @@ export default function EvalsSummaryPage({ params }: EvalsSummaryPageProps) {
             )}
           </CardContent>
         </Card>
+        </div>
       </div>
     </div>
   )

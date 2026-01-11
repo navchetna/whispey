@@ -824,6 +824,15 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-gray-50 dark:bg-gray-900">
+      {/* Project/Agent Header */}
+      <div className="px-4 pt-4 pb-2 bg-gray-50 dark:bg-gray-900">
+        <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+          <span className="font-medium text-slate-800 dark:text-slate-200">{project?.name || 'Unknown Project'}</span>
+          <span>/</span>
+          <span className="font-medium text-slate-800 dark:text-slate-200">{agent?.name || 'Unknown Agent'}</span>
+        </div>
+      </div>
+
       {/* Header with Filters and Column Selector - Now shows immediately */}
       <div className="flex-none p-4 border-b border-gray-200 dark:border-gray-700 bg-background/95 dark:bg-gray-900/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="flex items-center justify-between">

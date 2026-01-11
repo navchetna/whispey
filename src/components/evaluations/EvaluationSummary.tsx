@@ -438,53 +438,37 @@ export default function EvaluationSummary({ params }: EvaluationSummaryProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-blue-50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800">
-      <div className="max-w-7xl mx-auto p-6">
-        {/* Project & Agent Header */}
-        <div className="mb-4 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
-          <span className="font-medium">Project:</span>
-          <span>{projectLoading ? 'Loading...' : projectName}</span>
-          <span className="mx-2">•</span>
-          <span className="font-medium">Agent:</span>
-          <span>{agentLoading ? 'Loading...' : agentName}</span>
-        </div>
-        
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-4">
-            <Button
-              variant="ghost"
-              onClick={() => router.back()}
-              className="flex items-center gap-2 hover:bg-white/50 dark:hover:bg-gray-800/50"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Back
-            </Button>
-            <div>
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl shadow-lg">
-                  <Sparkles className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">
-                    Evaluation Summary
-                  </h1>
-                  <p className="text-gray-600 dark:text-gray-400 mt-1">
-                    {job?.name || 'Quality assessment overview'}
-                  </p>
-                </div>
-              </div>
+    <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+      {/* Header Bar */}
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
+        <div className="px-8 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Button
+                variant="ghost"
+                onClick={() => router.back()}
+                className="flex items-center justify-center w-9 h-9 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-xl"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </Button>
+              <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100 tracking-tight">
+                {projectLoading ? 'Loading...' : projectName} / {agentLoading ? 'Loading...' : agentName}
+              </h1>
             </div>
+            <Button
+              onClick={() => router.push(`/${params.projectid}/agents/${params.agentid}/evaluations/${params.jobid}`)}
+              className="flex items-center gap-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white shadow-lg"
+            >
+              View Details
+              <ChevronRight className="w-4 h-4" />
+            </Button>
           </div>
-          
-          <Button
-            onClick={() => router.push(`/${params.projectid}/agents/${params.agentid}/evaluations/${params.jobid}`)}
-            className="flex items-center gap-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white shadow-lg"
-          >
-            View Details
-            <ChevronRight className="w-4 h-4" />
-          </Button>
         </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 overflow-auto bg-gradient-to-br from-gray-50 via-white to-blue-50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800">
+        <div className="max-w-7xl mx-auto p-6">
 
         {/* Main Overview Card with Donut Chart */}
         <Card className="mb-8 overflow-hidden border-0 shadow-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
@@ -724,6 +708,7 @@ export default function EvaluationSummary({ params }: EvaluationSummaryProps) {
             ))}
           </div>
         )}
+        </div>
       </div>
     </div>
   )

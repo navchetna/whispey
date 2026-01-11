@@ -417,20 +417,15 @@ const Dashboard: React.FC<DashboardProps> = ({ agentId }) => {
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <h1 className={`${isMobile ? 'text-lg max-w-[180px]' : 'text-2xl max-w-[250px]'} font-semibold text-gray-900 dark:text-gray-100 tracking-tight truncate cursor-default`}>
-                            {project?.name ? `${project.name} • ${agent.name}` : agent.name}
+                          <h1 className={`${isMobile ? 'text-lg' : 'text-2xl'} font-semibold text-gray-900 dark:text-gray-100 tracking-tight cursor-default`}>
+                            {project?.name ? `${project.name} / ${agent.name}` : agent.name}
                           </h1>
                         </TooltipTrigger>
                         <TooltipContent>
-                          <p>{project?.name ? `${project.name} • ${agent.name}` : agent.name}</p>
+                          <p>{project?.name ? `${project.name} / ${agent.name}` : agent.name}</p>
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
-                    <div className="flex items-center gap-2">
-                      <Badge className={`${isMobile ? 'text-xs px-2 py-0.5' : 'text-xs px-3 py-1'} font-medium rounded-full ${getEnvironmentColor(agent.environment)}`}>
-                        {agent.environment}
-                      </Badge>
-                    </div>
                   </>
                 ) : (
                   <div className={`${isMobile ? 'h-7' : 'h-8'} bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-300 px-3 rounded-lg flex items-center`}>
