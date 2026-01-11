@@ -37,7 +37,8 @@ import {
   PieChart,
   Languages,
   Activity,
-  Target
+  Target,
+  ChevronLeft
 } from 'lucide-react'
 import { query } from "../../lib/postgres"
 import { DatabaseService } from "@/lib/database"
@@ -1205,91 +1206,97 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
 
   return (
     <>
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-        <div className="max-w-7xl mx-auto p-6">
-          {/* Project/Agent Header */}
-          <div className="mb-4 flex items-center gap-2 text-sm text-slate-600">
-            <span className="font-medium text-slate-800">{projectName}</span>
-            <span>/</span>
-            <span className="font-medium text-slate-800">{agentName}</span>
-          </div>
-
-          {/* Header with Job Selector */}
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-3">
-                <BarChart3 className="w-8 h-8 text-blue-600" />
-                Evals Results
-              </h1>
-              <p className="text-slate-600 mt-2">View and analyze evaluation results for your voice agent conversations</p>
-            </div>
-            
-            <div className="flex items-center gap-4">
-              {jobs && jobs.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <label className="text-sm font-medium text-slate-700">Evaluation Run:</label>
-                  <Select value={selectedJobId} onValueChange={setSelectedJobId}>
-                    <SelectTrigger className="w-64 border-blue-200 bg-white">
-                      <SelectValue placeholder="Select an evaluation run" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {jobs.map((job: EvaluationJob) => (
-                        <SelectItem key={job.id} value={job.id}>
-                          <div className="flex items-center gap-2">
-                            <span>{job.name}</span>
-                            <Badge className={`text-xs ${
-                              job.status === 'completed' ? 'bg-emerald-50 text-emerald-700' :
-                              job.status === 'running' ? 'bg-blue-50 text-blue-700' :
-                              job.status === 'failed' ? 'bg-red-50 text-red-700' : 'bg-slate-50 text-slate-700'
-                            }`}>
-                              {job.status}
-                            </Badge>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              
-              {/* Period Filter */}
-              <PeriodFilterControlled
-                quickFilter={quickFilter}
-                dateRange={dateRange}
-                isCustomRange={isCustomRange}
-                onQuickFilterChange={handleQuickFilter}
-                onDateRangeSelect={handleDateRangeSelect}
-              />
-              
-              <Button 
-                variant="outline" 
-                className="flex items-center gap-2 border-blue-200 hover:bg-blue-50"
-                onClick={handleExportToExcel}
-                disabled={isExporting || !results || results.length === 0}
-              >
-                {isExporting ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <FileSpreadsheet className="w-4 h-4" />
-                )}
-                {isExporting ? 'Exporting...' : 'Export Excel'}
-              </Button>
-              <Button variant="outline" className="flex items-center gap-2 border-blue-200 hover:bg-blue-50">
-                <Filter className="w-4 h-4" />
-                Filters
-              </Button>
-              {selectedJobId && (
+      <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+        {/* Header Bar */}
+        <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
+          <div className="px-8 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={() => router.back()}
+                  className="flex items-center justify-center w-9 h-9 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-xl transition-all duration-200"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100 tracking-tight">
+                  {projectName} / {agentName}
+                </h1>
+              </div>
+              <div className="flex items-center gap-4">
+                {/* Period Filter */}
+                <PeriodFilterControlled
+                  quickFilter={quickFilter}
+                  dateRange={dateRange}
+                  isCustomRange={isCustomRange}
+                  onQuickFilterChange={handleQuickFilter}
+                  onDateRangeSelect={handleDateRangeSelect}
+                />
+                
                 <Button 
                   variant="outline" 
-                  className="flex items-center gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
-                  onClick={() => setShowDeleteConfirm(true)}
+                  className="flex items-center gap-2 border-blue-200 hover:bg-blue-50"
+                  onClick={handleExportToExcel}
+                  disabled={isExporting || !results || results.length === 0}
                 >
-                  <Trash2 className="w-4 h-4" />
-                  Delete Run
+                  {isExporting ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <FileSpreadsheet className="w-4 h-4" />
+                  )}
+                  {isExporting ? 'Exporting...' : 'Export Excel'}
                 </Button>
-              )}
+                <Button variant="outline" className="flex items-center gap-2 border-blue-200 hover:bg-blue-50">
+                  <Filter className="w-4 h-4" />
+                  Filters
+                </Button>
+                {selectedJobId && (
+                  <Button 
+                    variant="outline" 
+                    className="flex items-center gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                    onClick={() => setShowDeleteConfirm(true)}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete Run
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
+        </div>
+
+        {/* Evaluation Run Selector Bar */}
+        {jobs && jobs.length > 0 && (
+          <div className="bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700 px-8 py-2">
+            <div className="flex items-center gap-3">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Evaluation Run:</label>
+              <Select value={selectedJobId} onValueChange={setSelectedJobId}>
+                <SelectTrigger className="w-72 border-blue-200 bg-white dark:bg-gray-800">
+                  <SelectValue placeholder="Select an evaluation run" />
+                </SelectTrigger>
+                <SelectContent>
+                  {jobs.map((job: EvaluationJob) => (
+                    <SelectItem key={job.id} value={job.id}>
+                      <div className="flex items-center gap-2">
+                        <span>{job.name}</span>
+                        <Badge className={`text-xs ${
+                          job.status === 'completed' ? 'bg-emerald-50 text-emerald-700' :
+                          job.status === 'running' ? 'bg-blue-50 text-blue-700' :
+                          job.status === 'failed' ? 'bg-red-50 text-red-700' : 'bg-slate-50 text-slate-700'
+                        }`}>
+                          {job.status}
+                        </Badge>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        )}
+
+      {/* Main Content */}
+      <div className="flex-1 overflow-auto bg-gradient-to-br from-slate-50 to-blue-50 dark:from-gray-900 dark:to-gray-800">
+        <div className="max-w-7xl mx-auto p-6">
 
           {/* No Jobs State */}
           {!jobs || jobs.length === 0 ? (
@@ -1650,7 +1657,7 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                             <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Status</th>
                             <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Reasoning</th>
                             <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Date</th>
-                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Actions</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">View Transcript</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -1739,6 +1746,7 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
             </>
           )}
         </div>
+      </div>
       </div>
 
       {/* Transcript Slide Panel */}

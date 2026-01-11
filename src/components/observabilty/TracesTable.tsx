@@ -820,19 +820,21 @@ const handleRowClick = (trace: TraceLog) => {
               </>)}
             </nav>
             
-            {/* Translation Toggle Button */}
-            <button
-              onClick={() => setShowTranslations(!showTranslations)}
-              className={cn(
-                "px-3 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2",
-                showTranslations
-                  ? "bg-purple-100 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800"
-                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700"
-              )}
-            >
-              <span className="text-base">🌐</span>
-              {showTranslations ? "Hide Translations" : "Show Translations"}
-            </button>
+            <div className="flex items-center gap-3 ml-auto">
+              {/* Translation Toggle Button */}
+              <button
+                onClick={() => setShowTranslations(!showTranslations)}
+                className={cn(
+                  "px-3 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2",
+                  showTranslations
+                    ? "bg-purple-100 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800"
+                    : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700"
+                )}
+              >
+                <span className="text-base">🌐</span>
+                {showTranslations ? "Hide Translations" : "Show Translations"}
+              </button>
+            </div>
             
             {/* Audio Sync Status Card */}
             {isAudioPlaying && (

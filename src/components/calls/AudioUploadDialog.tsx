@@ -29,6 +29,7 @@ export default function AudioUploadDialog({ projectId, agentId, onUploadComplete
   const [uploadType, setUploadType] = useState<UploadType>('files')
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [fileUrl, setFileUrl] = useState('')
+  const [prefixId, setPrefixId] = useState('')
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<string>('')
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -47,6 +48,7 @@ export default function AudioUploadDialog({ projectId, agentId, onUploadComplete
   const resetForm = () => {
     setSelectedFiles([])
     setFileUrl('')
+    setPrefixId('')
     setUploadProgress('')
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
@@ -125,6 +127,9 @@ export default function AudioUploadDialog({ projectId, agentId, onUploadComplete
         formData.append('agent_id', agentId)
         formData.append('upload_type', 'zip')
         formData.append('file', zipFile)
+        if (prefixId.trim()) {
+          formData.append('prefix_id', prefixId.trim())
+        }
         
         const response = await fetch('/api/audio-upload', {
           method: 'POST',
@@ -351,6 +356,25 @@ export default function AudioUploadDialog({ projectId, agentId, onUploadComplete
                       </Button>
                     </div>
                   ))}
+                </div>
+              )}
+              
+              {/* Prefix ID for ZIP uploads */}
+              {uploadType === 'zip' && (
+                <div className="space-y-2 mt-3">
+                  <Label htmlFor="prefixId" className="text-sm">Prefix ID (Optional)</Label>
+                  <Input
+                    id="prefixId"
+                    type="text"
+                    placeholder="Enter prefix for call IDs"
+                    value={prefixId}
+                    onChange={(e) => setPrefixId(e.target.value)}
+                    disabled={uploading}
+                    className="text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    This prefix will be added to all call IDs from the ZIP file
+                  </p>
                 </div>
               )}
             </div>
