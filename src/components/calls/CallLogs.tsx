@@ -1,12 +1,12 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useRef, useMemo } from "react"
+import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { Phone, Clock, CheckCircle, XCircle, Loader2, AlertCircle, RefreshCw } from "lucide-react"
+import { Phone, Clock, CheckCircle, XCircle, Loader2, AlertCircle, RefreshCw, Play, Pause, User, Bot, ExternalLink, Languages } from "lucide-react"
 import { useInfiniteScroll } from "../../hooks/useApi"
 import CallFilter, { FilterRule } from "../CallFilter"
 import ColumnSelector from "../shared/ColumnSelector"
@@ -17,6 +17,9 @@ import { CallLog } from "../../types/logs"
 import Papa from 'papaparse'
 import { useLocalUser } from "../../lib/local-auth"
 import { useRouter } from "next/navigation"
+import { SlidePanel, SlidePanelSection } from "@/components/ui/slide-panel"
+import AudioPlayer from "@/components/AudioPlayer"
+import { extractS3Key } from "@/utils/s3"
 
 interface CallLogsProps {
   project: any
@@ -300,6 +303,7 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
 
   const [roleLoading, setRoleLoading] = useState(true)
   const [selectedCall, setSelectedCall] = useState<CallLog | null>(null)
+  const [slidePanelOpen, setSlidePanelOpen] = useState(false)
   const [activeFilters, setActiveFilters] = useState<FilterRule[]>([])
   const [role, setRole] = useState<string | null>(null)
   const [visibleColumns, setVisibleColumns] = useState<{
@@ -311,6 +315,18 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
     metadata: [],
     transcription_metrics: []
   })
+
+  // Handle opening call details in slide panel
+  const handleCallClick = useCallback((call: CallLog) => {
+    setSelectedCall(call)
+    setSlidePanelOpen(true)
+  }, [])
+
+  // Handle closing slide panel
+  const handleCloseSidePanel = useCallback(() => {
+    setSlidePanelOpen(false)
+    setSelectedCall(null)
+  }, [])
 
   const getFilteredBasicColumns = useMemo(() => {
     return basicColumns.filter(col => 
@@ -907,11 +923,9 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
                       key={call.id}
                       className={cn(
                         "cursor-pointer hover:bg-muted/30 dark:hover:bg-gray-800/50 transition-all duration-200 border-b border-border/50 dark:border-gray-700/50",
-                        selectedCall?.id === call.id && "bg-muted/50 dark:bg-gray-800/50",
+                        selectedCall?.id === call.id && "bg-blue-50 dark:bg-blue-900/20 border-l-2 border-l-blue-500",
                       )}
-                      onClick={() => {
-                        router.push(`/${project?.id}/agents/${call.agent_id}/observability?session_id=${call?.id}`)
-                      }}
+                      onClick={() => handleCallClick(call)}
                     >
                       {visibleColumns.basic.map((key) => {
                         let value: React.ReactNode = "-"
@@ -930,7 +944,7 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
                           case "call_id":
                             value = (
                               <code className="text-xs bg-muted/60 dark:bg-gray-700/60 px-3 py-1.5 rounded-md font-mono text-gray-900 dark:text-gray-100">
-                                {call.call_id.slice(-8)}
+                                {call.call_id}
                               </code>
                             )
                             break
@@ -1026,7 +1040,337 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
             </div>
           </div>
       </div>
+
+      {/* Call Details Slide Panel */}
+      <CallDetailSlidePanel
+        open={slidePanelOpen}
+        onClose={handleCloseSidePanel}
+        selectedCall={selectedCall}
+        project={project}
+        formatDuration={formatDuration}
+        formatToIndianDateTime={formatToIndianDateTime}
+      />
     </div>
+  )
+}
+
+// Separate component for Call Detail Slide Panel with audio sync
+interface CallDetailSlidePanelProps {
+  open: boolean
+  onClose: () => void
+  selectedCall: CallLog | null
+  project: any
+  formatDuration: (seconds: number) => string
+  formatToIndianDateTime: (timestamp: any) => string
+}
+
+interface TranscriptTurn {
+  id: string
+  turnId: string
+  role: 'user' | 'agent'
+  content: string
+  translatedText?: string
+  startTime: number
+  endTime: number
+  duration: number
+  latency?: number
+}
+
+function CallDetailSlidePanel({
+  open,
+  onClose,
+  selectedCall,
+  project,
+  formatDuration,
+  formatToIndianDateTime
+}: CallDetailSlidePanelProps) {
+  const router = useRouter()
+  const [currentAudioTime, setCurrentAudioTime] = useState(0)
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false)
+  const [activeTranscriptId, setActiveTranscriptId] = useState<string | null>(null)
+  const transcriptRefs = useRef<{ [key: string]: HTMLDivElement | null }>({})
+  const transcriptContainerRef = useRef<HTMLDivElement>(null)
+
+  // Parse transcript into structured turns
+  const parsedTranscript = useMemo((): TranscriptTurn[] => {
+    if (!selectedCall?.transcript_json) return []
+
+    try {
+      const transcriptJson = typeof selectedCall.transcript_json === 'string'
+        ? JSON.parse(selectedCall.transcript_json)
+        : selectedCall.transcript_json
+
+      // Handle diarized format with turns array
+      if (transcriptJson?.turns && Array.isArray(transcriptJson.turns)) {
+        return transcriptJson.turns.map((turn: any, index: number) => {
+          const isNewFormat = 'role' in turn && 'content' in turn
+          const isUser = isNewFormat
+            ? turn.role === 'user'
+            : turn.speaker === 'Speaker 1' || turn.speaker === 'user'
+          const textContent = isNewFormat ? turn.content : turn.text
+
+          return {
+            id: `turn-${index}`,
+            turnId: `Turn ${index + 1}`,
+            role: isUser ? 'user' : 'agent',
+            content: textContent || '',
+            translatedText: turn.translated_text || turn.translation || null,
+            startTime: turn.start_time || 0,
+            endTime: turn.end_time || turn.start_time || 0,
+            duration: turn.duration || ((turn.end_time || 0) - (turn.start_time || 0)),
+            latency: turn.latency || null
+          }
+        })
+      }
+
+      // Handle array format
+      if (Array.isArray(transcriptJson)) {
+        let cumulativeTime = 0
+        return transcriptJson.map((turn: any, index: number) => {
+          const isUser = turn.role === 'user' || turn.user_transcript
+          const content = turn.content || turn.user_transcript || turn.agent_response || ''
+          const duration = turn.duration || content.length * 0.05 // Estimate ~50ms per character
+          const startTime = turn.start_time ?? cumulativeTime
+          const endTime = turn.end_time ?? (startTime + duration)
+          cumulativeTime = endTime + 0.5 // Add small gap between turns
+
+          return {
+            id: `turn-${index}`,
+            turnId: `Turn ${index + 1}`,
+            role: isUser ? 'user' : 'agent',
+            content,
+            translatedText: turn.translated_text || turn.translation || null,
+            startTime,
+            endTime,
+            duration: endTime - startTime,
+            latency: turn.latency || null
+          }
+        })
+      }
+
+      return []
+    } catch (e) {
+      console.error('Error parsing transcript:', e)
+      return []
+    }
+  }, [selectedCall])
+
+  // Handle audio time updates
+  const handleAudioTimeUpdate = useCallback((time: number) => {
+    setCurrentAudioTime(time)
+  }, [])
+
+  // Handle audio play state changes
+  const handleAudioPlayStateChange = useCallback((playing: boolean) => {
+    setIsAudioPlaying(playing)
+    if (!playing) {
+      setActiveTranscriptId(null)
+    }
+  }, [])
+
+  // Find active transcript based on audio time
+  const activeTranscript = useMemo(() => {
+    if (!isAudioPlaying || !currentAudioTime || !parsedTranscript.length) return null
+    return parsedTranscript.find(turn =>
+      currentAudioTime >= turn.startTime && currentAudioTime <= turn.endTime
+    )
+  }, [currentAudioTime, isAudioPlaying, parsedTranscript])
+
+  // Auto-scroll to active transcript
+  useEffect(() => {
+    if (!isAudioPlaying) {
+      setActiveTranscriptId(null)
+      return
+    }
+
+    if (!activeTranscript) return
+
+    if (activeTranscript.id !== activeTranscriptId) {
+      setActiveTranscriptId(activeTranscript.id)
+
+      const element = transcriptRefs.current[activeTranscript.id]
+      if (element && transcriptContainerRef.current) {
+        element.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center'
+        })
+      }
+    }
+  }, [activeTranscript, isAudioPlaying, activeTranscriptId])
+
+  const formatTime = (seconds: number) => {
+    if (seconds < 0) return '0:00'
+    const mins = Math.floor(seconds / 60)
+    const secs = Math.floor(seconds % 60)
+    return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
+
+  const formatLatency = (latency: number | null | undefined) => {
+    if (latency === null || latency === undefined) return '-'
+    if (latency < 1) return `${Math.round(latency * 1000)}ms`
+    return `${latency.toFixed(2)}s`
+  }
+
+  if (!selectedCall) return null
+
+  return (
+    <SlidePanel
+      open={open}
+      onClose={onClose}
+      title="Call Details"
+      width="2xl"
+    >
+      <div className="space-y-4">
+        {/* View Full Observability Button - At Top */}
+        <div className="pb-2 border-b border-slate-200">
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={() => {
+              router.push(`/${project?.id}/agents/${selectedCall.agent_id}/observability?session_id=${selectedCall.id}`)
+            }}
+          >
+            <ExternalLink className="w-4 h-4 mr-2" />
+            View Full Observability Details
+          </Button>
+        </div>
+
+        {/* Compact Call Info & Audio Section */}
+        <div className="bg-slate-50 rounded-lg p-3 space-y-3">
+          {/* Call Info - Compact horizontal layout */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+            <div className="flex items-center gap-1.5">
+              <Phone className="w-3.5 h-3.5 text-blue-500" />
+              <span className="font-medium text-slate-900">{selectedCall.customer_number || 'N/A'}</span>
+            </div>
+            <Badge
+              variant={selectedCall.call_ended_reason === "completed" ? "default" : "destructive"}
+              className="text-[10px] px-1.5 py-0"
+            >
+              {selectedCall.call_ended_reason === "completed" ? (
+                <CheckCircle className="w-2.5 h-2.5 mr-0.5" />
+              ) : (
+                <XCircle className="w-2.5 h-2.5 mr-0.5" />
+              )}
+              {selectedCall.call_ended_reason}
+            </Badge>
+            <div className="flex items-center gap-1 text-slate-600">
+              <Clock className="w-3.5 h-3.5" />
+              <span>{formatDuration(selectedCall.duration_seconds)}</span>
+            </div>
+            <span className="text-slate-500 text-xs">{formatToIndianDateTime(selectedCall.call_started_at)}</span>
+            <code className="text-[10px] bg-slate-200 px-1.5 py-0.5 rounded font-mono text-slate-600">
+              {selectedCall.call_id}
+            </code>
+          </div>
+
+          {/* Audio Player - Compact */}
+          {selectedCall.recording_url && (
+            <div className="pt-2 border-t border-slate-200">
+              <AudioPlayer
+                s3Key={extractS3Key(selectedCall.recording_url)}
+                url={selectedCall.recording_url}
+                callId={selectedCall.id}
+                onTimeUpdate={handleAudioTimeUpdate}
+                onPlayStateChange={handleAudioPlayStateChange}
+              />
+              {isAudioPlaying && (
+                <div className="flex items-center gap-1.5 text-[10px] text-blue-600 mt-1">
+                  <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></div>
+                  <span>Audio synced to transcript</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Transcript with detailed turn info - Expanded section */}
+        <SlidePanelSection title={`Transcript (${parsedTranscript.length} turns)`}>
+          <div
+            ref={transcriptContainerRef}
+            className="max-h-[calc(100vh-320px)] min-h-[400px] overflow-y-auto space-y-3 pr-2"
+          >
+            {parsedTranscript.length > 0 ? (
+              parsedTranscript.map((turn) => (
+                <div
+                  key={turn.id}
+                  ref={(el) => { transcriptRefs.current[turn.id] = el }}
+                  className={cn(
+                    "p-4 rounded-lg border transition-all duration-300",
+                    turn.role === 'user'
+                      ? "bg-blue-50 border-blue-200"
+                      : "bg-slate-50 border-slate-200",
+                    activeTranscriptId === turn.id && "ring-2 ring-blue-500 shadow-lg"
+                  )}
+                >
+                  {/* Turn Header with metrics */}
+                  <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-200/50">
+                    <div className="flex items-center gap-2">
+                      {turn.role === 'user' ? (
+                        <>
+                          <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">
+                            <User className="w-3 h-3 text-blue-600" />
+                          </div>
+                          <span className="text-sm font-medium text-blue-700">User</span>
+                        </>
+                      ) : (
+                        <>
+                          <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center">
+                            <Bot className="w-3 h-3 text-slate-600" />
+                          </div>
+                          <span className="text-sm font-medium text-slate-700">Assistant</span>
+                        </>
+                      )}
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                        {turn.turnId}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-slate-500">
+                      <div className="flex items-center gap-1" title="Start Time">
+                        <Clock className="w-3 h-3" />
+                        <span>{formatTime(turn.startTime)}</span>
+                      </div>
+                      <div className="flex items-center gap-1" title="Duration">
+                        <span className="text-slate-400">|</span>
+                        <span>{turn.duration.toFixed(2)}s</span>
+                      </div>
+                      {turn.latency !== null && turn.latency !== undefined && (
+                        <div className="flex items-center gap-1 text-orange-600" title="Latency">
+                          <AlertCircle className="w-3 h-3" />
+                          <span>{formatLatency(turn.latency)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Turn Content */}
+                  <p className="text-sm text-slate-700 leading-relaxed">
+                    {turn.content}
+                  </p>
+
+                  {/* Translated Text */}
+                  {turn.translatedText && (
+                    <div className="mt-3 pt-3 border-t border-slate-200/50">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Languages className="w-3 h-3 text-purple-500" />
+                        <span className="text-[10px] font-medium text-purple-600 uppercase tracking-wide">Translation</span>
+                      </div>
+                      <p className="text-sm text-purple-700 italic">
+                        {turn.translatedText}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ))
+            ) : (
+              <div className="text-sm text-slate-500 italic text-center py-8">
+                No transcript available for this call
+              </div>
+            )}
+          </div>
+        </SlidePanelSection>
+      </div>
+    </SlidePanel>
   )
 }
 

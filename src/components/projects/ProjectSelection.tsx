@@ -314,12 +314,6 @@ const ProjectSelection: React.FC<ProjectSelectionProps> = ({ isAuthLoaded = fals
                   <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${project.is_active ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'}`}></div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Badge 
-                    variant="outline" 
-                    className={`text-xs font-normal border ${getEnvironmentColor(project.environment)} px-1.5 py-0`}
-                  >
-                    {project.environment}
-                  </Badge>
                   {project.token_hash && (
                     <Badge variant="outline" className="text-xs font-normal bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800 px-1.5 py-0">
                       <Key className="h-2 w-2 mr-0.5" />
@@ -328,7 +322,7 @@ const ProjectSelection: React.FC<ProjectSelectionProps> = ({ isAuthLoaded = fals
                   )}
                   {project.agent_count !== undefined && (
                     <Badge variant="outline" className="text-xs font-normal bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 px-1.5 py-0">
-                      {project.agent_count}
+                      {project.agent_count} agents
                     </Badge>
                   )}
                 </div>
@@ -520,9 +514,6 @@ const ProjectSelection: React.FC<ProjectSelectionProps> = ({ isAuthLoaded = fals
                 </div>
                 {!isEditing && (
                   <div className="flex items-center gap-1.5">
-                    <Badge variant="outline" className={`text-xs font-normal border ${getEnvironmentColor(project.environment)} px-1.5 py-0 h-4`}>
-                      {project.environment}
-                    </Badge>
                     {project.token_hash && (
                       <Badge variant="outline" className="text-xs font-normal bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800 px-1.5 py-0 h-4">
                         <Key className="h-2 w-2 mr-0.5" />

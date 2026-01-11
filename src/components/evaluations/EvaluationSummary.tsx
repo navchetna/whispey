@@ -223,6 +223,22 @@ const FinalResultBadge = ({ isPassing }: { isPassing: boolean }) => {
 export default function EvaluationSummary({ params }: EvaluationSummaryProps) {
   const router = useRouter()
 
+  // Fetch project and agent info for header
+  const { data: projectData, loading: projectLoading } = useApiQuery('projects', {
+    select: 'id, name',
+    filters: [{ column: 'id', operator: 'eq', value: params.projectid }],
+    limit: 1
+  })
+
+  const { data: agentData, loading: agentLoading } = useApiQuery('pype_voice_agents', {
+    select: 'id, name',
+    filters: [{ column: 'id', operator: 'eq', value: params.agentid }],
+    limit: 1
+  })
+
+  const projectName = projectData?.[0]?.name || 'Unknown Project'
+  const agentName = agentData?.[0]?.name || 'Unknown Agent'
+
   // Fetch job details
   const { data: jobData, loading: jobLoading } = useApiQuery('pype_voice_evaluation_jobs', {
     select: '*',
@@ -424,6 +440,15 @@ export default function EvaluationSummary({ params }: EvaluationSummaryProps) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-blue-50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800">
       <div className="max-w-7xl mx-auto p-6">
+        {/* Project & Agent Header */}
+        <div className="mb-4 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+          <span className="font-medium">Project:</span>
+          <span>{projectLoading ? 'Loading...' : projectName}</span>
+          <span className="mx-2">•</span>
+          <span className="font-medium">Agent:</span>
+          <span>{agentLoading ? 'Loading...' : agentName}</span>
+        </div>
+        
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-4">
