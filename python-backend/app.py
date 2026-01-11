@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 import shutil
 import logging
+import sys
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -12,7 +13,16 @@ from sarvamai import AsyncSarvamAI, SarvamAI
 from dotenv import load_dotenv
 import json
 
+# Configure logging properly
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 # Load environment variables - handle being run from different directories
 script_dir = Path(__file__).parent
@@ -54,10 +64,7 @@ async def transcribe(request: Request, file: UploadFile = File(None)):
         
         if not api_key:
             raise HTTPException(status_code=500, detail="SARVAM_API_KEY not configured in environment")
-        
-        # Debug: Log request details
-        content_type = request.headers.get('content-type', '')
-        
+                
         # If file is None, try to get it from form data manually
         if file is None:
             form = await request.form()

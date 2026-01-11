@@ -251,7 +251,7 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
       { key: "customer_number", label: "Customer Number" },
       { key: "call_id", label: "Call ID" },
       { key: "call_ended_reason", label: "Call Status" },
-      { key: "duration_seconds", label: "Duration" },
+      { key: "duration_seconds", label: "Duration (min)" },
       {
         key: "total_cost",
         label: "Total Cost (₹)",
