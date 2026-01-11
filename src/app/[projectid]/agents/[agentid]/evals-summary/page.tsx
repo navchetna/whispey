@@ -531,55 +531,55 @@ export default function EvalsSummaryPage({ params }: EvalsSummaryPageProps) {
               </div>
               
               {/* Stats Grid */}
-              <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-4 w-full">
-                <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4 border border-green-200 dark:border-green-800">
-                  <div className="flex items-center gap-2 text-green-600 dark:text-green-400 mb-2">
-                    <CheckCircle className="w-5 h-5" />
-                    <span className="text-sm font-medium">Passed</span>
+              <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-2 w-full">
+                <div className="bg-green-50 dark:bg-green-900/20 rounded-md p-2.5 border border-green-200 dark:border-green-800">
+                  <div className="flex items-center gap-1.5 text-green-600 dark:text-green-400 mb-1">
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    <span className="text-xs font-medium">Passed</span>
                   </div>
-                  <div className="text-2xl font-bold text-green-700 dark:text-green-300">
+                  <div className="text-lg font-bold text-green-700 dark:text-green-300">
                     {overallMetrics.passed}
                   </div>
-                  <div className="text-xs text-green-600/70 dark:text-green-400/70 mt-1">
+                  <div className="text-[10px] text-green-600/70 dark:text-green-400/70">
                     calls passed
                   </div>
                 </div>
                 
-                <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-4 border border-red-200 dark:border-red-800">
-                  <div className="flex items-center gap-2 text-red-600 dark:text-red-400 mb-2">
-                    <XCircle className="w-5 h-5" />
-                    <span className="text-sm font-medium">Failed</span>
+                <div className="bg-red-50 dark:bg-red-900/20 rounded-md p-2.5 border border-red-200 dark:border-red-800">
+                  <div className="flex items-center gap-1.5 text-red-600 dark:text-red-400 mb-1">
+                    <XCircle className="w-3.5 h-3.5" />
+                    <span className="text-xs font-medium">Failed</span>
                   </div>
-                  <div className="text-2xl font-bold text-red-700 dark:text-red-300">
+                  <div className="text-lg font-bold text-red-700 dark:text-red-300">
                     {overallMetrics.failed}
                   </div>
-                  <div className="text-xs text-red-600/70 dark:text-red-400/70 mt-1">
+                  <div className="text-[10px] text-red-600/70 dark:text-red-400/70">
                     calls need attention
                   </div>
                 </div>
                 
-                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
-                  <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 mb-2">
-                    <Phone className="w-5 h-5" />
-                    <span className="text-sm font-medium">Total Calls</span>
+                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-md p-2.5 border border-blue-200 dark:border-blue-800">
+                  <div className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400 mb-1">
+                    <Phone className="w-3.5 h-3.5" />
+                    <span className="text-xs font-medium">Total Calls</span>
                   </div>
-                  <div className="text-2xl font-bold text-blue-700 dark:text-blue-300">
+                  <div className="text-lg font-bold text-blue-700 dark:text-blue-300">
                     {overallMetrics.total}
                   </div>
-                  <div className="text-xs text-blue-600/70 dark:text-blue-400/70 mt-1">
+                  <div className="text-[10px] text-blue-600/70 dark:text-blue-400/70">
                     calls evaluated
                   </div>
                 </div>
                 
-                <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-4 border border-purple-200 dark:border-purple-800">
-                  <div className="flex items-center gap-2 text-purple-600 dark:text-purple-400 mb-2">
-                    <TrendingUp className="w-5 h-5" />
-                    <span className="text-sm font-medium">Success Rate</span>
+                <div className="bg-purple-50 dark:bg-purple-900/20 rounded-md p-2.5 border border-purple-200 dark:border-purple-800">
+                  <div className="flex items-center gap-1.5 text-purple-600 dark:text-purple-400 mb-1">
+                    <TrendingUp className="w-3.5 h-3.5" />
+                    <span className="text-xs font-medium">Success Rate</span>
                   </div>
-                  <div className="text-2xl font-bold text-purple-700 dark:text-purple-300">
+                  <div className="text-lg font-bold text-purple-700 dark:text-purple-300">
                     {overallMetrics.passRate.toFixed(1)}%
                   </div>
-                  <div className="text-xs text-purple-600/70 dark:text-purple-400/70 mt-1">
+                  <div className="text-[10px] text-purple-600/70 dark:text-purple-400/70">
                     overall quality
                   </div>
                 </div>

@@ -226,12 +226,8 @@ const AgentListItem: React.FC<AgentListItemProps> = ({
             <ChevronRight className="w-5 h-5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
           </div>
 
-          {/* Status and environment row */}
+          {/* Status row */}
           <div className="flex items-center justify-between mb-4">
-            <span className={`inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-full ${getEnvironmentBadgeColor(agent.environment)}`}>
-              {agent.environment}
-            </span>
-            
             <div className={`text-sm font-medium flex items-center gap-2 ${getStatusColor(agent, runningAgents)}`}>
               {agent.agent_type === 'pype_agent' && runningStatus && (
                 <>
@@ -250,36 +246,6 @@ const AgentListItem: React.FC<AgentListItemProps> = ({
                 {isStartingAgent ? 'Starting...' : isStoppingAgent ? 'Stopping...' : getStatusText(agent, runningAgents)}
               </span>
             </div>
-          </div>
-
-          {/* Agent ID section */}
-          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Agent ID</div>
-                <code className="text-sm text-gray-700 dark:text-gray-300 font-mono block truncate">
-                  {agent.id}
-                </code>
-              </div>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  onCopyId(e)
-                }}
-                className="ml-2 w-10 h-10 p-0 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg"
-              >
-                <Copy className="w-4 h-4" />
-              </Button>
-            </div>
-            
-            {isCopied && (
-              <div className="text-sm text-green-600 dark:text-green-400 font-medium">
-                ✓ Copied to clipboard
-              </div>
-            )}
           </div>
 
           {/* Actions row */}
@@ -397,9 +363,6 @@ const AgentListItem: React.FC<AgentListItemProps> = ({
                   <h3 className="font-semibold text-sm text-gray-900 dark:text-gray-100 truncate">
                     {agent.name}
                   </h3>
-                  <span className={`text-xs font-medium px-2 py-1 rounded-full ${getEnvironmentBadgeColor(agent.environment)}`}>
-                    {agent.environment}
-                  </span>
                   {agent.agent_type === 'pype_agent' && (
                     <Badge variant="outline" className="text-xs px-2 py-0 h-5">
                       Pype
@@ -431,7 +394,6 @@ const AgentListItem: React.FC<AgentListItemProps> = ({
               
               <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
                 <div className="flex items-center gap-3">
-                  <span className="font-mono text-xs">ID: {agent.id.slice(0, 8)}...{agent.id.slice(-4)}</span>
                   <span className="text-xs">Created {formatDate(agent.created_at, isMobile)}</span>
                 </div>
                 
@@ -599,40 +561,6 @@ const AgentListItem: React.FC<AgentListItemProps> = ({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          </div>
-
-          {/* Environment Badge */}
-          <div className="mb-3">
-            <span className={`inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full ${getEnvironmentBadgeColor(agent.environment)}`}>
-              {agent.environment}
-            </span>
-          </div>
-
-          {/* Agent ID */}
-          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 mb-3">
-            <div className="flex items-center justify-between">
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Agent ID</div>
-                <code className="text-xs text-gray-700 dark:text-gray-300 font-mono block truncate">
-                  {agent.id}
-                </code>
-              </div>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  onCopyId(e)
-                }}
-                className="w-7 h-7 p-0 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-              >
-                <Copy className="w-3.5 h-3.5" />
-              </Button>
-            </div>
-            {isCopied && (
-              <p className="text-xs text-green-600 dark:text-green-400 mt-1">✓ Copied!</p>
-            )}
           </div>
 
           {/* Footer */}

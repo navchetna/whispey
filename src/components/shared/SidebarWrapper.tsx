@@ -144,21 +144,10 @@ const sidebarRoutes: SidebarRoute[] = [
         }
       ]
 
-      const configurationItems = []
-      if (userCanViewApiKeys) {
-        configurationItems.push({
-          id: 'api-keys',
-          name: 'Project API Key',
-          icon: 'Key',
-          path: `/${projectId}/agents/api-keys`,
-          group: 'configuration'
-        })
-      }
-
       return {
         type: 'project-agents',
         context: { projectId },
-        navigation: [...baseNavigation, ...configurationItems],
+        navigation: [...baseNavigation],
         showBackButton: true,
         backPath: '/',
         backLabel: 'Back to Workspaces'

@@ -12,6 +12,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { SlidePanel } from '@/components/ui/slide-panel'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { AlertCircle, Plus, Settings, MoreHorizontal, Edit2, Trash2, Copy, Eye, Brain, TrendingUp, BarChart3, Activity, CheckCircle, Clock, Users, Target, Languages, XCircle, Timer, Gauge, FileText, Download, CheckSquare } from 'lucide-react'
 import { query } from "../../lib/postgres"
@@ -608,16 +609,16 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
       <div className="max-w-7xl mx-auto p-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-3">
               <TrendingUp className="w-8 h-8 text-blue-600" />
               Evals Metrics
             </h1>
-            <p className="text-gray-600 mt-2">Configure and manage evaluation prompts for analyzing conversation quality</p>
+            <p className="text-slate-600 mt-2">Configure and manage evaluation prompts for analyzing conversation quality</p>
           </div>
           
           <div className="flex gap-3">
@@ -626,15 +627,15 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
                 setEditingPrompt(null)
                 setShowCreatePrompt(true)
               }}
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700"
             >
               <Plus className="w-4 h-4" />
-              New Prompt
+              New Metric
             </Button>
             <Button 
               onClick={() => setShowCreateJob(true)}
               variant="outline"
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 border-blue-200 text-blue-700 hover:bg-blue-50"
               disabled={!prompts || prompts.length === 0}
               title={!prompts || prompts.length === 0 ? "Create evaluation prompts first" : "Run evaluation on your agent's conversations"}
             >
@@ -644,165 +645,22 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
           </div>
         </div>
 
-        {/* Metrics Dashboard */}
-        {!promptsLoading && !resultsLoading && !jobsLoading && ((evaluationResults?.length ?? 0) > 0 || (evaluationJobs?.length ?? 0) > 0) && (
-          <div className="mb-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-blue-600" />
-              Evaluation Metrics
-            </h2>
-            
-            {(() => {
-              const metrics = calculateMetrics(evaluationResults || [], evaluationSummaries || [], prompts || [], evaluationJobs || [])
-              return (
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 mb-6">
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-gray-600">Total Evaluations</p>
-                          <p className="text-2xl font-bold text-gray-900">{metrics.totalEvaluations}</p>
-                        </div>
-                        <Activity className="w-8 h-8 text-blue-500" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                  
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-gray-600">Completed</p>
-                          <p className="text-2xl font-bold text-green-600">{metrics.completedEvaluations}</p>
-                        </div>
-                        <CheckCircle className="w-8 h-8 text-green-500" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                  
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-gray-600">Success Rate</p>
-                          <p className="text-2xl font-bold text-green-600">{metrics.successRate}%</p>
-                        </div>
-                        <TrendingUp className="w-8 h-8 text-green-500" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                  
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-gray-600">Average Score</p>
-                          <p className="text-2xl font-bold text-purple-600">{metrics.averageScore}</p>
-                        </div>
-                        <Target className="w-8 h-8 text-purple-500" />
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-gray-600">Score Range</p>
-                          <p className="text-2xl font-bold text-indigo-600">{metrics.minScore} - {metrics.maxScore}</p>
-                        </div>
-                        <BarChart3 className="w-8 h-8 text-indigo-500" />
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-gray-600">Active Prompts</p>
-                          <p className="text-2xl font-bold text-blue-600">{metrics.activePrompts}</p>
-                        </div>
-                        <Brain className="w-8 h-8 text-blue-500" />
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {metrics.failedEvaluations > 0 && (
-                    <Card>
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-gray-600">Failed</p>
-                            <p className="text-2xl font-bold text-red-600">{metrics.failedEvaluations}</p>
-                          </div>
-                          <AlertCircle className="w-8 h-8 text-red-500" />
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {metrics.pendingEvaluations > 0 && (
-                    <Card>
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-gray-600">Pending</p>
-                            <p className="text-2xl font-bold text-yellow-600">{metrics.pendingEvaluations}</p>
-                          </div>
-                          <Clock className="w-8 h-8 text-yellow-500" />
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-gray-600">Recent (7 days)</p>
-                          <p className="text-2xl font-bold text-orange-600">{metrics.recentEvaluations}</p>
-                        </div>
-                        <Clock className="w-8 h-8 text-orange-500" />
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {metrics.totalJobs > 0 && (
-                    <Card>
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-gray-600">Evaluation Jobs</p>
-                            <p className="text-2xl font-bold text-cyan-600">{metrics.completedJobs}/{metrics.totalJobs}</p>
-                          </div>
-                          <Users className="w-8 h-8 text-cyan-500" />
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
-                </div>
-              )
-            })()}
-          </div>
-        )}
-
         {/* Content */}
         <div className="space-y-6">
           {(promptsLoading || resultsLoading || jobsLoading) ? (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                <p className="text-gray-600 mt-2">Loading evaluation data...</p>
+                <p className="text-slate-600 mt-2">Loading evaluation data...</p>
               </div>
             </div>
           ) : prompts?.length === 0 ? (
-            <Card className="text-center py-12">
+            <Card className="text-center py-12 bg-white border-blue-100">
               <CardContent>
-                <Brain className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No evaluation prompts yet</h3>
-                <p className="text-gray-600 mb-4">Create your first evaluation prompt to start analyzing your voice agent conversations.</p>
-                <Button onClick={() => setShowCreatePrompt(true)}>
+                <Brain className="w-12 h-12 text-blue-300 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-slate-800 mb-2">No evaluation prompts yet</h3>
+                <p className="text-slate-600 mb-4">Create your first evaluation prompt to start analyzing your voice agent conversations.</p>
+                <Button onClick={() => setShowCreatePrompt(true)} className="bg-blue-600 hover:bg-blue-700">
                   <Plus className="w-4 h-4 mr-2" />
                   Create First Prompt
                 </Button>
@@ -810,41 +668,41 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
             </Card>
           ) : (
             <div>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
-                  <Settings className="w-5 h-5 text-gray-600" />
-                  Evaluation Prompts
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                  <Settings className="w-4 h-4 text-gray-600" />
+                  Metrics - LLM-as-Judge
                 </h2>
-                <span className="text-sm text-gray-500">{prompts?.length ?? 0} prompt{(prompts?.length ?? 0) !== 1 ? 's' : ''} configured</span>
+                <span className="text-xs text-gray-500">{prompts?.length ?? 0} prompt{(prompts?.length ?? 0) !== 1 ? 's' : ''} configured</span>
               </div>
-              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-4">
                 {prompts?.map((prompt: EvaluationPrompt) => (
-                <Card key={prompt.id} className="hover:shadow-md transition-shadow">
-                  <CardHeader className="pb-3">
+                <Card key={prompt.id} className="hover:shadow-sm transition-shadow">
+                  <CardHeader className="p-2 pb-1">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <CardTitle className="text-lg mb-2">{prompt.name}</CardTitle>
-                        <Badge className={`text-xs ${getEvaluationTypeColor(prompt.evaluation_type)}`}>
+                        <CardTitle className="text-xs font-medium mb-1">{prompt.name}</CardTitle>
+                        <Badge className={`text-[10px] px-1.5 py-0 ${getEvaluationTypeColor(prompt.evaluation_type)}`}>
                           {prompt.evaluation_type}
                         </Badge>
                       </div>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
-                            <MoreHorizontal className="w-4 h-4" />
+                          <Button variant="ghost" size="sm" className="h-5 w-5 p-0">
+                            <MoreHorizontal className="w-3 h-3" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onClick={() => handleEditPrompt(prompt)}>
-                            <Edit2 className="w-4 h-4 mr-2" />
+                            <Edit2 className="w-3 h-3 mr-1.5" />
                             Edit
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => handleDuplicatePrompt(prompt)}>
-                            <Copy className="w-4 h-4 mr-2" />
+                            <Copy className="w-3 h-3 mr-1.5" />
                             Duplicate
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => handlePreviewPrompt(prompt)}>
-                            <Eye className="w-4 h-4 mr-2" />
+                            <Eye className="w-3 h-3 mr-1.5" />
                             Preview
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
@@ -852,15 +710,15 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
                             className="text-red-600"
                             onClick={() => handleDeletePrompt(prompt)}
                           >
-                            <Trash2 className="w-4 h-4 mr-2" />
+                            <Trash2 className="w-3 h-3 mr-1.5" />
                             Delete
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
                   </CardHeader>
-                  <CardContent>
-                    <p className="text-sm text-gray-600 mb-4 line-clamp-3">
+                  <CardContent className="p-2 pt-0">
+                    <p className="text-[10px] text-gray-600 mb-2 line-clamp-2">
                       {prompt.description}
                     </p>
                     
@@ -878,23 +736,23 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
                       
                       if (promptResults.length > 0) {
                         return (
-                          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-sm font-medium text-blue-900">Evaluation Stats</span>
-                              <Users className="w-4 h-4 text-blue-600" />
+                          <div className="mb-2 p-1.5 bg-blue-50 border border-blue-200 rounded">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[10px] font-medium text-blue-900">Stats</span>
+                              <Users className="w-3 h-3 text-blue-600" />
                             </div>
-                            <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="grid grid-cols-2 gap-1 text-[10px]">
                               <div>
                                 <span className="text-blue-700">Total:</span> {promptResults.length}
                               </div>
                               <div>
-                                <span className="text-blue-700">Completed:</span> {completedResults.length}
+                                <span className="text-blue-700">Done:</span> {completedResults.length}
                               </div>
                               <div>
-                                <span className="text-blue-700">Avg Score:</span> {avgScore > 0 ? formatScore(avgScore, prompt.scoring_output_type) : 'N/A'}
+                                <span className="text-blue-700">Avg:</span> {avgScore > 0 ? formatScore(avgScore, prompt.scoring_output_type) : 'N/A'}
                               </div>
                               <div>
-                                <span className="text-blue-700">Success:</span> {promptResults.length > 0 ? Math.round(completedResults.length / promptResults.length * 100) : 0}%
+                                <span className="text-blue-700">Pass:</span> {promptResults.length > 0 ? Math.round(completedResults.length / promptResults.length * 100) : 0}%
                               </div>
                             </div>
                           </div>
@@ -903,24 +761,15 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
                       return null
                     })()}
                     
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-xs text-gray-500">
-                        <span>Provider: {getProviderDisplayName(prompt.llm_provider)}</span>
-                        <span>Model: {prompt.model}</span>
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[10px] text-gray-500">
+                        <span>{getProviderDisplayName(prompt.llm_provider)}</span>
+                        <span>{prompt.model}</span>
                       </div>
-                      <div className="flex items-center justify-between text-xs text-gray-500">
-                        <span>Output: {getScoringOutputTypeInfo(prompt.scoring_output_type || 'float').label}</span>
-                        <span>Temp: {prompt.temperature}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-xs text-gray-500">
-                        <span>Success: {getSuccessCriteriaDisplayText(prompt.success_criteria)}</span>
-                        <span className={`px-2 py-1 rounded-full ${prompt.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                      <div className="flex items-center justify-between text-[10px] text-gray-500">
+                        <span>{getScoringOutputTypeInfo(prompt.scoring_output_type || 'float').label}</span>
+                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${prompt.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
                           {prompt.is_active ? 'Active' : 'Inactive'}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-xs text-gray-500">
-                        <span className="text-gray-400">
-                          Created {new Date(prompt.created_at).toLocaleDateString()}
                         </span>
                       </div>
                     </div>
@@ -930,63 +779,48 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
               </div>
 
               {/* Static Metrics Section */}
-              <div className="mt-8">
-                <div className="flex items-center justify-between mb-4">
+              <div className="mt-6">
+                <div className="flex items-center justify-between mb-2">
                   <div>
-                    <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                      <Gauge className="w-5 h-5 text-orange-600" />
-                      Static Metrics
+                    <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                      <Gauge className="w-4 h-4 text-orange-600" />
+                      Metrics - Static
                     </h2>
-                    <p className="text-sm text-gray-500 mt-1">Non-prompt based metrics with configurable thresholds</p>
+                    <p className="text-[10px] text-gray-500 mt-0.5">Non-prompt based metrics with configurable thresholds</p>
                   </div>
                 </div>
                 
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                <div className="grid grid-cols-4 gap-2">
                   {staticMetrics.map((metric) => (
-                    <Card key={metric.id} className={`hover:shadow-md transition-shadow ${metric.enabled ? 'border-orange-200 bg-orange-50/30' : 'border-gray-200 bg-gray-50/30'}`}>
-                      <CardHeader className="pb-3">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <CardTitle className="text-lg mb-2 flex items-center gap-2">
-                              <Timer className="w-5 h-5 text-orange-600" />
-                              {metric.name}
-                            </CardTitle>
-                            <Badge className={`text-xs ${metric.enabled ? 'bg-orange-100 text-orange-700 border-orange-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
-                              Static Metric
-                            </Badge>
+                    <Card key={metric.id} className={`hover:shadow-sm transition-shadow ${metric.enabled ? 'border-orange-200 bg-orange-50/30' : 'border-gray-200 bg-gray-50/30'}`}>
+                      <CardContent className="p-2">
+                        <div className="flex items-start justify-between mb-1">
+                          <div className="flex items-center gap-1">
+                            <Timer className="w-3 h-3 text-orange-600" />
+                            <span className="text-xs font-medium text-gray-900">{metric.name}</span>
                           </div>
                           <Button 
                             variant="ghost" 
                             size="sm"
+                            className="h-5 w-5 p-0"
                             onClick={() => setEditingStaticMetric(metric)}
                           >
-                            <Edit2 className="w-4 h-4" />
+                            <Edit2 className="w-3 h-3" />
                           </Button>
                         </div>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-sm text-gray-600 mb-4">
+                        <p className="text-[10px] text-gray-600 mb-2 line-clamp-2">
                           {metric.description}
                         </p>
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-gray-500">Threshold:</span>
-                            <span className="text-sm font-medium text-orange-700 bg-orange-100 px-2 py-1 rounded">
-                              {metric.threshold} {metric.unit}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-gray-500">Success Criteria:</span>
-                            <span className="text-xs text-gray-600">
-                              All turns &lt; {metric.threshold}s
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-gray-500">Status:</span>
-                            <span className={`px-2 py-1 rounded-full text-xs ${metric.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                              {metric.enabled ? 'Enabled' : 'Disabled'}
-                            </span>
-                          </div>
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="text-gray-500">Threshold:</span>
+                          <span className="font-medium text-orange-700 bg-orange-100 px-1.5 py-0.5 rounded text-[10px]">
+                            {metric.threshold}{metric.unit}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between mt-1">
+                          <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${metric.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                            {metric.enabled ? 'Enabled' : 'Disabled'}
+                          </span>
                         </div>
                       </CardContent>
                     </Card>
@@ -997,158 +831,60 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
           )}
         </div>
 
-        {/* Recent Evaluation Results Section */}
-        {evaluationResults && evaluationResults.length > 0 && (
-          <div className="mt-8">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
-                <BarChart3 className="w-5 h-5 text-blue-600" />
-                Recent Evaluation Results
-              </h2>
-              <Badge variant="outline" className="text-blue-600">
-                {evaluationResults.length} results
-              </Badge>
-            </div>
-            
-            <div className="grid gap-4">
-              {evaluationResults
-                .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-                .slice(0, 10) // Show only the 10 most recent results
-                .map((result: any) => {
-                  // Look up the prompt to get the scoring output type
-                  const promptForResult = prompts?.find((p: EvaluationPrompt) => p.id === result.prompt_id)
-                  const scoringOutputType = promptForResult?.scoring_output_type || 'float'
-                  
-                  return (
-                  <Card key={result.id} className="hover:shadow-md transition-shadow">
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <Badge className="bg-blue-50 text-blue-700 border-blue-200">
-                              {result.evaluation_score?.evaluation_type || 'Unknown'}
-                            </Badge>
-                            <Badge variant={result.status === 'completed' ? 'default' : result.status === 'failed' ? 'destructive' : 'secondary'}>
-                              {result.status}
-                            </Badge>
-                            {result.status === 'completed' && (
-                              <Badge variant="outline" className="text-green-700 bg-green-50">
-                                Score: {formatScore(result.evaluation_score?.overall_score, scoringOutputType)}
-                              </Badge>
-                            )}
-                          </div>
-                          
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
-                            <div>
-                              <div className="text-sm text-gray-500">Call ID</div>
-                              <div className="font-medium text-sm">{result.call_id || result.trace_id || 'N/A'}</div>
-                            </div>
-                            <div>
-                              <div className="text-sm text-gray-500">Evaluated</div>
-                              <div className="font-medium text-sm">{new Date(result.created_at).toLocaleDateString()}</div>
-                            </div>
-                            <div>
-                              <div className="text-sm text-gray-500">Execution Time</div>
-                              <div className="font-medium text-sm">{result.execution_time_ms ? `${result.execution_time_ms}ms` : 'N/A'}</div>
-                            </div>
-                          </div>
-
-                          {result.evaluation_reasoning && (
-                            <div className="bg-gray-50 rounded-lg p-3 mb-3">
-                              <div className="text-sm text-gray-600 line-clamp-2">
-                                {result.evaluation_reasoning}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                        
-                        <div className="ml-4">
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="flex items-center gap-2"
-                            onClick={() => handleViewTranscript(result.call_id, result.trace_id)}
-                          >
-                            <Eye className="w-4 h-4" />
-                            View Transcript
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )})}
-            </div>
-          </div>
-        )}
-
-        {/* Transcript Dialog */}
-        <Dialog 
-          open={!!selectedTranscript} 
-          onOpenChange={(open) => {
-            if (!open) {
-              setSelectedTranscript(null)
-              setShowTranslated(false)
-            }
+        {/* Transcript Slide Panel */}
+        <SlidePanel
+          open={!!selectedTranscript}
+          onClose={() => {
+            setSelectedTranscript(null)
+            setShowTranslated(false)
           }}
+          title="Call Transcript"
+          subtitle={selectedTranscript?.callId}
+          width="xl"
         >
-          <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
-            <DialogHeader>
-              <DialogTitle className="flex items-center justify-between">
-                <span>Call Transcript - {selectedTranscript?.callId}</span>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={() => setSelectedTranscript(null)}
-                  className="h-6 w-6 p-0 hover:bg-gray-100"
-                >
-                  <XCircle className="h-4 w-4" />
-                </Button>
-              </DialogTitle>
-            </DialogHeader>
-            <div className="mt-4 overflow-y-auto max-h-[60vh]">
-              {selectedTranscript?.translatedTranscript ? (
-                <Tabs defaultValue="original" className="w-full">
-                  <TabsList className="grid w-full grid-cols-2 mb-4">
-                    <TabsTrigger value="original" className="flex items-center gap-2">
-                      <FileText className="w-4 h-4" />
-                      Original
-                    </TabsTrigger>
-                    <TabsTrigger value="translated" className="flex items-center gap-2">
-                      <Languages className="w-4 h-4" />
-                      Translated
-                    </TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="original">
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono leading-relaxed">
-                        {selectedTranscript?.transcript}
-                      </pre>
-                    </div>
-                  </TabsContent>
-                  <TabsContent value="translated">
-                    <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
-                      <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono leading-relaxed">
-                        {selectedTranscript?.translatedTranscript}
-                      </pre>
-                    </div>
-                  </TabsContent>
-                </Tabs>
-              ) : (
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono leading-relaxed">
-                    {selectedTranscript?.transcript}
-                  </pre>
-                  <div className="mt-4 pt-4 border-t border-gray-200">
-                    <div className="flex items-center gap-2">
-                      <Languages className="w-4 h-4 text-gray-400" />
-                      <span className="text-xs text-gray-500 italic">No translated version available for this transcript.</span>
-                    </div>
+          <div className="p-6">
+            {selectedTranscript?.translatedTranscript ? (
+              <Tabs defaultValue="original" className="w-full">
+                <TabsList className="grid w-full grid-cols-2 mb-4 bg-blue-50">
+                  <TabsTrigger value="original" className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:text-blue-700">
+                    <FileText className="w-4 h-4" />
+                    Original
+                  </TabsTrigger>
+                  <TabsTrigger value="translated" className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:text-blue-700">
+                    <Languages className="w-4 h-4" />
+                    Translated
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="original">
+                  <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+                    <pre className="whitespace-pre-wrap text-sm text-slate-800 font-mono leading-relaxed">
+                      {selectedTranscript?.transcript}
+                    </pre>
+                  </div>
+                </TabsContent>
+                <TabsContent value="translated">
+                  <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                    <pre className="whitespace-pre-wrap text-sm text-slate-800 font-mono leading-relaxed">
+                      {selectedTranscript?.translatedTranscript}
+                    </pre>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            ) : (
+              <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+                <pre className="whitespace-pre-wrap text-sm text-slate-800 font-mono leading-relaxed">
+                  {selectedTranscript?.transcript}
+                </pre>
+                <div className="mt-4 pt-4 border-t border-slate-200">
+                  <div className="flex items-center gap-2">
+                    <Languages className="w-4 h-4 text-slate-400" />
+                    <span className="text-xs text-slate-500 italic">No translated version available for this transcript.</span>
                   </div>
                 </div>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
+              </div>
+            )}
+          </div>
+        </SlidePanel>
 
         {/* Create/Edit Prompt Dialog */}
         <CreatePromptDialog 
