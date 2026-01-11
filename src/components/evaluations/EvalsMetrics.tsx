@@ -253,12 +253,33 @@ interface StaticMetricConfig {
   unit: string
 }
 
+// Interface for default metrics from admin panel
+interface DefaultMetric {
+  id: string
+  name: string
+  description: string
+  metric_type: string
+  evaluation_type: string
+  prompt_template: string
+  scoring_output_type: string
+  success_criteria: string
+  is_active: boolean
+}
+
 export default function EvalsMetrics({ params }: EvalsMetricsProps) {
   const router = useRouter()
   const [showCreatePrompt, setShowCreatePrompt] = useState(false)
   const [editingPrompt, setEditingPrompt] = useState<EvaluationPrompt | null>(null)
   const [showCreateJob, setShowCreateJob] = useState(false)
   const [selectedPrompts, setSelectedPrompts] = useState<string[]>([])
+  
+  // Inherit metrics state
+  const [showInheritDialog, setShowInheritDialog] = useState(false)
+  const [defaultMetrics, setDefaultMetrics] = useState<DefaultMetric[]>([])
+  const [loadingDefaultMetrics, setLoadingDefaultMetrics] = useState(false)
+  const [selectedDefaultMetrics, setSelectedDefaultMetrics] = useState<string[]>([])
+  const [inheritingMetrics, setInheritingMetrics] = useState(false)
+  const [inheritMetricTab, setInheritMetricTab] = useState<'llm' | 'static'>('llm')
   const [selectedTranscript, setSelectedTranscript] = useState<{callId: string, transcript: string, translatedTranscript?: string} | null>(null)
   const [showTranslated, setShowTranslated] = useState<boolean>(false)
 
@@ -418,6 +439,145 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
         alert(`Failed to delete prompt: ${error.message}`)
       }
     }
+  }
+
+  // Fetch default metrics from admin panel
+  const fetchDefaultMetrics = async () => {
+    setLoadingDefaultMetrics(true)
+    try {
+      const response = await fetch('/api/default-metrics')
+      const result = await response.json()
+      if (result.data) {
+        setDefaultMetrics(result.data)
+      }
+    } catch (error) {
+      console.error('Error fetching default metrics:', error)
+    } finally {
+      setLoadingDefaultMetrics(false)
+    }
+  }
+
+  // Handle opening inherit dialog
+  const handleOpenInheritDialog = () => {
+    setSelectedDefaultMetrics([])
+    setInheritMetricTab('llm')
+    fetchDefaultMetrics()
+    setShowInheritDialog(true)
+  }
+
+  // Handle inheriting selected metrics
+  const handleInheritMetrics = async () => {
+    if (selectedDefaultMetrics.length === 0) {
+      alert('Please select at least one metric to inherit')
+      return
+    }
+
+    // Check for duplicate metrics
+    const metricsToInherit = defaultMetrics.filter(m => selectedDefaultMetrics.includes(m.id))
+    const existingMetricNames = (prompts || []).map((p: any) => p.name.toLowerCase())
+    const existingStaticNames = staticMetrics.map(s => s.name.toLowerCase())
+    
+    const duplicateLLMMetrics = metricsToInherit
+      .filter(m => m.metric_type === 'llm' && existingMetricNames.includes(m.name.toLowerCase()))
+    const duplicateStaticMetrics = metricsToInherit
+      .filter(m => m.metric_type === 'static' && existingStaticNames.includes(m.name.toLowerCase()))
+    
+    const allDuplicates = [...duplicateLLMMetrics, ...duplicateStaticMetrics]
+    
+    if (allDuplicates.length > 0) {
+      const duplicateNames = allDuplicates.map(m => m.name).join(', ')
+      const proceed = confirm(
+        `The following metrics already exist: ${duplicateNames}\n\nDo you want to skip these and continue with the rest?`
+      )
+      if (!proceed) {
+        return
+      }
+    }
+
+    // Filter out duplicates
+    const nonDuplicateMetrics = metricsToInherit.filter(
+      m => !allDuplicates.some(d => d.id === m.id)
+    )
+
+    if (nonDuplicateMetrics.length === 0) {
+      alert('All selected metrics already exist. Nothing to inherit.')
+      return
+    }
+
+    setInheritingMetrics(true)
+    try {
+      let llmCount = 0
+      let staticCount = 0
+
+      for (const metric of nonDuplicateMetrics) {
+        if (metric.metric_type === 'static') {
+          // Handle static metric - add to local state
+          const newStaticMetric: StaticMetricConfig = {
+            id: metric.name.toLowerCase().replace(/\s+/g, '_'),
+            name: metric.name,
+            description: metric.description,
+            enabled: true,
+            threshold: 5, // Default threshold
+            unit: metric.scoring_output_type === 'percentage' ? '%' : 'seconds'
+          }
+          setStaticMetrics(prev => [...prev, newStaticMetric])
+          staticCount++
+        } else {
+          // Handle LLM metric - create via API
+          const payload = {
+            project_id: params.projectid,
+            agent_id: params.agentid,
+            name: metric.name,
+            description: metric.description,
+            evaluation_type: metric.evaluation_type,
+            prompt_template: metric.prompt_template,
+            llm_provider: 'openai',
+            model: 'gpt-4o-mini',
+            api_url: 'https://api.openai.com/v1',
+            api_key: '',
+            scoring_output_type: metric.scoring_output_type,
+            success_criteria: metric.success_criteria,
+            temperature: 0,
+            max_tokens: 1000
+          }
+
+          const response = await fetch('/api/evaluations/prompts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          })
+
+          if (!response.ok) {
+            const error = await response.json()
+            throw new Error(error.message || `Failed to create metric: ${metric.name}`)
+          }
+          llmCount++
+        }
+      }
+
+      const messages = []
+      if (llmCount > 0) messages.push(`${llmCount} LLM metric(s)`)
+      if (staticCount > 0) messages.push(`${staticCount} static metric(s)`)
+      
+      alert(`Successfully inherited ${messages.join(' and ')}`)
+      setShowInheritDialog(false)
+      setSelectedDefaultMetrics([])
+      if (llmCount > 0) refetchPrompts()
+    } catch (error: any) {
+      console.error('Error inheriting metrics:', error)
+      alert(error.message || 'Failed to inherit metrics')
+    } finally {
+      setInheritingMetrics(false)
+    }
+  }
+
+  // Toggle selection of a default metric
+  const toggleDefaultMetricSelection = (metricId: string) => {
+    setSelectedDefaultMetrics(prev => 
+      prev.includes(metricId) 
+        ? prev.filter(id => id !== metricId)
+        : [...prev, metricId]
+    )
   }
 
   const handleCreateJob = async (jobData: any) => {
@@ -650,6 +810,14 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
               >
                 <Plus className="w-4 h-4" />
                 New Metric
+              </Button>
+              <Button 
+                onClick={handleOpenInheritDialog}
+                variant="outline"
+                className="flex items-center gap-2 border-purple-200 text-purple-700 hover:bg-purple-50 dark:border-purple-800 dark:text-purple-400 dark:hover:bg-purple-900/20"
+              >
+                <Download className="w-4 h-4" />
+                Inherit Metrics
               </Button>
               <Button 
                 onClick={() => setShowCreateJob(true)}
@@ -1032,6 +1200,158 @@ export default function EvalsMetrics({ params }: EvalsMetricsProps) {
                 </div>
               </div>
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Inherit Metrics Dialog */}
+        <Dialog open={showInheritDialog} onOpenChange={setShowInheritDialog}>
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Download className="w-5 h-5 text-purple-600" />
+                Inherit Default Metrics
+              </DialogTitle>
+            </DialogHeader>
+            <div className="mt-4 flex-1 overflow-hidden flex flex-col">
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Select metrics from the admin-configured defaults to add to this agent.
+              </p>
+              
+              {/* Tabs for LLM vs Static metrics */}
+              <div className="flex gap-2 mb-4 border-b border-gray-200 dark:border-gray-700">
+                <button
+                  onClick={() => setInheritMetricTab('llm')}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    inheritMetricTab === 'llm'
+                      ? 'border-purple-500 text-purple-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  <Brain className="w-4 h-4 inline mr-2" />
+                  LLM Metrics ({defaultMetrics.filter(m => m.metric_type === 'llm').length})
+                </button>
+                <button
+                  onClick={() => setInheritMetricTab('static')}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    inheritMetricTab === 'static'
+                      ? 'border-orange-500 text-orange-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  <Timer className="w-4 h-4 inline mr-2" />
+                  Static Metrics ({defaultMetrics.filter(m => m.metric_type === 'static').length})
+                </button>
+              </div>
+              
+              {loadingDefaultMetrics ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+                </div>
+              ) : defaultMetrics.filter(m => m.metric_type === inheritMetricTab).length === 0 ? (
+                <div className="text-center py-12">
+                  <AlertCircle className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-700 mb-2">
+                    No {inheritMetricTab === 'llm' ? 'LLM' : 'Static'} Metrics Available
+                  </h3>
+                  <p className="text-sm text-gray-500">Contact your administrator to configure default metrics.</p>
+                </div>
+              ) : (
+                <div className="flex-1 overflow-y-auto space-y-3 pr-2">
+                  {defaultMetrics
+                    .filter(m => m.metric_type === inheritMetricTab)
+                    .map((metric) => {
+                      // Check if this metric already exists
+                      const isDuplicate = inheritMetricTab === 'llm'
+                        ? (prompts || []).some((p: any) => p.name.toLowerCase() === metric.name.toLowerCase())
+                        : staticMetrics.some(s => s.name.toLowerCase() === metric.name.toLowerCase())
+                      
+                      return (
+                        <div
+                          key={metric.id}
+                          onClick={() => !isDuplicate && toggleDefaultMetricSelection(metric.id)}
+                          className={`p-4 border rounded-lg transition-all ${
+                            isDuplicate
+                              ? 'border-amber-300 bg-amber-50 dark:bg-amber-900/20 cursor-not-allowed opacity-75'
+                              : selectedDefaultMetrics.includes(metric.id)
+                                ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 cursor-pointer'
+                                : 'border-gray-200 dark:border-gray-700 hover:border-purple-300 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer'
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center ${
+                              isDuplicate
+                                ? 'border-amber-400 bg-amber-100'
+                                : selectedDefaultMetrics.includes(metric.id)
+                                  ? 'border-purple-500 bg-purple-500'
+                                  : 'border-gray-300 dark:border-gray-600'
+                            }`}>
+                              {isDuplicate ? (
+                                <AlertCircle className="w-3 h-3 text-amber-600" />
+                              ) : selectedDefaultMetrics.includes(metric.id) && (
+                                <CheckCircle className="w-4 h-4 text-white" />
+                              )}
+                            </div>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h4 className="font-medium text-gray-900 dark:text-gray-100">{metric.name}</h4>
+                                <Badge className={`text-xs ${
+                                  metric.metric_type === 'static' 
+                                    ? 'bg-orange-50 text-orange-700 border-orange-200'
+                                    : getEvaluationTypeColor(metric.evaluation_type)
+                                }`}>
+                                  {metric.metric_type === 'static' ? 'Static' : metric.evaluation_type}
+                                </Badge>
+                                {isDuplicate && (
+                                  <Badge className="text-xs bg-amber-100 text-amber-700 border-amber-300">
+                                    Already Exists
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-sm text-gray-600 dark:text-gray-400">{metric.description}</p>
+                              <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+                                <span>Output: {metric.scoring_output_type}</span>
+                                <span>Success: {metric.success_criteria?.replace('_', ' ')}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                </div>
+              )}
+              
+              <div className="flex items-center justify-between pt-4 mt-4 border-t">
+                <span className="text-sm text-gray-600">
+                  {selectedDefaultMetrics.length} metric(s) selected
+                </span>
+                <div className="flex gap-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowInheritDialog(false)}
+                    disabled={inheritingMetrics}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleInheritMetrics}
+                    disabled={selectedDefaultMetrics.length === 0 || inheritingMetrics}
+                    className="bg-purple-600 hover:bg-purple-700"
+                  >
+                    {inheritingMetrics ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Inheriting...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4 mr-2" />
+                        Inherit Selected
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
           </DialogContent>
         </Dialog>
     </div>

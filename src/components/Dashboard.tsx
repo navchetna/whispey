@@ -30,7 +30,6 @@ import Overview from './Overview'
 import CallLogs from './calls/CallLogs'
 import CampaignLogs from './campaigns/CampaignLogs'
 import Header from '@/components/shared/Header'
-import FieldExtractorDialog from './FieldExtractorLogs'
 import { DatabaseService } from '../lib/database'
 import { AlertTriangle, Link as LinkIcon } from 'lucide-react'
 import { 
@@ -147,7 +146,7 @@ const Dashboard: React.FC<DashboardProps> = ({ agentId }) => {
 
   // Data fetching - now happens in parallel with UI rendering
   const { data: agents, loading: agentLoading, error: agentError, refetch: refetchAgent } = useApiQuery('pype_voice_agents', {
-    select: 'id, name, agent_type, configuration, environment, created_at, is_active, project_id,field_extractor_prompt,field_extractor',
+    select: 'id, name, agent_type, configuration, environment, created_at, is_active, project_id',
     filters: [{ column: 'id', operator: 'eq', value: agentId }]
   })
 
@@ -546,37 +545,6 @@ const Dashboard: React.FC<DashboardProps> = ({ agentId }) => {
                         </PopoverContent>
                       </Popover>
                     </div>
-                    
-                    {/* Field Extractor - skeleton while agent loading */}
-                    {agentLoading ? (
-                      <div className="h-9 w-24 bg-gray-200 dark:bg-gray-700 rounded-lg animate-pulse"></div>
-                    ) : agent ? (
-                      <FieldExtractorDialog
-                        initialData={JSON.parse(agent?.field_extractor_prompt || '[]')}
-                        isEnabled={!!agent?.field_extractor}
-                        onSave={async (data, enabled) => {
-                          try {
-                            const response = await fetch(`/api/agents/${agent.id}`, {
-                              method: 'PATCH',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({
-                                field_extractor_prompt: JSON.stringify(data),
-                                field_extractor: enabled
-                              })
-                            })
-                            if (response.ok) {
-                              alert('Saved field extractor config.')
-                              refetchAgent()
-                            } else {
-                              const error = await response.json()
-                              alert('Error saving config: ' + (error.error || 'Unknown error'))
-                            }
-                          } catch (error) {
-                            alert('Error saving config: ' + (error instanceof Error ? error.message : 'Unknown error'))
-                          }
-                        }}
-                      />
-                    ) : null}
                   </>
                 )}
               </div>
@@ -656,38 +624,6 @@ const Dashboard: React.FC<DashboardProps> = ({ agentId }) => {
                   })}
                 </div>
               </div> */}
-
-              {/* Field Extractor for mobile */}
-              {agent && (
-                <div>
-                  <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">Tools</div>
-                  <FieldExtractorDialog
-                    initialData={JSON.parse(agent?.field_extractor_prompt || '[]')}
-                    isEnabled={!!agent?.field_extractor}
-                    onSave={async (data, enabled) => {
-                      try {
-                        const response = await fetch(`/api/agents/${agent.id}`, {
-                          method: 'PATCH',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            field_extractor_prompt: JSON.stringify(data),
-                            field_extractor: enabled
-                          })
-                        })
-                        if (response.ok) {
-                          alert('Saved field extractor config.')
-                          refetchAgent()
-                        } else {
-                          const error = await response.json()
-                          alert('Error saving config: ' + (error.error || 'Unknown error'))
-                        }
-                      } catch (error) {
-                        alert('Error saving config: ' + (error instanceof Error ? error.message : 'Unknown error'))
-                      }
-                    }}
-                  />
-                </div>
-              )}
             </div>
           </div>
         )}
