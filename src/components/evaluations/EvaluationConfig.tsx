@@ -1360,18 +1360,17 @@ Provide only the JSON response, nothing else.`,
         ]
       case 'gemini':
         return [
+          { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
           { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' },
-          { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
-          { value: 'gemini-pro', label: 'Gemini Pro' }
+          { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' }
         ]
       case 'groq':
         return [
           // Most Popular Production Models
           { value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B Versatile' },
           { value: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B Instant' },
-          { value: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B' },
-          { value: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B' },
-          { value: 'gemma2-9b-it', label: 'Gemma 2 9B' }
+          { value: 'openai/gpt-oss-120b', label: 'gpt-oss-120b'},
+          { value: 'openai/gpt-oss-20b', label: 'gpt-oss-20b'},
         ]
       default:
         return []
