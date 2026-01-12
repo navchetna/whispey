@@ -67,37 +67,53 @@ function parsePromptIntoSections(template: string): { context: string; criteria:
     return { context, criteria, decisionLogic, outputFormat }
   }
 
-  // Split by known section headers
-  const transcriptMatch = template.match(/\*\*Conversation Transcript:\*\*[\s\S]*?\{\{transcript\}\}/i)
-  const criteriaMatch = template.match(/\*\*Evaluation Criteria:\*\*([\s\S]*?)(?=\*\*Instructions:\*\*|\*\*Decision Logic:\*\*|$)/i)
-  const instructionsMatch = template.match(/\*\*Instructions:\*\*([\s\S]*?)(?=\{[\s\S]*?"score"|$)/i)
-  const outputMatch = template.match(/(\{[\s\S]*?"score"[\s\S]*?\}[\s\S]*$)/i)
+  // Find section boundaries using markers
+  const transcriptStart = template.indexOf('**Conversation Transcript:**')
+  const transcriptEnd = template.indexOf('{{transcript}}')
+  const criteriaStart = template.indexOf('**Evaluation Criteria:**')
+  const instructionsStart = template.indexOf('**Instructions:**')
 
-  // Extract context (everything before transcript or evaluation criteria)
-  let contextEnd = template.length
-  if (transcriptMatch && transcriptMatch.index !== undefined) {
-    contextEnd = transcriptMatch.index
-  } else if (criteriaMatch && criteriaMatch.index !== undefined) {
-    contextEnd = criteriaMatch.index
-  }
-  const extractedContext = template.substring(0, contextEnd).trim()
-  if (extractedContext) {
-    context = extractedContext
+  // Extract context: everything before the transcript section (or criteria if no transcript)
+  if (transcriptStart > 0) {
+    context = template.substring(0, transcriptStart).trim()
+  } else if (criteriaStart > 0) {
+    context = template.substring(0, criteriaStart).trim()
   }
 
-  // Extract evaluation criteria
-  if (criteriaMatch && criteriaMatch[1]) {
-    criteria = criteriaMatch[1].trim()
+  // Extract evaluation criteria: content between **Evaluation Criteria:** and **Instructions:**
+  if (criteriaStart !== -1 && instructionsStart !== -1 && instructionsStart > criteriaStart) {
+    const criteriaContent = template.substring(
+      criteriaStart + '**Evaluation Criteria:**'.length,
+      instructionsStart
+    ).trim()
+    if (criteriaContent) {
+      criteria = criteriaContent
+    }
   }
 
-  // Extract decision logic / instructions
-  if (instructionsMatch && instructionsMatch[1]) {
-    decisionLogic = instructionsMatch[1].trim()
-  }
-
-  // Extract output format (JSON block and any following text)
-  if (outputMatch && outputMatch[1]) {
-    outputFormat = outputMatch[1].trim()
+  // Extract decision logic and output format from the Instructions section
+  if (instructionsStart !== -1) {
+    const afterInstructions = template.substring(instructionsStart + '**Instructions:**'.length).trim()
+    
+    // Find where the JSON output format starts (look for opening brace that's likely JSON)
+    // The output format typically starts with a JSON block
+    const jsonStartMatch = afterInstructions.match(/\n\s*\{/)
+    
+    if (jsonStartMatch && jsonStartMatch.index !== undefined) {
+      // Decision logic is everything before the JSON
+      decisionLogic = afterInstructions.substring(0, jsonStartMatch.index).trim()
+      // Output format is everything from the JSON onwards
+      outputFormat = afterInstructions.substring(jsonStartMatch.index).trim()
+    } else {
+      // No JSON found, try to split by double newline
+      const parts = afterInstructions.split(/\n\n(?=\{|Provide|Return|Output)/i)
+      if (parts.length >= 2) {
+        decisionLogic = parts[0].trim()
+        outputFormat = parts.slice(1).join('\n\n').trim()
+      } else {
+        decisionLogic = afterInstructions
+      }
+    }
   }
 
   return { context, criteria, decisionLogic, outputFormat }
@@ -150,6 +166,67 @@ export default function MetricEditPage({ params }: MetricEditPageProps) {
   const [decisionLogicSection, setDecisionLogicSection] = useState(DEFAULT_DECISION_LOGIC)
   const [outputFormatSection, setOutputFormatSection] = useState(DEFAULT_OUTPUT_FORMAT)
 
+  // Provider-specific model options
+  const getModelOptions = (provider: string) => {
+    switch (provider) {
+      case 'openai':
+        return [
+          { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+          { value: 'gpt-4o', label: 'GPT-4o' },
+          { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
+          { value: 'gpt-4', label: 'GPT-4' }
+        ]
+      case 'anthropic':
+        return [
+          { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
+          { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus' },
+          { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku' }
+        ]
+      case 'gemini':
+        return [
+          { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' },
+          { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
+          { value: 'gemini-pro', label: 'Gemini Pro' }
+        ]
+      case 'groq':
+        return [
+          { value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B Versatile' },
+          { value: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B Instant' },
+          { value: 'llama3-70b-8192', label: 'Llama 3 70B' },
+          { value: 'gpt-oss-20b', label: 'GPT-OSS 20B' },
+          { value: 'gpt-oss-120b', label: 'GPT-OSS 120B' },
+          { value: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B' },
+          { value: 'gemma2-9b-it', label: 'Gemma 2 9B' }
+        ]
+      default:
+        return []
+    }
+  }
+
+  // Get default API URL for provider
+  const getDefaultApiUrl = (provider: string) => {
+    switch (provider) {
+      case 'openai':
+        return 'https://api.openai.com/v1'
+      case 'anthropic':
+        return 'https://api.anthropic.com/v1'
+      case 'gemini':
+        return 'https://generativelanguage.googleapis.com/v1beta/'
+      case 'groq':
+        return 'https://api.groq.com/openai/v1'
+      default:
+        return ''
+    }
+  }
+
+  // Handle provider change
+  const handleProviderChange = (provider: string) => {
+    const models = getModelOptions(provider)
+    setLlmProvider(provider)
+    setModel(models.length > 0 ? models[0].value : '')
+    setApiUrl(getDefaultApiUrl(provider))
+  }
+
   // Fetch metric data if editing
   useEffect(() => {
     if (!isNewMetric) {
@@ -185,6 +262,8 @@ export default function MetricEditPage({ params }: MetricEditPageProps) {
       
       // Parse prompt into sections
       const sections = parsePromptIntoSections(data.prompt_template || '')
+      console.log('Loaded prompt_template:', data.prompt_template)
+      console.log('Parsed sections:', sections)
       setContextSection(sections.context)
       setCriteriaSection(sections.criteria)
       setDecisionLogicSection(sections.decisionLogic)
@@ -398,25 +477,42 @@ export default function MetricEditPage({ params }: MetricEditPageProps) {
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="llmProvider">Provider</Label>
-                  <Select value={llmProvider} onValueChange={setLlmProvider}>
+                  <Select value={llmProvider} onValueChange={handleProviderChange}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="openai">OpenAI</SelectItem>
                       <SelectItem value="anthropic">Anthropic</SelectItem>
+                      <SelectItem value="groq">Groq</SelectItem>
+                      <SelectItem value="gemini">Google Gemini</SelectItem>
                       <SelectItem value="custom">Custom</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="model">Model</Label>
-                  <Input
-                    id="model"
-                    placeholder="gpt-4o-mini"
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                  />
+                  {llmProvider === 'custom' ? (
+                    <Input
+                      id="model"
+                      placeholder="Enter model name"
+                      value={model}
+                      onChange={(e) => setModel(e.target.value)}
+                    />
+                  ) : (
+                    <Select value={model} onValueChange={setModel}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select model" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {getModelOptions(llmProvider).map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="apiUrl">API URL</Label>
