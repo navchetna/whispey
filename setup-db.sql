@@ -160,8 +160,20 @@ CREATE TABLE IF NOT EXISTS public.pype_voice_agents (
     user_id uuid REFERENCES public.pype_voice_users(id),
     field_extractor boolean DEFAULT false,
     field_extractor_prompt text,
-    field_extractor_keys jsonb DEFAULT '[]'
+    field_extractor_keys jsonb DEFAULT '[]',
+    static_metrics_config jsonb DEFAULT '[{"id":"turn_latency","name":"Turn Latency","description":"All individual turn latencies must be less than the threshold","enabled":true,"threshold":5,"unit":"seconds"}]'
 );
+
+-- Add static_metrics_config column if it doesn't exist (for existing databases)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_schema = 'public' 
+                   AND table_name = 'pype_voice_agents' 
+                   AND column_name = 'static_metrics_config') THEN
+        ALTER TABLE public.pype_voice_agents ADD COLUMN static_metrics_config jsonb DEFAULT '[{"id":"turn_latency","name":"Turn Latency","description":"All individual turn latencies must be less than the threshold","enabled":true,"threshold":5,"unit":"seconds"}]';
+    END IF;
+END $$;
 
 -- Table for API keys
 CREATE TABLE IF NOT EXISTS public.pype_voice_api_keys (

@@ -162,6 +162,8 @@ export default function EvaluationConfig({ params }: EvaluationConfigProps) {
     }
   ])
   const [editingStaticMetric, setEditingStaticMetric] = useState<StaticMetricConfig | null>(null)
+  const [staticMetricsLoading, setStaticMetricsLoading] = useState(true)
+  const [staticMetricsSaving, setStaticMetricsSaving] = useState(false)
   
   // Audio upload states
   const [uploadType, setUploadType] = useState<'zip' | 'url'>('zip')
@@ -171,6 +173,49 @@ export default function EvaluationConfig({ params }: EvaluationConfigProps) {
   const [audioFiles, setAudioFiles] = useState<any[]>([])
   const [loadingAudioFiles, setLoadingAudioFiles] = useState(false)
   
+  // Fetch static metrics configuration on mount
+  useEffect(() => {
+    const fetchStaticMetrics = async () => {
+      try {
+        const response = await fetch(`/api/evaluations/static-metrics?agent_id=${params.agentid}`)
+        const result = await response.json()
+        if (response.ok && result.data) {
+          setStaticMetrics(result.data)
+        }
+      } catch (error) {
+        console.error('Failed to fetch static metrics:', error)
+      } finally {
+        setStaticMetricsLoading(false)
+      }
+    }
+    fetchStaticMetrics()
+  }, [params.agentid])
+
+  // Save static metrics to database
+  const saveStaticMetrics = async (metrics: StaticMetricConfig[]) => {
+    setStaticMetricsSaving(true)
+    try {
+      const response = await fetch('/api/evaluations/static-metrics', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agent_id: params.agentid,
+          static_metrics: metrics
+        })
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to save static metrics')
+      }
+      return true
+    } catch (error) {
+      console.error('Failed to save static metrics:', error)
+      return false
+    } finally {
+      setStaticMetricsSaving(false)
+    }
+  }
+
   // Fetch evaluation prompts
   const { data: prompts, loading: promptsLoading, error: promptsError, refetch: refetchPrompts } = useSupabaseQuery('pype_voice_evaluation_prompts', {
     select: '*',
@@ -1235,18 +1280,25 @@ ${diag.sampleCallLogs.all.map((log: any) => `• ${log.id}: ${log.call_ended_rea
                   Cancel
                 </Button>
                 <Button
-                  onClick={() => {
-                    // Update the static metrics
-                    setStaticMetrics(prev => 
-                      prev.map(m => 
-                        m.id === editingStaticMetric.id ? editingStaticMetric : m
-                      )
+                  disabled={staticMetricsSaving}
+                  onClick={async () => {
+                    // Update the static metrics locally
+                    const updatedMetrics = staticMetrics.map(m => 
+                      m.id === editingStaticMetric.id ? editingStaticMetric : m
                     )
-                    setEditingStaticMetric(null)
+                    setStaticMetrics(updatedMetrics)
+                    
+                    // Persist to database
+                    const success = await saveStaticMetrics(updatedMetrics)
+                    if (success) {
+                      setEditingStaticMetric(null)
+                    } else {
+                      alert('Failed to save static metrics. Please try again.')
+                    }
                   }}
                   className="bg-orange-600 hover:bg-orange-700"
                 >
-                  Save Changes
+                  {staticMetricsSaving ? 'Saving...' : 'Save Changes'}
                 </Button>
               </div>
             </div>

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { format } from 'date-fns'
+import { cn } from '@/lib/utils'
 
 export interface FilterRule {
   id: string
@@ -32,6 +33,7 @@ interface CallFilterProps {
   onClear: () => void
   availableMetadataFields?: string[]
   availableTranscriptionFields?: string[]
+  activeFilters?: FilterRule[]
 }
 
 const COLUMNS = [
@@ -73,9 +75,11 @@ const CallFilter: React.FC<CallFilterProps> = ({
   onFiltersChange, 
   onClear, 
   availableMetadataFields = [],
-  availableTranscriptionFields = []
+  availableTranscriptionFields = [],
+  activeFilters = []
 }) => {
-  const [filters, setFilters] = useState<FilterRule[]>([])
+  // Use activeFilters from parent for display, internal filters for form state
+  const filters = activeFilters
   const [isOpen, setIsOpen] = useState(false)
   const [newFilter, setNewFilter] = useState({
     column: '',
@@ -118,7 +122,6 @@ const CallFilter: React.FC<CallFilterProps> = ({
       }
       
       const updatedFilters = [...filters, filter]
-      setFilters(updatedFilters)
       onFiltersChange(updatedFilters)
       
       // Reset form
@@ -129,12 +132,10 @@ const CallFilter: React.FC<CallFilterProps> = ({
 
   const removeFilter = (filterId: string) => {
     const updatedFilters = filters.filter(f => f.id !== filterId)
-    setFilters(updatedFilters)
     onFiltersChange(updatedFilters)
   }
 
   const clearAllFilters = () => {
-    setFilters([])
     setNewFilter({ column: '', operation: '', value: '', jsonField: '' })
     setSelectedDate(undefined)
     onClear()
@@ -186,12 +187,15 @@ const CallFilter: React.FC<CallFilterProps> = ({
             <Button
               variant={filters.length > 0 ? "default" : "outline"}
               size="sm"
-              className="gap-2 h-8 hover:shadow-md transition-all"
+              className={cn(
+                "gap-2 h-8 hover:shadow-md transition-all",
+                filters.length > 0 && "bg-blue-600 hover:bg-blue-700 text-white"
+              )}
             >
               <Filter className="h-3 w-3" />
               Filter
               {filters.length > 0 && (
-                <Badge variant="secondary" className="ml-1 h-4 w-4 rounded-full p-0 text-xs">
+                <Badge variant="secondary" className="ml-1 h-5 min-w-5 rounded-full px-1.5 text-xs bg-white text-blue-600 font-semibold">
                   {filters.length}
                 </Badge>
               )}

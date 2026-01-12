@@ -1,5 +1,5 @@
 import React from 'react'
-import { Search, Eye, Grid3X3, List, HelpCircle, Plus } from 'lucide-react'
+import { Search, Eye, Grid3X3, List, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useMobile } from '@/hooks/use-mobile'
 
@@ -87,17 +87,6 @@ const AgentToolbar: React.FC<AgentToolbarProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Help Link */}
-            {onShowHelp && (
-              <button
-                onClick={onShowHelp}
-                className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors px-2 py-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20"
-              >
-                <HelpCircle className="w-3.5 h-3.5" />
-                Help
-              </button>
-            )}
-
             {/* View Toggle - Hide on mobile since we force list view */}
             {/* <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
               <button
@@ -133,16 +122,7 @@ const AgentToolbar: React.FC<AgentToolbarProps> = ({
           />
         </div>
 
-        {/* Need Help Link */}
-        {onShowHelp && (
-          <button
-            onClick={onShowHelp}
-            className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors px-2 py-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20"
-          >
-            <HelpCircle className="w-3.5 h-3.5" />
-            Need help?
-          </button>
-        )}
+
       </div>
 
       {/* Right: Controls */}

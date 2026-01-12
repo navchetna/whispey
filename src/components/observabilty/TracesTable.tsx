@@ -199,6 +199,11 @@ const TracesTable: React.FC<TracesTableProps> = ({
   const finalTraceData = transcriptTraceData || traceData
   const finalTraceLoading = transcriptTraceData ? false : traceDataLoading
 
+  // Detect if this session is from uploaded audio
+  const isUploadedAudioSession = useMemo(() => {
+    return !!transcriptTraceData && transcriptTraceData.length > 0
+  }, [transcriptTraceData])
+
   // Extract bug report data from call metadata
   const bugReportData = useMemo(() => {
     if (!finalCallData?.length) return null
@@ -782,7 +787,7 @@ const handleRowClick = (trace: TraceLog) => {
         <div className="border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 px-4 py-2 flex-shrink-0">
           <div className="flex items-center justify-between">
             <nav className="flex space-x-4">
-              <button 
+              {/* <button 
                 onClick={() => setActiveTab("turns")}
                 className={cn(
                   "px-3 py-2 text-sm font-medium rounded-md transition-colors",
@@ -792,7 +797,7 @@ const handleRowClick = (trace: TraceLog) => {
                 )}
               >
                 Conversation Turns ({processedTraces.length})
-              </button>
+              </button> */}
               {sessionSpans && sessionSpans.length > 0 && (
                 <>
               <button 
@@ -869,14 +874,24 @@ const handleRowClick = (trace: TraceLog) => {
           <>
             {/* Header */}
             <div className="border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 px-4 py-2 flex-shrink-0">
-              <div className="grid grid-cols-12 gap-3 text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wide">
+              <div className={cn(
+                "grid gap-3 text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wide",
+                showTranslations && !isUploadedAudioSession ? "grid-cols-12" :
+                showTranslations && isUploadedAudioSession ? "grid-cols-11" :
+                !showTranslations && isUploadedAudioSession ? "grid-cols-11" :
+                "grid-cols-12"
+              )}>
                 <div className="col-span-1">Turn ID</div>
                 <div className="col-span-2">Trace Info</div>
-                <div className="col-span-5">Conversation</div>
-                <div className="col-span-1">Operations</div>
+                <div className={showTranslations ? "col-span-3" : isUploadedAudioSession ? "col-span-6" : "col-span-5"}>Conversation</div>
+                {showTranslations && (
+                  <div className="col-span-2">Translation</div>
+                )}
+                {!isUploadedAudioSession && (
+                  <div className="col-span-1">Operations</div>
+                )}
                 <div className="col-span-1">Latency (s)</div>
                 <div className="col-span-1">Cost</div>
-                <div className="col-span-1">Status</div>
               </div>
             </div>
 
@@ -919,7 +934,11 @@ const handleRowClick = (trace: TraceLog) => {
                         ref={(el) => { traceRefs.current[trace.id] = el }}
                         onClick={() => handleRowClick(trace)}
                         className={cn(
-                          "grid grid-cols-12 gap-3 px-4 py-2.5 cursor-pointer border-l-2 transition-all text-sm relative hover:shadow-sm",
+                          "grid gap-3 px-4 py-2.5 cursor-pointer border-l-2 transition-all text-sm relative hover:shadow-sm",
+                          showTranslations && !isUploadedAudioSession ? "grid-cols-12" :
+                          showTranslations && isUploadedAudioSession ? "grid-cols-11" :
+                          !showTranslations && isUploadedAudioSession ? "grid-cols-11" :
+                          "grid-cols-12",
                           hasBugReport
                             ? "border-l-red-500 bg-red-50 dark:bg-red-900/10 hover:bg-red-50 dark:hover:bg-red-900/20"
                             : isActiveTrace
@@ -936,9 +955,6 @@ const handleRowClick = (trace: TraceLog) => {
                             <div className="font-mono text-xs font-semibold text-gray-700 dark:text-gray-300">
                               Turn {trace.turn_id.replace('turn_', '')}
                             </div>
-                          </div>
-                          <div className="text-[10px] text-gray-400 dark:text-gray-500 font-mono">
-                            {formatRelativeTime(trace.created_at)}
                           </div>
                           {/* Audio Timeline */}
                           {(() => {
@@ -992,7 +1008,10 @@ const handleRowClick = (trace: TraceLog) => {
                         </div>
   
                         {/* Conversation */}
-                        <div className="col-span-5 space-y-2">
+                        <div className={cn(
+                          "space-y-2",
+                          showTranslations ? "col-span-3" : isUploadedAudioSession ? "col-span-6" : "col-span-5"
+                        )}>
                           {trace.user_transcript && (
                             <div className="text-sm">
                               <div className="flex items-center gap-2 mb-1">
@@ -1001,15 +1020,9 @@ const handleRowClick = (trace: TraceLog) => {
                               </div>
                               <div className={cn(
                                 "ml-5 text-gray-800 dark:text-gray-200",
-                                isActiveTrace && "bg-blue-50 dark:bg-blue-900/10 p-3 rounded-lg border border-blue-200 dark:border-blue-800 leading-relaxed"
+                                isActiveTrace && "bg-green-50 dark:bg-green-900/10 p-3 rounded-lg border border-green-200 dark:border-green-800 leading-relaxed"
                               )}>
-                                {isActiveTrace ? trace.user_transcript : truncateText(trace.user_transcript, 120)}
-                                {/* Show translated text for user message */}
-                                {showTranslations && trace.metadata?.translated_text && trace.user_transcript && (
-                                  <div className="text-gray-600 dark:text-gray-300 font-medium text-xs mt-1">
-                                    ({trace.metadata.translated_text})
-                                  </div>
-                                )}
+                                {isActiveTrace ? trace.user_transcript : truncateText(trace.user_transcript, 200)}
                               </div>
                             </div>
                           )}
@@ -1038,13 +1051,7 @@ const handleRowClick = (trace: TraceLog) => {
                                 hasBugReport ? "text-red-800 dark:text-red-300" : "text-gray-600 dark:text-gray-300",
                                 isActiveTrace && "bg-green-50 dark:bg-green-900/10 p-3 rounded-lg border border-green-200 dark:border-green-800 leading-relaxed"
                               )}>
-                                {isActiveTrace ? trace.agent_response : truncateText(trace.agent_response, 120)}
-                                {/* Show translated text for agent message */}
-                                {showTranslations && trace.metadata?.translated_text && trace.agent_response && !trace.user_transcript && (
-                                  <div className="text-gray-600 dark:text-gray-300 font-medium text-xs mt-1">
-                                    ({trace.metadata.translated_text})
-                                  </div>
-                                )}
+                                {isActiveTrace ? trace.agent_response : truncateText(trace.agent_response, 200)}
                               </div>
                             </div>
                           )}
@@ -1054,20 +1061,43 @@ const handleRowClick = (trace: TraceLog) => {
                             </div>
                           )}
                         </div>
-  
-                        {/* Operations */}
-                        <div className="col-span-1">
-                          <div className="grid grid-cols-2 gap-1 text-[10px]">
-                            {toolInfo.total > 0 && (
-                              <div className="flex items-center gap-1 col-span-2">
-                                <Wrench className="w-2 h-2 text-orange-600 dark:text-orange-400" />
-                                <span className="font-medium text-orange-700 dark:text-orange-300">{toolInfo.total}</span>
-                                <span className="text-gray-400 dark:text-gray-500">
-                                  ({toolInfo.successful}✓)
-                                </span>
+
+                        {/* Translation Column */}
+                        {showTranslations && (
+                          <div className="col-span-2 space-y-2">
+                            {trace.metadata?.translated_text && (
+                              <div className="text-sm text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-900/20 p-2 rounded-md border border-purple-200 dark:border-purple-800">
+                                <div className="flex items-center gap-1 mb-1 text-xs font-medium text-purple-600 dark:text-purple-400">
+                                  <span>🌐</span>
+                                  <span>Translation</span>
+                                </div>
+                                <div className="text-xs">
+                                  {isActiveTrace ? trace.metadata.translated_text : truncateText(trace.metadata.translated_text, 200)}
+                                </div>
                               </div>
                             )}
-                            {metrics.length > 0 && (
+                            {!trace.metadata?.translated_text && (
+                              <div className="text-xs text-gray-400 dark:text-gray-500 italic">
+                                No translation
+                              </div>
+                            )}
+                          </div>
+                        )}
+  
+                        {/* Operations - hidden for uploaded audio */}
+                        {!isUploadedAudioSession && (
+                          <div className="col-span-1">
+                            <div className="grid grid-cols-2 gap-1 text-[10px]">
+                              {toolInfo.total > 0 && (
+                                <div className="flex items-center gap-1 col-span-2">
+                                  <Wrench className="w-2 h-2 text-orange-600 dark:text-orange-400" />
+                                  <span className="font-medium text-orange-700 dark:text-orange-300">{toolInfo.total}</span>
+                                  <span className="text-gray-400 dark:text-gray-500">
+                                    ({toolInfo.successful}✓)
+                                  </span>
+                                </div>
+                              )}
+                              {metrics.length > 0 && (
                               <>
                                 {metrics.map((metric, idx) => (
                                   <Badge key={idx} variant="outline" className="text-[8px] px-1 py-0 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300">
@@ -1081,8 +1111,9 @@ const handleRowClick = (trace: TraceLog) => {
                                 {spansLength} spans
                               </div>
                             )}
+                            </div>
                           </div>
-                        </div>
+                        )}
   
                         {/* Enhanced Latency with Raw Values */}
                         <div className="col-span-1">
@@ -1100,15 +1131,15 @@ const handleRowClick = (trace: TraceLog) => {
                           </div>
                         </div>
   
-                        {/* Cost */}
+                        {/* Cost
                         <div className="col-span-1">
                           <span className="text-xs font-semibold text-purple-600 dark:text-purple-400">
                             {trace.trace_cost_usd ? formatCost(parseFloat(trace.trace_cost_usd.toString())) : "N/A"}
                           </span>
-                        </div>
+                        </div> */}
   
                         {/* Status */}
-                        <div className="col-span-1">
+                        {/* <div className="col-span-1">
                           <div className="flex items-center pl-5">
                             {status === "bug_report" ? (
                               <AlertTriangle className="w-4 h-4 text-red-500 dark:text-red-400" />
@@ -1120,7 +1151,7 @@ const handleRowClick = (trace: TraceLog) => {
                               <CheckCircle className="w-4 h-4 text-green-500 dark:text-green-400" />
                             )}
                           </div>
-                        </div>
+                        </div> */}
   
                       </div>
                     )
