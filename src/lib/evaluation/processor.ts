@@ -282,7 +282,20 @@ export class EvaluationProcessor {
         [job.agent_id]
       )
       
-      const staticMetricsConfig = agentConfigResult.rows[0]?.static_metrics_config || [
+      console.log(`[STATIC METRICS] Raw config from DB:`, agentConfigResult.rows[0]?.static_metrics_config)
+      console.log(`[STATIC METRICS] Config type:`, typeof agentConfigResult.rows[0]?.static_metrics_config)
+      
+      // Parse the config - it might be a string or already an object depending on the driver
+      let rawConfig = agentConfigResult.rows[0]?.static_metrics_config
+      if (typeof rawConfig === 'string') {
+        try {
+          rawConfig = JSON.parse(rawConfig)
+        } catch (e) {
+          console.error('[STATIC METRICS] Failed to parse config string:', e)
+        }
+      }
+      
+      const staticMetricsConfig = rawConfig || [
         {
           id: 'turn_latency',
           name: 'Turn Latency',
@@ -293,7 +306,7 @@ export class EvaluationProcessor {
         }
       ]
       
-      console.log(`Static metrics config for agent:`, staticMetricsConfig)
+      console.log(`[STATIC METRICS] Final config for agent:`, staticMetricsConfig)
 
       // Get prompts for this job
       const promptsResult = await query(
@@ -349,7 +362,9 @@ export class EvaluationProcessor {
 
       // Get the turn latency threshold from static metrics config
       const turnLatencyMetric = staticMetricsConfig.find((m: any) => m.id === 'turn_latency')
+      console.log(`[STATIC METRICS] Turn latency metric:`, turnLatencyMetric)
       const turnLatencyThreshold = turnLatencyMetric?.enabled ? (turnLatencyMetric?.threshold || 5) : null
+      console.log(`[STATIC METRICS] Using threshold: ${turnLatencyThreshold} (enabled: ${turnLatencyMetric?.enabled})`)
 
       // Process each call log with each prompt
       const results: EvaluationResult[] = []
@@ -893,7 +908,7 @@ Return your response in JSON format with the following structure:
       // Evaluate turn latency (static metric) - only if threshold is set (not null)
       const turnLatencyResult = turnLatencyThreshold !== null 
         ? this.evaluateTurnLatency(callLog, turnLatencyThreshold)
-        : { passed: true, maxLatency: null, avgLatency: null, exceedingTurns: 0, totalTurns: 0 }
+        : { passed: true, threshold: 0, maxLatency: null, avgLatency: null, exceedingTurns: 0, totalAssistantTurns: 0, violatingTurns: [] }
       console.log(`📊 [TURN LATENCY] Result:`, turnLatencyResult)
       
       // Add turn latency to parsed scores
@@ -1020,26 +1035,30 @@ Return your response in JSON format with the following structure:
   }
 
   // Evaluate turn latency for a call - returns pass/fail based on threshold
-  // If any individual turn latency exceeds threshold, the call fails this metric
+  // Only checks assistant/bot turn latencies - if any exceeds threshold, the call fails
   private evaluateTurnLatency(callLog: any, threshold: number = 5): {
     passed: boolean
+    threshold: number
     maxLatency: number | null
     avgLatency: number | null
     exceedingTurns: number
-    totalTurns: number
+    totalAssistantTurns: number
+    violatingTurns: { turnIndex: number; role: string; latency: number }[]
   } {
-    console.log(`⏱️ [TURN LATENCY] Evaluating turn latency for call ${callLog.id}`)
+    console.log(`⏱️ [TURN LATENCY] Evaluating turn latency for call ${callLog.id}, threshold: ${threshold}s`)
     
     const result = {
       passed: true,
+      threshold,
       maxLatency: null as number | null,
       avgLatency: null as number | null,
       exceedingTurns: 0,
-      totalTurns: 0
+      totalAssistantTurns: 0,
+      violatingTurns: [] as { turnIndex: number; role: string; latency: number }[]
     }
 
     try {
-      // Get transcript JSON which contains the turns with latency
+      // Get transcript JSON which contains the turns
       const transcriptJson = callLog.transcript_json
       
       if (!transcriptJson) {
@@ -1060,33 +1079,72 @@ Return your response in JSON format with the following structure:
         return result
       }
 
-      // Extract latencies from turns (latency is the gap before each turn)
-      const latencies: number[] = []
-      turns.forEach((turn: any, index: number) => {
-        // Skip first turn as it won't have a latency value (nothing before it)
+      console.log(`⏱️ [TURN LATENCY] Found ${turns.length} turns, sample turn:`, JSON.stringify(turns[0]).substring(0, 200))
+
+      // First pass: calculate inter-turn latency for each turn if not already present
+      // Latency = time gap between previous turn's end and current turn's start
+      const turnsWithLatency = turns.map((turn: any, index: number) => {
+        // If latency is already present, use it
         if (turn.latency !== null && turn.latency !== undefined) {
-          latencies.push(turn.latency)
+          return { ...turn, calculatedLatency: turn.latency }
+        }
+        
+        // Otherwise, calculate from timestamps (start_time, end_time)
+        if (turn.start_time !== undefined && index > 0) {
+          const prevTurn = turns[index - 1]
+          if (prevTurn.end_time !== undefined) {
+            const latency = Math.max(0, turn.start_time - prevTurn.end_time)
+            return { ...turn, calculatedLatency: latency }
+          }
+        }
+        
+        // For first turn, latency is the start time (gap from beginning)
+        if (index === 0 && turn.start_time !== undefined) {
+          return { ...turn, calculatedLatency: Math.max(0, turn.start_time) }
+        }
+        
+        return { ...turn, calculatedLatency: null }
+      })
+
+      // Only extract latencies from assistant/bot turns
+      const assistantLatencies: { turnIndex: number; role: string; latency: number }[] = []
+      turnsWithLatency.forEach((turn: any, index: number) => {
+        // Check if this is an assistant/bot turn (not user)
+        const role = (turn.role || turn.speaker || '').toLowerCase()
+        const isAssistant = role === 'assistant' || role === 'bot' || role === 'agent' || role === 'ai'
+        
+        if (isAssistant && turn.calculatedLatency !== null && turn.calculatedLatency !== undefined) {
+          assistantLatencies.push({
+            turnIndex: index,
+            role: turn.role || turn.speaker || 'assistant',
+            latency: turn.calculatedLatency
+          })
         }
       })
 
-      if (latencies.length === 0) {
-        console.log(`⏱️ [TURN LATENCY] No latency data found in turns, assuming pass`)
+      console.log(`⏱️ [TURN LATENCY] Found ${assistantLatencies.length} assistant turns with latency data`)
+
+      if (assistantLatencies.length === 0) {
+        console.log(`⏱️ [TURN LATENCY] No assistant turn latency data found, assuming pass`)
         return result
       }
 
-      result.totalTurns = latencies.length
-      result.maxLatency = Math.max(...latencies)
-      result.avgLatency = latencies.reduce((a, b) => a + b, 0) / latencies.length
+      result.totalAssistantTurns = assistantLatencies.length
+      const latencyValues = assistantLatencies.map(t => t.latency)
+      result.maxLatency = Math.max(...latencyValues)
+      result.avgLatency = latencyValues.reduce((a, b) => a + b, 0) / latencyValues.length
 
-      // Check if any turn exceeds the threshold
-      result.exceedingTurns = latencies.filter(l => l > threshold).length
+      // Check if any assistant turn exceeds the threshold
+      result.violatingTurns = assistantLatencies.filter(t => t.latency > threshold)
+      result.exceedingTurns = result.violatingTurns.length
       result.passed = result.exceedingTurns === 0
 
       console.log(`⏱️ [TURN LATENCY] Results:`, {
-        totalTurns: result.totalTurns,
+        totalAssistantTurns: result.totalAssistantTurns,
         maxLatency: result.maxLatency?.toFixed(2),
         avgLatency: result.avgLatency?.toFixed(2),
         exceedingTurns: result.exceedingTurns,
+        violatingTurns: result.violatingTurns.map(v => `Turn #${v.turnIndex + 1}: ${v.latency.toFixed(2)}s`),
         threshold,
         passed: result.passed
       })

@@ -136,10 +136,12 @@ const DonutChart = ({
 // Individual Metric Cell Component - Shows only the final score value
 const MetricCell = ({ 
   value, 
-  isPassing 
+  isPassing,
+  violatingTurns
 }: { 
   value: any
-  isPassing: boolean 
+  isPassing: boolean
+  violatingTurns?: { turnIndex: number; role: string; latency: number }[]
 }) => {
   // Format the display value - only show the score, not reasoning
   const displayValue = () => {
@@ -166,6 +168,17 @@ const MetricCell = ({
       `}
     >
       <span>{displayValue()}</span>
+      {/* Show violating turns for turn latency failures */}
+      {violatingTurns && violatingTurns.length > 0 && (
+        <div className="mt-1 text-xs text-red-600 dark:text-red-400">
+          {violatingTurns.slice(0, 3).map((turn, idx) => (
+            <div key={idx}>Turn #{turn.turnIndex + 1}: {turn.latency.toFixed(1)}s</div>
+          ))}
+          {violatingTurns.length > 3 && (
+            <div>+{violatingTurns.length - 3} more</div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -272,6 +285,15 @@ interface EvaluationResult {
     overall_score?: number | boolean
     parsed_scores?: any
     evaluation_type?: string
+    turn_latency?: {
+      passed: boolean
+      threshold: number
+      maxLatency: number | null
+      avgLatency?: number | null
+      exceedingTurns?: number
+      totalAssistantTurns: number
+      violatingTurns: { turnIndex: number; role: string; latency: number }[]
+    }
   }
   evaluation_reasoning: string
   status: string
@@ -389,19 +411,51 @@ export default function EvalsSummaryPage({ params }: EvalsSummaryPageProps) {
     }
   }, [results, allPrompts])
 
-  // Get metric columns from evaluation prompts (not from parsed_scores)
+  // Check if we have turn latency data in results
+  const hasTurnLatencyData = useMemo(() => {
+    if (!results || results.length === 0) return false
+    return results.some((r: EvaluationResult) => 
+      r.status === 'completed' && 
+      r.evaluation_score?.turn_latency && 
+      r.evaluation_score.turn_latency.totalAssistantTurns > 0
+    )
+  }, [results])
+
+  // Get metric columns from evaluation prompts + turn latency static metric
   const metricColumns = useMemo(() => {
-    if (!allPrompts || allPrompts.length === 0) return []
-    return allPrompts.map((prompt: any) => ({
-      id: prompt.id,
-      name: prompt.name,
-      scoringType: prompt.scoring_output_type || 'bool'
-    }))
-  }, [allPrompts])
+    const columns: { id: string; name: string; scoringType: string; isStatic?: boolean }[] = []
+    
+    // Add Turn Latency as first column if we have data
+    if (hasTurnLatencyData) {
+      columns.push({
+        id: 'turn_latency',
+        name: 'Turn Latency',
+        scoringType: 'bool',
+        isStatic: true
+      })
+    }
+    
+    // Add LLM evaluation prompts
+    if (allPrompts && allPrompts.length > 0) {
+      allPrompts.forEach((prompt: any) => {
+        columns.push({
+          id: prompt.id,
+          name: prompt.name,
+          scoringType: prompt.scoring_output_type || 'bool'
+        })
+      })
+    }
+    
+    return columns
+  }, [allPrompts, hasTurnLatencyData])
 
   // Process results for the metrics table - group by call_id and show score per metric
   const processedResults = useMemo(() => {
-    if (!results || results.length === 0 || !allPrompts || allPrompts.length === 0) return []
+    if (!results || results.length === 0) return []
+    if (!allPrompts || allPrompts.length === 0) {
+      // If no prompts but we have turn latency data, still process
+      if (!hasTurnLatencyData) return []
+    }
 
     // Group results by call_id
     const callGroups: Record<string, EvaluationResult[]> = {}
@@ -416,26 +470,43 @@ export default function EvalsSummaryPage({ params }: EvalsSummaryPageProps) {
 
     // Convert to array with scores per metric
     return Object.entries(callGroups).map(([callId, callResults], index) => {
-      const scores: Record<string, { value: any; isPassing: boolean }> = {}
+      const scores: Record<string, { value: any; isPassing: boolean; violatingTurns?: { turnIndex: number; role: string; latency: number }[] }> = {}
       
-      // For each metric (prompt), find the result and extract the score
-      metricColumns.forEach((metric: { id: string; name: string; scoringType: string }) => {
-        const resultForMetric = callResults.find((r: EvaluationResult) => r.prompt_id === metric.id)
-        if (resultForMetric) {
-          const score = resultForMetric.evaluation_score?.overall_score
-          const scoringType = metric.scoringType
+      // For each metric column, find the result and extract the score
+      metricColumns.forEach((metric: { id: string; name: string; scoringType: string; isStatic?: boolean }) => {
+        if (metric.id === 'turn_latency') {
+          // Handle turn latency static metric - get from any result for this call
+          const anyResult = callResults[0]
+          const turnLatency = anyResult?.evaluation_score?.turn_latency
           
-          let isPassing = false
-          if (scoringType === 'bool') {
-            isPassing = parseBooleanScore(score)
+          if (turnLatency && turnLatency.totalAssistantTurns > 0) {
+            scores[metric.id] = { 
+              value: turnLatency.passed ? 'Pass' : 'Fail', 
+              isPassing: turnLatency.passed,
+              violatingTurns: turnLatency.violatingTurns || []
+            }
           } else {
-            const numScore = parseNumericScore(score)
-            isPassing = scoringType === 'percentage' ? numScore >= 70 : numScore >= 0.7
+            scores[metric.id] = { value: 'N/A', isPassing: true }
           }
-          
-          scores[metric.id] = { value: score, isPassing }
         } else {
-          scores[metric.id] = { value: 'N/A', isPassing: false }
+          // Handle LLM evaluation prompt metrics
+          const resultForMetric = callResults.find((r: EvaluationResult) => r.prompt_id === metric.id)
+          if (resultForMetric) {
+            const score = resultForMetric.evaluation_score?.overall_score
+            const scoringType = metric.scoringType
+            
+            let isPassing = false
+            if (scoringType === 'bool') {
+              isPassing = parseBooleanScore(score)
+            } else {
+              const numScore = parseNumericScore(score)
+              isPassing = scoringType === 'percentage' ? numScore >= 70 : numScore >= 0.7
+            }
+            
+            scores[metric.id] = { value: score, isPassing }
+          } else {
+            scores[metric.id] = { value: 'N/A', isPassing: false }
+          }
         }
       })
       
@@ -450,7 +521,7 @@ export default function EvalsSummaryPage({ params }: EvalsSummaryPageProps) {
         createdAt: callResults[0]?.created_at
       }
     })
-  }, [results, metricColumns, allPrompts])
+  }, [results, metricColumns, allPrompts, hasTurnLatencyData])
 
   // Summary statistics per metric
   const metricSummaries = useMemo(() => {
@@ -614,6 +685,83 @@ export default function EvalsSummaryPage({ params }: EvalsSummaryPageProps) {
             </CardHeader>
             <CardContent>
               <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                {/* Turn Latency Static Metric */}
+                {(() => {
+                  // Calculate turn latency stats from all results
+                  const resultsWithLatency = results.filter((r: EvaluationResult) => 
+                    r.status === 'completed' && r.evaluation_score?.turn_latency && r.evaluation_score.turn_latency.totalAssistantTurns > 0
+                  )
+                  
+                  if (resultsWithLatency.length === 0) return null
+
+                  // Group by call_id to get unique calls
+                  const callLatencyMap = new Map<string, any>()
+                  resultsWithLatency.forEach((r: EvaluationResult) => {
+                    const callId = r.call_id || r.trace_id
+                    if (!callLatencyMap.has(callId)) {
+                      callLatencyMap.set(callId, r.evaluation_score?.turn_latency)
+                    }
+                  })
+
+                  const uniqueLatencies = Array.from(callLatencyMap.values())
+                  const passedCount = uniqueLatencies.filter(tl => tl?.passed === true).length
+                  const failedCount = uniqueLatencies.length - passedCount
+                  const passRate = uniqueLatencies.length > 0 
+                    ? (passedCount / uniqueLatencies.length) * 100 
+                    : 0
+
+                  return (
+                    <Card className="hover:shadow-md transition-shadow border border-orange-200 dark:border-orange-700">
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-base font-medium text-gray-900 dark:text-gray-100">
+                            Turn Latency
+                          </CardTitle>
+                          <Badge className="bg-orange-100 text-orange-700 border-orange-200">
+                            static metric
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          {/* Donut Chart for Pass/Fail */}
+                          <div className="flex items-center justify-center">
+                            <DonutChart 
+                              percentage={passRate} 
+                              size={170}
+                              strokeWidth={20}
+                              color="#22c55e"
+                              bgColor="#ef4444"
+                            />
+                          </div>
+                          
+                          {/* Stats below donut */}
+                          <div className="flex items-center justify-between text-sm">
+                            <div className="flex items-center gap-2">
+                              <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                              <span className="text-gray-600 dark:text-gray-400">Pass</span>
+                              <span className="font-medium text-gray-700 dark:text-gray-300">{passedCount}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                              <span className="text-gray-600 dark:text-gray-400">Fail</span>
+                              <span className="font-medium text-gray-700 dark:text-gray-300">{failedCount}</span>
+                            </div>
+                          </div>
+                          
+                          {/* Completed runs info */}
+                          <div className="text-center pt-2 border-t border-gray-100 dark:border-gray-700">
+                            <div className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                              {uniqueLatencies.length}/{uniqueLatencies.length}
+                            </div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">Evaluated Calls</div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })()}
+                
                 {allPrompts.map((promptItem: any) => {
                   const promptResults = results.filter((r: EvaluationResult) => r.prompt_id === promptItem.id)
                   if (promptResults.length === 0) return null
@@ -748,10 +896,11 @@ export default function EvalsSummaryPage({ params }: EvalsSummaryPageProps) {
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
                       Call ID
                     </th>
-                    {metricColumns.map((metric: { id: string; name: string; scoringType: string }) => (
-                      <th key={metric.id} className="px-4 py-4 text-center text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
+                    {metricColumns.map((metric: { id: string; name: string; scoringType: string; isStatic?: boolean }) => (
+                      <th key={metric.id} className={`px-4 py-4 text-center text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 ${metric.isStatic ? 'bg-orange-50/50 dark:bg-orange-900/10' : ''}`}>
                         <div className="flex flex-col items-center gap-1">
                           <span>{metric.name}</span>
+                          {metric.isStatic && <span className="text-[9px] text-orange-600 dark:text-orange-400">(static)</span>}
                           <span className="text-[10px] font-normal text-gray-400 dark:text-gray-500">
                             ({metricSummaries[metric.id]?.passRate.toFixed(0) || 0}% pass)
                           </span>
@@ -803,11 +952,12 @@ export default function EvalsSummaryPage({ params }: EvalsSummaryPageProps) {
                             </span>
                           </div>
                         </td>
-                        {metricColumns.map((metric: { id: string; name: string; scoringType: string }) => (
+                        {metricColumns.map((metric: { id: string; name: string; scoringType: string; isStatic?: boolean }) => (
                           <td key={metric.id} className="px-4 py-4">
                             <MetricCell 
                               value={result.scores[metric.id]?.value ?? 'N/A'} 
-                              isPassing={result.scores[metric.id]?.isPassing ?? false} 
+                              isPassing={result.scores[metric.id]?.isPassing ?? false}
+                              violatingTurns={result.scores[metric.id]?.violatingTurns}
                             />
                           </td>
                         ))}
@@ -826,9 +976,9 @@ export default function EvalsSummaryPage({ params }: EvalsSummaryPageProps) {
               <div className="border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-6 py-4">
                 <div className="flex items-center gap-6 text-sm flex-wrap">
                   <span className="font-semibold text-gray-700 dark:text-gray-300">Summary:</span>
-                  {metricColumns.map((metric: { id: string; name: string; scoringType: string }) => (
+                  {metricColumns.map((metric: { id: string; name: string; scoringType: string; isStatic?: boolean }) => (
                     <div key={metric.id} className="flex items-center gap-2">
-                      <span className="text-gray-600 dark:text-gray-400">{metric.name}:</span>
+                      <span className={`text-gray-600 dark:text-gray-400 ${metric.isStatic ? 'text-orange-600 dark:text-orange-400' : ''}`}>{metric.name}:</span>
                       <Badge 
                         variant="outline" 
                         className={`
