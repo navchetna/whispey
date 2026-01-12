@@ -17,7 +17,7 @@ jobs:
      - name: Deploy Whispey
        run: |
           sshpass -p "${{ secrets.SSH_PASSWORD }}" \
-          ssh -o StrictHostKeyChecking=no \ 
+          ssh -o StrictHostKeyChecking=no \
               -J ${{ secrets.JUMP_USER }}@${{ secrets.JUMP_HOST }}:${{ secrets.JUMPHOST_PORT }} \
               ${{ secrets.PRIVATE_USER }}@${{ secrets.PRIVATE_HOST }} << 'EOF'
 
