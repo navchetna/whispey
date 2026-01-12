@@ -298,12 +298,6 @@ const ObservabilityStats: React.FC<ObservabilityStatsProps> = ({ sessionId, agen
   // Use transcriptMetrics turn count if available (from uploaded audio), otherwise use metrics logs
   const turnCount = transcriptMetrics?.totalTurns || transcriptLogs?.length || 0
   const isUploadedAudio = transcriptMetrics?.isUploadedAudio || false
-  // Map status values: pending -> 'Processing', completed -> 'Completed', others stay as-is
-  const callEndedReason = callData?.[0]?.call_ended_reason
-  const callStatus = callEndedReason === 'pending' ? 'Processing' 
-    : callEndedReason === 'completed' ? 'Completed'
-    : callEndedReason === 'manual_upload' ? 'Completed'
-    : callEndedReason || 'Unknown'
 
   return (
     <TooltipProvider>
@@ -313,15 +307,6 @@ const ObservabilityStats: React.FC<ObservabilityStatsProps> = ({ sessionId, agen
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Session Overview</h3>
-              {/* Status Badge */}
-              <div className={cn(
-                "px-2 py-0.5 rounded-full text-xs font-medium",
-                callStatus === 'Completed' ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" :
-                callStatus === 'Processing' ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" :
-                "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
-              )}>
-                {callStatus}
-              </div>
             </div>
             <div className="flex items-center gap-2">
               <div className="text-xs text-gray-500 dark:text-gray-400">
@@ -366,28 +351,6 @@ const ObservabilityStats: React.FC<ObservabilityStatsProps> = ({ sessionId, agen
 
               {/* Overall P75 Latency - use transcriptMetrics for uploaded audio */}
               <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center gap-2 cursor-help">
-                    <Activity className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-                    <div className="flex items-baseline gap-1">
-                      <span className={cn(
-                        "text-lg font-bold",
-                        transcriptMetrics?.latencyStats?.p75 
-                          ? getLatencyColor(transcriptMetrics.latencyStats.p75, "e2e")
-                          : conversationMetrics 
-                            ? getLatencyColor(conversationMetrics.endToEndStats.p75, "e2e") 
-                            : "text-gray-900 dark:text-gray-100"
-                      )}>
-                        {(transcriptMetrics?.latencyStats?.p75 ?? 0) > 0 
-                          ? formatDuration(transcriptMetrics!.latencyStats.p75) 
-                          : (conversationMetrics?.endToEndStats?.p75 ?? 0) > 0 
-                            ? formatDuration(conversationMetrics!.endToEndStats.p75) 
-                            : "N/A"}
-                      </span>
-                      <span className="text-xs text-gray-500 dark:text-gray-400">p75 latency</span>
-                    </div>
-                  </div>
-                </TooltipTrigger>
                 <TooltipContent side="bottom" className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100">
                   <div className="text-xs">
                     <div className="font-medium">75th Percentile Latency</div>
@@ -401,31 +364,6 @@ const ObservabilityStats: React.FC<ObservabilityStatsProps> = ({ sessionId, agen
                   </div>
                 </TooltipContent>
               </Tooltip>
-
-              {/* Bug Reports */}
-              <div className={cn(
-                "flex items-center gap-2",
-                bugCount > 0 && "px-2 py-1 bg-amber-100 dark:bg-amber-900/20 rounded-md"
-              )}>
-                <AlertTriangle className={cn(
-                  "w-4 h-4",
-                  bugCount > 0 ? "text-amber-600 dark:text-amber-400" : "text-gray-500 dark:text-gray-400"
-                )} />
-                <div className="flex items-baseline gap-1">
-                  <span className={cn(
-                    "text-lg font-bold",
-                    bugCount > 0 ? "text-amber-700 dark:text-amber-300" : "text-gray-900 dark:text-gray-100"
-                  )}>
-                    {bugCount}
-                  </span>
-                  <span className={cn(
-                    "text-xs",
-                    bugCount > 0 ? "text-amber-600 dark:text-amber-400" : "text-gray-500 dark:text-gray-400"
-                  )}>
-                    bugs
-                  </span>
-                </div>
-              </div>
             </div>
 
             {/* Performance Breakdown - show simplified metrics for uploaded audio */}

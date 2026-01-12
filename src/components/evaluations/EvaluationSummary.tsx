@@ -64,6 +64,13 @@ interface EvaluationResult {
     overall_score?: number | boolean
     parsed_scores?: any
     evaluation_type?: string
+    turn_latency?: {
+      passed: boolean
+      maxLatency: number | null
+      avgLatency: number | null
+      exceedingTurns: number
+      totalTurns: number
+    }
   }
   evaluation_reasoning: string
   status: string
@@ -96,7 +103,7 @@ interface EvaluationJob {
 const DonutChart = ({ 
   percentage, 
   size = 180, 
-  strokeWidth = 20,
+  strokeWidth = 40,
   color = '#22c55e',
   bgColor = '#ef4444'
 }: { 
@@ -369,6 +376,9 @@ export default function EvaluationSummary({ params }: EvaluationSummaryProps) {
           if (key === 'turn_latency') return
           
           const value = parsedScores[key]
+          // Skip turn_latency here as we handle it separately below
+          if (key === 'turn_latency') return
+          
           const isPassing = value === true || String(value) === 'true' || value === 1 || 
                            (typeof value === 'number' && value >= 0.7) ||
                            (typeof value === 'string' && parseFloat(value) >= 70)
@@ -380,10 +390,22 @@ export default function EvaluationSummary({ params }: EvaluationSummaryProps) {
         scores['overall_score'] = { value: overallScore, isPassing }
       }
       
-      // Add Turn Latency static metric (from parsedScores if available, otherwise show as N/A or calculate later)
-      // Check if turn_latency exists in parsed_scores
-      if (parsedScores['turn_latency'] !== undefined) {
-        const latencyValue = parsedScores['turn_latency']
+      // Add Turn Latency static metric from the evaluation score
+      // The new format stores turn_latency as an object with passed, maxLatency, avgLatency, etc.
+      const turnLatencyData = result.evaluation_score?.turn_latency || parsedScores['turn_latency']
+      
+      if (turnLatencyData && typeof turnLatencyData === 'object' && 'passed' in turnLatencyData) {
+        // New format: { passed: boolean, maxLatency: number, avgLatency: number, exceedingTurns: number, totalTurns: number }
+        const displayValue = turnLatencyData.maxLatency !== null 
+          ? `${turnLatencyData.maxLatency.toFixed(1)}s (max)` 
+          : '✓'
+        scores['turn_latency'] = { 
+          value: displayValue, 
+          isPassing: turnLatencyData.passed 
+        }
+      } else if (turnLatencyData !== undefined) {
+        // Old format: numeric or string value
+        const latencyValue = turnLatencyData
         const isPassing = typeof latencyValue === 'number' ? latencyValue < turnLatencyThreshold : true
         scores['turn_latency'] = { 
           value: typeof latencyValue === 'number' ? `${latencyValue.toFixed(1)}s` : latencyValue, 
@@ -485,7 +507,7 @@ export default function EvaluationSummary({ params }: EvaluationSummaryProps) {
                 <DonutChart 
                   percentage={overallMetrics.passRate} 
                   size={280}
-                  strokeWidth={28}
+                  strokeWidth={30}
                   color="#22c55e"
                   bgColor="#ef4444"
                 />

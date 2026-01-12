@@ -1,12 +1,12 @@
 "use client"
 
 import type React from "react"
-import { useRef, useCallback } from "react"
+import { useRef, useCallback, useEffect } from "react"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Columns3, Eye, EyeOff } from "lucide-react"
+import { Columns3, Eye, EyeOff, ChevronUp, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface ColumnSelectorProps {
@@ -19,8 +19,15 @@ interface ColumnSelectorProps {
     metadata: string[]
     transcription_metrics: string[]
   }
+  columnOrder?: {
+    basic: string[]
+    metadata: string[]
+    transcription_metrics: string[]
+  }
+  projectId?: string
   onColumnChange: (type: "basic" | "metadata" | "transcription_metrics", column: string, visible: boolean) => void
   onSelectAll: (type: "basic" | "metadata" | "transcription_metrics", visible: boolean) => void
+  onColumnOrderChange?: (type: "basic" | "metadata" | "transcription_metrics", newOrder: string[]) => void
 }
 
 const ColumnSelector: React.FC<ColumnSelectorProps> = ({
@@ -29,8 +36,11 @@ const ColumnSelector: React.FC<ColumnSelectorProps> = ({
   metadataColumns,
   transcriptionColumns,
   visibleColumns,
+  columnOrder,
+  projectId,
   onColumnChange,
   onSelectAll,
+  onColumnOrderChange,
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const scrollPositionRef = useRef<number>(0)
@@ -66,6 +76,41 @@ const ColumnSelector: React.FC<ColumnSelectorProps> = ({
       }
     }, 0)
   }, [onSelectAll])
+
+  // Handle moving a column up or down
+  const handleMoveColumn = useCallback((type: "basic" | "metadata" | "transcription_metrics", column: string, direction: 'up' | 'down') => {
+    if (!onColumnOrderChange) return
+    
+    const currentOrder = columnOrder?.[type] || (
+      type === 'basic' ? basicColumns :
+      type === 'metadata' ? metadataColumns :
+      transcriptionColumns
+    )
+    
+    const currentIndex = currentOrder.indexOf(column)
+    if (currentIndex === -1) return
+    
+    const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
+    if (newIndex < 0 || newIndex >= currentOrder.length) return
+    
+    const newOrder = [...currentOrder]
+    // Swap positions
+    ;[newOrder[currentIndex], newOrder[newIndex]] = [newOrder[newIndex], newOrder[currentIndex]]
+    
+    onColumnOrderChange(type, newOrder)
+    
+    // Persist to localStorage
+    if (projectId) {
+      const storageKey = `column-order-${projectId}`
+      try {
+        const stored = JSON.parse(localStorage.getItem(storageKey) || '{}')
+        stored[type] = newOrder
+        localStorage.setItem(storageKey, JSON.stringify(stored))
+      } catch (e) {
+        console.error('Failed to persist column order:', e)
+      }
+    }
+  }, [onColumnOrderChange, columnOrder, basicColumns, metadataColumns, transcriptionColumns, projectId])
 
   const ColumnSection = ({
     title,
@@ -116,34 +161,74 @@ const ColumnSelector: React.FC<ColumnSelectorProps> = ({
         </div>
 
         <div className="space-y-1">
-          {columns.map((column) => {
-            const isVisible = visibleColumns[type].includes(column)
-            return (
-              <div
-                key={`${type}-${column}`}
-                className={cn(
-                  "flex items-center space-x-3 px-3 py-2 rounded-md transition-colors",
-                  isVisible 
-                    ? "bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800" 
-                    : "hover:bg-muted/50"
-                )}
-              >
-                <Checkbox
-                  id={`${type}-${column}`}
-                  checked={isVisible}
-                  onCheckedChange={(checked) => handleColumnChange(type, column, checked as boolean)}
-                  className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
-                />
-                <label
-                  htmlFor={`${type}-${column}`}
-                  className="text-sm text-foreground cursor-pointer flex-1"
+          {(() => {
+            // Get ordered columns (use columnOrder if available, otherwise use provided columns)
+            const orderedColumns = columnOrder?.[type] || columns
+            return orderedColumns.map((column, index) => {
+              const isVisible = visibleColumns[type].includes(column)
+              const isFirst = index === 0
+              const isLast = index === orderedColumns.length - 1
+              
+              return (
+                <div
+                  key={`${type}-${column}`}
+                  className={cn(
+                    "flex items-center space-x-3 px-3 py-2 rounded-md transition-colors group",
+                    isVisible 
+                      ? "bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800" 
+                      : "hover:bg-muted/50"
+                  )}
                 >
-                  {getLabel ? getLabel(column) : column}
-                </label>
-                {isVisible && <div className="w-2 h-2 bg-blue-500 rounded-full opacity-60" />}
-              </div>
-            )
-          })}
+                  <Checkbox
+                    id={`${type}-${column}`}
+                    checked={isVisible}
+                    onCheckedChange={(checked) => handleColumnChange(type, column, checked as boolean)}
+                    className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
+                  />
+                  <label
+                    htmlFor={`${type}-${column}`}
+                    className="text-sm text-foreground cursor-pointer flex-1"
+                  >
+                    {getLabel ? getLabel(column) : column}
+                  </label>
+                  
+                  {/* Reorder buttons */}
+                  {onColumnOrderChange && (
+                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 hover:bg-gray-200 dark:hover:bg-gray-700"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          handleMoveColumn(type, column, 'up')
+                        }}
+                        disabled={isFirst}
+                      >
+                        <ChevronUp className={cn("h-3 w-3", isFirst ? "text-gray-300 dark:text-gray-600" : "text-gray-600 dark:text-gray-400")} />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 hover:bg-gray-200 dark:hover:bg-gray-700"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          handleMoveColumn(type, column, 'down')
+                        }}
+                        disabled={isLast}
+                      >
+                        <ChevronDown className={cn("h-3 w-3", isLast ? "text-gray-300 dark:text-gray-600" : "text-gray-600 dark:text-gray-400")} />
+                      </Button>
+                    </div>
+                  )}
+                  
+                  {isVisible && <div className="w-2 h-2 bg-blue-500 rounded-full opacity-60" />}
+                </div>
+              )
+            })
+          })()}
         </div>
       </div>
     )

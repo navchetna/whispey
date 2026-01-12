@@ -315,6 +315,46 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
     metadata: [],
     transcription_metrics: []
   })
+  
+  // Column order state with localStorage persistence
+  const [columnOrder, setColumnOrder] = useState<{
+    basic: string[]
+    metadata: string[]
+    transcription_metrics: string[]
+  }>(() => {
+    // Initialize from localStorage if available
+    if (typeof window !== 'undefined' && project?.id) {
+      try {
+        const stored = localStorage.getItem(`column-order-${project.id}`)
+        if (stored) {
+          return JSON.parse(stored)
+        }
+      } catch (e) {
+        console.error('Failed to load column order from localStorage:', e)
+      }
+    }
+    return {
+      basic: basicColumns.filter(col => !col.hidden).map(col => col.key),
+      metadata: [],
+      transcription_metrics: []
+    }
+  })
+
+  // Handle column order changes
+  const handleColumnOrderChange = useCallback((type: "basic" | "metadata" | "transcription_metrics", newOrder: string[]) => {
+    setColumnOrder(prev => {
+      const updated = { ...prev, [type]: newOrder }
+      // Persist to localStorage
+      if (project?.id) {
+        try {
+          localStorage.setItem(`column-order-${project.id}`, JSON.stringify(updated))
+        } catch (e) {
+          console.error('Failed to persist column order:', e)
+        }
+      }
+      return updated
+    })
+  }, [project?.id])
 
   // Handle opening call details in slide panel
   const handleCallClick = useCallback((call: CallLog) => {
@@ -841,6 +881,7 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
             onClear={handleClearFilters}
             availableMetadataFields={dynamicColumns.metadata}
             availableTranscriptionFields={dynamicColumnsKey}
+            activeFilters={activeFilters}
           />
           
           <div className="flex items-center gap-2">
@@ -864,8 +905,11 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
               metadataColumns={dynamicColumns.metadata}
               transcriptionColumns={dynamicColumnsKey}
               visibleColumns={visibleColumns}
+              columnOrder={columnOrder}
+              projectId={project?.id}
               onColumnChange={handleColumnChange}
               onSelectAll={handleSelectAll}
+              onColumnOrderChange={handleColumnOrderChange}
             />
             <Button
               variant="outline"
@@ -887,43 +931,49 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
               <Table className="w-full">
                 <TableHeader className="sticky top-0 z-10 bg-background/95 dark:bg-gray-900/95 backdrop-blur-sm border-b-2">
                   <TableRow className="bg-muted/80 dark:bg-gray-800/80 hover:bg-muted/80 dark:hover:bg-gray-800/80">
-                    {/* Fixed Columns */}
-                    {visibleColumns.basic.map((key) => {
-                      const col = basicColumns.find((c) => c.key === key)
-                      return (
-                        <TableHead key={`basic-${key}`} className="font-semibold text-foreground dark:text-gray-100 min-w-[120px]">
-                          {col?.label ?? key}
-                        </TableHead>
-                      )
-                    })}
+                    {/* Fixed Columns - use columnOrder for ordering */}
+                    {(columnOrder.basic.length > 0 ? columnOrder.basic : visibleColumns.basic)
+                      .filter(key => visibleColumns.basic.includes(key))
+                      .map((key) => {
+                        const col = basicColumns.find((c) => c.key === key)
+                        return (
+                          <TableHead key={`basic-${key}`} className="font-semibold text-foreground dark:text-gray-100 min-w-[120px]">
+                            {col?.label ?? key}
+                          </TableHead>
+                        )
+                      })}
 
-                    {/* Dynamic Metadata Columns */}
-                    {visibleColumns.metadata.map((key) => (
-                      <TableHead 
-                        key={`metadata-${key}`} 
-                        className="w-[200px] font-semibold text-foreground dark:text-gray-100 bg-blue-50/50 dark:bg-blue-950/20 border-r border-blue-200/50 dark:border-blue-800/50"
-                      >
-                        <div className="flex flex-col">
-                          <span className="text-sm">{key}</span>
-                        </div>
-                      </TableHead>
-                    ))}
+                    {/* Dynamic Metadata Columns - use columnOrder for ordering */}
+                    {(columnOrder.metadata.length > 0 ? columnOrder.metadata : visibleColumns.metadata)
+                      .filter(key => visibleColumns.metadata.includes(key))
+                      .map((key) => (
+                        <TableHead 
+                          key={`metadata-${key}`} 
+                          className="w-[200px] font-semibold text-foreground dark:text-gray-100 bg-blue-50/50 dark:bg-blue-950/20 border-r border-blue-200/50 dark:border-blue-800/50"
+                        >
+                          <div className="flex flex-col">
+                            <span className="text-sm">{key}</span>
+                          </div>
+                        </TableHead>
+                      ))}
                     
-                    {/* Dynamic Transcription Metrics Columns */}
-                    {visibleColumns.transcription_metrics.map((key, index) => (
-                      <TableHead 
-                        key={`transcription-${key}`} 
-                        className={cn(
-                          "w-[200px] font-semibold text-foreground dark:text-gray-100 bg-blue-50/50 dark:bg-blue-950/20",
-                          index === 0 && visibleColumns.metadata.length === 0 && "border-l-2 border-primary/30 dark:border-primary/40",
-                          index < visibleColumns.transcription_metrics.length - 1 && "border-r border-blue-200/50 dark:border-blue-800/50"
-                        )}
-                      >
-                        <div className="flex flex-col">
-                          <span className="text-sm">{key}</span>
-                        </div>
-                      </TableHead>
-                    ))}
+                    {/* Dynamic Transcription Metrics Columns - use columnOrder for ordering */}
+                    {(columnOrder.transcription_metrics.length > 0 ? columnOrder.transcription_metrics : visibleColumns.transcription_metrics)
+                      .filter(key => visibleColumns.transcription_metrics.includes(key))
+                      .map((key, index) => (
+                        <TableHead 
+                          key={`transcription-${key}`} 
+                          className={cn(
+                            "w-[200px] font-semibold text-foreground dark:text-gray-100 bg-blue-50/50 dark:bg-blue-950/20",
+                            index === 0 && visibleColumns.metadata.length === 0 && "border-l-2 border-primary/30 dark:border-primary/40",
+                            index < visibleColumns.transcription_metrics.length - 1 && "border-r border-blue-200/50 dark:border-blue-800/50"
+                          )}
+                        >
+                          <div className="flex flex-col">
+                            <span className="text-sm">{key}</span>
+                          </div>
+                        </TableHead>
+                      ))}
                   </TableRow>
                 </TableHeader>
                 <TableBody className="overflow-auto">
@@ -936,15 +986,17 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
                       )}
                       onClick={() => handleCallClick(call)}
                     >
-                      {visibleColumns.basic.map((key) => {
-                        let value: React.ReactNode = "-"
+                      {(columnOrder.basic.length > 0 ? columnOrder.basic : visibleColumns.basic)
+                        .filter(key => visibleColumns.basic.includes(key))
+                        .map((key) => {
+                          let value: React.ReactNode = "-"
 
-                        switch (key) {
-                          case "customer_number":
-                            value = (
-                              <div className="flex w-full items-center gap-3">
-                                <div className="w-10 h-8 rounded-full flex items-center justify-center">
-                                  <Phone className="w-4 h-4 text-primary dark:text-primary" />
+                          switch (key) {
+                            case "customer_number":
+                              value = (
+                                <div className="flex w-full items-center gap-3">
+                                  <div className="w-10 h-8 rounded-full flex items-center justify-center">
+                                    <Phone className="w-4 h-4 text-primary dark:text-primary" />
                                 </div>
                                 <span className="font-medium text-gray-900 dark:text-gray-100">{call.customer_number}</span>
                               </div>
@@ -997,37 +1049,41 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
                         )
                       })}
                       
-                      {/* Dynamic Metadata Columns */}
-                      {visibleColumns.metadata.map((key) => (
-                        <TableCell 
-                          key={`metadata-${call.id}-${key}`} 
-                          className="py-4 bg-blue-50/30 dark:bg-blue-950/10 border-r border-blue-200/50 dark:border-blue-800/50"
-                        >
-                          <DynamicJsonCell 
-                            data={call.metadata} 
-                            fieldKey={key}
-                            maxWidth="180px"
-                          />
-                        </TableCell>
-                      ))}
+                      {/* Dynamic Metadata Columns - use columnOrder for ordering */}
+                      {(columnOrder.metadata.length > 0 ? columnOrder.metadata : visibleColumns.metadata)
+                        .filter(key => visibleColumns.metadata.includes(key))
+                        .map((key) => (
+                          <TableCell 
+                            key={`metadata-${call.id}-${key}`} 
+                            className="py-4 bg-blue-50/30 dark:bg-blue-950/10 border-r border-blue-200/50 dark:border-blue-800/50"
+                          >
+                            <DynamicJsonCell 
+                              data={call.metadata} 
+                              fieldKey={key}
+                              maxWidth="180px"
+                            />
+                          </TableCell>
+                        ))}
 
-                      {/* Dynamic Transcription Metrics Columns */}
-                      {visibleColumns.transcription_metrics.map((key, index) => (
-                        <TableCell 
-                          key={`transcription-${call.id}-${key}`} 
-                          className={cn(
-                            "py-4 bg-blue-50/30 dark:bg-blue-950/10",
-                            index === 0 && visibleColumns.metadata.length === 0 && "border-l-2 border-primary/30 dark:border-primary/40",
-                            index < visibleColumns.transcription_metrics.length - 1 && "border-r border-blue-200/50 dark:border-blue-800/50"
-                          )}
-                        >
-                          <DynamicJsonCell 
-                            data={call.transcription_metrics} 
-                            fieldKey={key}
-                            maxWidth="180px"
-                          />
-                        </TableCell>
-                      ))}
+                      {/* Dynamic Transcription Metrics Columns - use columnOrder for ordering */}
+                      {(columnOrder.transcription_metrics.length > 0 ? columnOrder.transcription_metrics : visibleColumns.transcription_metrics)
+                        .filter(key => visibleColumns.transcription_metrics.includes(key))
+                        .map((key, index) => (
+                          <TableCell 
+                            key={`transcription-${call.id}-${key}`} 
+                            className={cn(
+                              "py-4 bg-blue-50/30 dark:bg-blue-950/10",
+                              index === 0 && visibleColumns.metadata.length === 0 && "border-l-2 border-primary/30 dark:border-primary/40",
+                              index < visibleColumns.transcription_metrics.length - 1 && "border-r border-blue-200/50 dark:border-blue-800/50"
+                            )}
+                          >
+                            <DynamicJsonCell 
+                              data={call.transcription_metrics} 
+                              fieldKey={key}
+                              maxWidth="180px"
+                            />
+                          </TableCell>
+                        ))}
                     </TableRow>
                   ))}
                 </TableBody>

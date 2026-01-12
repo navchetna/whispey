@@ -276,6 +276,25 @@ export class EvaluationProcessor {
         prompt_ids: job.prompt_ids
       })
 
+      // Get static metrics configuration for this agent
+      const agentConfigResult = await query(
+        'SELECT static_metrics_config FROM pype_voice_agents WHERE id = $1',
+        [job.agent_id]
+      )
+      
+      const staticMetricsConfig = agentConfigResult.rows[0]?.static_metrics_config || [
+        {
+          id: 'turn_latency',
+          name: 'Turn Latency',
+          description: 'All individual turn latencies must be less than the threshold',
+          enabled: true,
+          threshold: 5,
+          unit: 'seconds'
+        }
+      ]
+      
+      console.log(`Static metrics config for agent:`, staticMetricsConfig)
+
       // Get prompts for this job
       const promptsResult = await query(
         'SELECT * FROM pype_voice_evaluation_prompts WHERE id = ANY($1::uuid[])',
@@ -328,6 +347,10 @@ export class EvaluationProcessor {
         ['running', new Date().toISOString(), callLogs.length, jobId]
       )
 
+      // Get the turn latency threshold from static metrics config
+      const turnLatencyMetric = staticMetricsConfig.find((m: any) => m.id === 'turn_latency')
+      const turnLatencyThreshold = turnLatencyMetric?.enabled ? (turnLatencyMetric?.threshold || 5) : null
+
       // Process each call log with each prompt
       const results: EvaluationResult[] = []
       let completedCount = 0
@@ -337,7 +360,7 @@ export class EvaluationProcessor {
         for (const prompt of prompts) {
           try {
             console.log(`Evaluating call log ${callLog.id} with prompt ${prompt.id}`)
-            const result = await this.evaluateCallLog(callLog, prompt, jobId)
+            const result = await this.evaluateCallLog(callLog, prompt, jobId, turnLatencyThreshold)
             results.push(result)
             completedCount++
             
@@ -777,7 +800,7 @@ export class EvaluationProcessor {
     return callLogsWithTranscripts
   }
 
-  private async evaluateCallLog(callLog: any, prompt: any, jobId: string) {
+  private async evaluateCallLog(callLog: any, prompt: any, jobId: string, turnLatencyThreshold: number | null = 5) {
     const startTime = Date.now()
 
     try {
@@ -789,6 +812,7 @@ export class EvaluationProcessor {
       console.log(`📄 [TRANSCRIPT] Preview: ${transcript.substring(0, 200)}${transcript.length > 200 ? '...' : ''}`)
       console.log(`📝 [PROMPT] Template length: ${prompt.prompt_template?.length || 0}`)
       console.log(`📝 [PROMPT] Template preview: ${prompt.prompt_template?.substring(0, 100)}${(prompt.prompt_template?.length || 0) > 100 ? '...' : ''}`)
+      console.log(`⏱️ [TURN LATENCY] Threshold: ${turnLatencyThreshold} (null = disabled)`)
       
       // Prepare the evaluation prompt
       const evaluationPrompt = this.buildEvaluationPrompt(prompt.prompt_template, {
@@ -866,6 +890,18 @@ Return your response in JSON format with the following structure:
       console.log(`📊 [SCORING] Overall score: ${overallScore}`)
       console.log(`📊 [SCORING] Reasoning length: ${reasoning?.length || 0}`)
 
+      // Evaluate turn latency (static metric) - only if threshold is set (not null)
+      const turnLatencyResult = turnLatencyThreshold !== null 
+        ? this.evaluateTurnLatency(callLog, turnLatencyThreshold)
+        : { passed: true, maxLatency: null, avgLatency: null, exceedingTurns: 0, totalTurns: 0 }
+      console.log(`📊 [TURN LATENCY] Result:`, turnLatencyResult)
+      
+      // Add turn latency to parsed scores
+      const enhancedParsedScores = {
+        ...parsedScores,
+        turn_latency: turnLatencyResult
+      }
+
       // Save the result - using correct schema column names
       const insertResult = await query(
         `INSERT INTO pype_voice_evaluation_results 
@@ -881,8 +917,9 @@ Return your response in JSON format with the following structure:
           callLog.agent_id,
           JSON.stringify({
             overall_score: overallScore,
-            parsed_scores: parsedScores,
-            evaluation_type: prompt.evaluation_type
+            parsed_scores: enhancedParsedScores,
+            evaluation_type: prompt.evaluation_type,
+            turn_latency: turnLatencyResult
           }), // Store as jsonb
           reasoning,
           llmResponse,
@@ -979,6 +1016,86 @@ Return your response in JSON format with the following structure:
     } catch (error) {
       console.error(`💥 [TRANSCRIPT EXTRACT] Error extracting transcript for call log ${callLog.id}:`, error)
       return 'Error extracting transcript'
+    }
+  }
+
+  // Evaluate turn latency for a call - returns pass/fail based on threshold
+  // If any individual turn latency exceeds threshold, the call fails this metric
+  private evaluateTurnLatency(callLog: any, threshold: number = 5): {
+    passed: boolean
+    maxLatency: number | null
+    avgLatency: number | null
+    exceedingTurns: number
+    totalTurns: number
+  } {
+    console.log(`⏱️ [TURN LATENCY] Evaluating turn latency for call ${callLog.id}`)
+    
+    const result = {
+      passed: true,
+      maxLatency: null as number | null,
+      avgLatency: null as number | null,
+      exceedingTurns: 0,
+      totalTurns: 0
+    }
+
+    try {
+      // Get transcript JSON which contains the turns with latency
+      const transcriptJson = callLog.transcript_json
+      
+      if (!transcriptJson) {
+        console.log(`⏱️ [TURN LATENCY] No transcript_json found, assuming pass`)
+        return result
+      }
+
+      // Handle both formats: array or object with 'turns' property
+      let turns: any[] = []
+      if (Array.isArray(transcriptJson)) {
+        turns = transcriptJson
+      } else if (transcriptJson.turns && Array.isArray(transcriptJson.turns)) {
+        turns = transcriptJson.turns
+      }
+
+      if (turns.length === 0) {
+        console.log(`⏱️ [TURN LATENCY] No turns found, assuming pass`)
+        return result
+      }
+
+      // Extract latencies from turns (latency is the gap before each turn)
+      const latencies: number[] = []
+      turns.forEach((turn: any, index: number) => {
+        // Skip first turn as it won't have a latency value (nothing before it)
+        if (turn.latency !== null && turn.latency !== undefined) {
+          latencies.push(turn.latency)
+        }
+      })
+
+      if (latencies.length === 0) {
+        console.log(`⏱️ [TURN LATENCY] No latency data found in turns, assuming pass`)
+        return result
+      }
+
+      result.totalTurns = latencies.length
+      result.maxLatency = Math.max(...latencies)
+      result.avgLatency = latencies.reduce((a, b) => a + b, 0) / latencies.length
+
+      // Check if any turn exceeds the threshold
+      result.exceedingTurns = latencies.filter(l => l > threshold).length
+      result.passed = result.exceedingTurns === 0
+
+      console.log(`⏱️ [TURN LATENCY] Results:`, {
+        totalTurns: result.totalTurns,
+        maxLatency: result.maxLatency?.toFixed(2),
+        avgLatency: result.avgLatency?.toFixed(2),
+        exceedingTurns: result.exceedingTurns,
+        threshold,
+        passed: result.passed
+      })
+
+      return result
+    } catch (error) {
+      console.error(`⏱️ [TURN LATENCY] Error evaluating turn latency:`, error)
+      // On error, assume pass to not penalize
+      return result
     }
   }
 

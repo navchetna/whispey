@@ -284,13 +284,6 @@ const EnhancedTraceDetailSheet: React.FC<TraceDetailSheetProps> = ({
     { id: "pipeline", name: "Pipeline Flow", icon: <Zap className="w-4 h-4" /> },
     { id: "config", name: "Config", icon: <Settings className="w-4 h-4" /> },
     { id: "insights", name: "Cost & Metrics", icon: <MessageSquare className="w-4 h-4" /> },
-    {
-      id: "bug-report",
-      name: "Bug Report",
-      show:
-        trace.bug_report ||
-        trace.bug_report_data?.bug_flagged_turns?.some((turn: any) => turn.turn_id === trace.turn_id),
-    },
   ]
 
   return (
@@ -332,20 +325,15 @@ const EnhancedTraceDetailSheet: React.FC<TraceDetailSheetProps> = ({
           <div className="border-b border-gray-200 dark:border-gray-800">
             <div className="px-6">
               <nav className="flex space-x-4">
-                {viewTabs
-                  .filter((tab) => tab.show !== false)
-                  .map((tab) => (
+                {viewTabs.map((tab) => (
                     <button
                       key={tab.id}
                       onClick={() => setSelectedView(tab.id)}
                       className={cn(
                         "flex items-center gap-2 px-3 py-2 text-sm font-medium border-b-2 -mb-px",
                         selectedView === tab.id
-                          ? tab.id === "bug-report"
-                            ? "border-red-500 dark:border-red-400 text-red-600 dark:text-red-400"
-                            : "border-blue-500 dark:border-blue-400 text-blue-600 dark:text-blue-400" 
-                          : "border-transparent hover:text-gray-700 dark:hover:text-gray-300", 
-                        tab.id === "bug-report" ? "text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300" : "text-gray-500 dark:text-gray-400"
+                          ? "border-blue-500 dark:border-blue-400 text-blue-600 dark:text-blue-400" 
+                          : "border-transparent hover:text-gray-700 dark:hover:text-gray-300 text-gray-500 dark:text-gray-400"
                       )}
                     >
                       {tab.icon}
@@ -400,12 +388,6 @@ const EnhancedTraceDetailSheet: React.FC<TraceDetailSheetProps> = ({
             {selectedView === "insights" && (
               <div className="p-6 h-full overflow-y-auto">
                 <EnhancedInsights trace={trace} isVapiAgent={isVapiAgent} pipelineStages={pipelineStages} setCopiedField={setCopiedField} copiedField={copiedField} />
-              </div>
-            )}
-
-            {selectedView === "bug-report" && (
-              <div className="p-6 h-full overflow-y-auto">
-                <BugReport trace={trace} />
               </div>
             )}
           </div>

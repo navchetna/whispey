@@ -38,7 +38,8 @@ import {
   Languages,
   Activity,
   Target,
-  ChevronLeft
+  ChevronLeft,
+  Timer
 } from 'lucide-react'
 import { query } from "../../lib/postgres"
 import { DatabaseService } from "@/lib/database"
@@ -277,14 +278,18 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
   // Fetch job details for selected job
   const { data: jobData, loading: jobLoading } = useSupabaseQuery('pype_voice_evaluation_jobs', {
     select: '*',
-    filters: selectedJobId ? [{ column: 'id', operator: 'eq', value: selectedJobId }] : [],
+    filters: selectedJobId 
+      ? [{ column: 'id', operator: 'eq', value: selectedJobId }] 
+      : [{ column: 'id', operator: 'eq', value: 'none' }], // Prevent fetching all jobs
     limit: 1
   })
 
   // Fetch evaluation summaries for selected job
   const { data: summaries, loading: summariesLoading } = useSupabaseQuery('pype_voice_evaluation_summaries', {
     select: '*',
-    filters: selectedJobId ? [{ column: 'job_id', operator: 'eq', value: selectedJobId }] : []
+    filters: selectedJobId 
+      ? [{ column: 'job_id', operator: 'eq', value: selectedJobId }] 
+      : [{ column: 'job_id', operator: 'eq', value: 'none' }] // Prevent fetching all summaries
   })
 
   // Fetch prompt details for selected job
@@ -327,6 +332,7 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
   }, [allPrompts])
 
   // Fetch detailed results for selected job
+  // Only fetch when we have a valid selectedJobId to avoid fetching all results
   const { data: allResults, loading: resultsLoading } = useSupabaseQuery('pype_voice_evaluation_results', {
     select: `
       id,
@@ -344,7 +350,16 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
       error_message,
       created_at
     `,
-    filters: selectedJobId ? [{ column: 'job_id', operator: 'eq', value: selectedJobId }] : [],
+    filters: selectedJobId 
+      ? [
+          { column: 'job_id', operator: 'eq', value: selectedJobId },
+          { column: 'agent_id', operator: 'eq', value: params.agentid }
+        ] 
+      : [
+          // Fallback filter to prevent fetching ALL results when no job is selected
+          { column: 'agent_id', operator: 'eq', value: params.agentid },
+          { column: 'id', operator: 'eq', value: 'none' } // This ensures no results are returned
+        ],
     orderBy: { column: 'created_at', ascending: false }
   })
 
@@ -1410,7 +1425,7 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                 <div className="mb-8">
                   <h2 className="text-lg font-semibold text-slate-800 mb-4">Evaluation Overview</h2>
                   <div className="bg-white rounded-xl shadow-sm border border-blue-100 p-4">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                       {/* Overall Statistics */}
                       <div className="bg-gradient-to-br from-blue-50 to-white p-3 rounded-lg border border-blue-100">
                         <div className="flex items-center gap-2 mb-1">
@@ -1492,6 +1507,39 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                             <>
                               <div className="text-xl font-bold text-emerald-600">{Math.round(avgTime)}ms</div>
                               <div className="text-xs text-slate-500 mt-1">${(totalCost || 0).toFixed(4)} total</div>
+                            </>
+                          )
+                        })()}
+                      </div>
+
+                      {/* Turn Latency Stats */}
+                      <div className="bg-gradient-to-br from-orange-50 to-white p-3 rounded-lg border border-orange-100">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Timer className="w-4 h-4 text-orange-500" />
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Turn Latency</span>
+                        </div>
+                        {(() => {
+                          const completedResults = results.filter(r => r.status === 'completed' && r.evaluation_score?.turn_latency)
+                          if (completedResults.length === 0) return <div className="text-sm text-slate-500">No data</div>
+                          
+                          // Count passed/failed turn latency
+                          const passedLatency = completedResults.filter(r => {
+                            const tl = r.evaluation_score?.turn_latency
+                            return tl?.passed === true
+                          }).length
+                          const failedLatency = completedResults.length - passedLatency
+                          const passRate = completedResults.length > 0 
+                            ? Math.round((passedLatency / completedResults.length) * 100) 
+                            : 0
+                          
+                          return (
+                            <>
+                              <div className={`text-xl font-bold ${passRate >= 70 ? 'text-orange-600' : 'text-red-600'}`}>
+                                {passRate}%
+                              </div>
+                              <div className="text-xs text-slate-500 mt-1">
+                                {passedLatency}/{completedResults.length} calls pass
+                              </div>
                             </>
                           )
                         })()}

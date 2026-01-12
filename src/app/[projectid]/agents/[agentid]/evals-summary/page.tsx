@@ -677,8 +677,8 @@ export default function EvalsSummaryPage({ params }: EvalsSummaryPageProps) {
                           <div className="flex items-center justify-center">
                             <DonutChart 
                               percentage={avgScore} 
-                              size={120}
-                              strokeWidth={16}
+                              size={170}
+                              strokeWidth={20}
                               color="#22c55e"
                               bgColor="#ef4444"
                             />
