@@ -69,9 +69,9 @@ function parsePromptIntoSections(template: string): { context: string; criteria:
 
   // Find section boundaries using markers
   const transcriptStart = template.indexOf('**Conversation Transcript:**')
-  const transcriptEnd = template.indexOf('{{transcript}}')
   const criteriaStart = template.indexOf('**Evaluation Criteria:**')
   const instructionsStart = template.indexOf('**Instructions:**')
+  const outputFormatStart = template.indexOf('**Output Format:**')
 
   // Extract context: everything before the transcript section (or criteria if no transcript)
   if (transcriptStart > 0) {
@@ -91,28 +91,35 @@ function parsePromptIntoSections(template: string): { context: string; criteria:
     }
   }
 
-  // Extract decision logic and output format from the Instructions section
+  // Extract decision logic: content between **Instructions:** and **Output Format:**
   if (instructionsStart !== -1) {
+    const instructionsEndIndex = outputFormatStart !== -1 ? outputFormatStart : template.length
+    const decisionLogicContent = template.substring(
+      instructionsStart + '**Instructions:**'.length,
+      instructionsEndIndex
+    ).trim()
+    if (decisionLogicContent) {
+      decisionLogic = decisionLogicContent
+    }
+  }
+
+  // Extract output format: everything after **Output Format:**
+  if (outputFormatStart !== -1) {
+    const outputFormatContent = template.substring(
+      outputFormatStart + '**Output Format:**'.length
+    ).trim()
+    if (outputFormatContent) {
+      outputFormat = outputFormatContent
+    }
+  } else if (instructionsStart !== -1) {
+    // Legacy support: try to extract output format from old prompts without the marker
+    // Look for JSON-like content or common output format patterns after instructions
     const afterInstructions = template.substring(instructionsStart + '**Instructions:**'.length).trim()
+    const jsonBlockMatch = afterInstructions.match(/(\n\n)(\s*\{[\s\S]*$)/)
     
-    // Find where the JSON output format starts (look for opening brace that's likely JSON)
-    // The output format typically starts with a JSON block
-    const jsonStartMatch = afterInstructions.match(/\n\s*\{/)
-    
-    if (jsonStartMatch && jsonStartMatch.index !== undefined) {
-      // Decision logic is everything before the JSON
-      decisionLogic = afterInstructions.substring(0, jsonStartMatch.index).trim()
-      // Output format is everything from the JSON onwards
-      outputFormat = afterInstructions.substring(jsonStartMatch.index).trim()
-    } else {
-      // No JSON found, try to split by double newline
-      const parts = afterInstructions.split(/\n\n(?=\{|Provide|Return|Output)/i)
-      if (parts.length >= 2) {
-        decisionLogic = parts[0].trim()
-        outputFormat = parts.slice(1).join('\n\n').trim()
-      } else {
-        decisionLogic = afterInstructions
-      }
+    if (jsonBlockMatch && jsonBlockMatch.index !== undefined) {
+      decisionLogic = afterInstructions.substring(0, jsonBlockMatch.index).trim()
+      outputFormat = jsonBlockMatch[2].trim()
     }
   }
 
@@ -131,6 +138,7 @@ ${criteria}
 **Instructions:**
 ${decisionLogic}
 
+**Output Format:**
 ${outputFormat}`
 }
 
@@ -292,6 +300,9 @@ export default function MetricEditPage({ params }: MetricEditPageProps) {
         decisionLogicSection,
         outputFormatSection
       )
+
+      console.log('Saving outputFormatSection:', outputFormatSection)
+      console.log('Full prompt being saved:', fullPrompt)
 
       const payload = {
         project_id: projectid,
