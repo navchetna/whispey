@@ -177,9 +177,12 @@ export default function EvaluationConfig({ params }: EvaluationConfigProps) {
   useEffect(() => {
     const fetchStaticMetrics = async () => {
       try {
+        console.log('[UI] Fetching static metrics for agent:', params.agentid)
         const response = await fetch(`/api/evaluations/static-metrics?agent_id=${params.agentid}`)
         const result = await response.json()
+        console.log('[UI] Fetch response:', result)
         if (response.ok && result.data) {
+          console.log('[UI] Setting static metrics:', result.data)
           setStaticMetrics(result.data)
         }
       } catch (error) {
@@ -195,6 +198,7 @@ export default function EvaluationConfig({ params }: EvaluationConfigProps) {
   const saveStaticMetrics = async (metrics: StaticMetricConfig[]) => {
     setStaticMetricsSaving(true)
     try {
+      console.log('[UI] Saving static metrics:', metrics)
       const response = await fetch('/api/evaluations/static-metrics', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -204,8 +208,13 @@ export default function EvaluationConfig({ params }: EvaluationConfigProps) {
         })
       })
       const result = await response.json()
+      console.log('[UI] Save response:', result)
       if (!response.ok) {
         throw new Error(result.error || 'Failed to save static metrics')
+      }
+      // Update local state with the saved data from server
+      if (result.data) {
+        setStaticMetrics(result.data)
       }
       return true
     } catch (error) {

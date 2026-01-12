@@ -34,14 +34,31 @@ export async function GET(request: NextRequest) {
       [agentId]
     )
 
+    console.log('[STATIC METRICS GET] Agent ID:', agentId)
+    console.log('[STATIC METRICS GET] Query result:', result.rows)
+
     if (result.rows.length === 0) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
     }
 
-    const config = result.rows[0].static_metrics_config
+    let config = result.rows[0].static_metrics_config
+    console.log('[STATIC METRICS GET] Raw config from DB:', config)
+    console.log('[STATIC METRICS GET] Config type:', typeof config)
 
-    // Return default config if none exists
-    if (!config) {
+    // Handle case where config might be a string (depending on PG driver)
+    if (typeof config === 'string') {
+      try {
+        config = JSON.parse(config)
+        console.log('[STATIC METRICS GET] Parsed config from string:', config)
+      } catch (e) {
+        console.error('[STATIC METRICS GET] Failed to parse config string:', e)
+        config = null
+      }
+    }
+
+    // Return default config if none exists or is invalid
+    if (!config || !Array.isArray(config) || config.length === 0) {
+      console.log('[STATIC METRICS GET] No valid config found, returning default')
       const defaultConfig: StaticMetricConfig[] = [
         {
           id: 'turn_latency',
@@ -55,7 +72,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ data: defaultConfig })
     }
 
-    return NextResponse.json({ data: config })
+    console.log('[STATIC METRICS GET] Returning config:', config)
+    return NextResponse.json({ data: config }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        'Pragma': 'no-cache'
+      }
+    })
   } catch (error) {
     console.error('Error fetching static metrics config:', error)
     return NextResponse.json(
@@ -84,10 +107,14 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'static_metrics array is required' }, { status: 400 })
     }
 
+    console.log('[STATIC METRICS] Saving config for agent:', agent_id)
+    console.log('[STATIC METRICS] Config to save:', JSON.stringify(static_metrics, null, 2))
+
     // Update the agent's static metrics config
+    // Note: jsonb column accepts JSON objects directly, no need to stringify
     const result = await query(
       `UPDATE pype_voice_agents 
-       SET static_metrics_config = $1, updated_at = NOW()
+       SET static_metrics_config = $1::jsonb, updated_at = NOW()
        WHERE id = $2
        RETURNING id, static_metrics_config`,
       [JSON.stringify(static_metrics), agent_id]
@@ -96,6 +123,8 @@ export async function PUT(request: NextRequest) {
     if (result.rows.length === 0) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
     }
+
+    console.log('[STATIC METRICS] Saved successfully:', result.rows[0].static_metrics_config)
 
     return NextResponse.json({ 
       success: true, 

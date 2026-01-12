@@ -197,6 +197,15 @@ interface EvaluationResult {
     overall_score?: number
     parsed_scores?: any
     evaluation_type?: string
+    turn_latency?: {
+      passed: boolean
+      threshold: number
+      maxLatency: number | null
+      avgLatency?: number | null
+      exceedingTurns?: number
+      totalAssistantTurns: number
+      violatingTurns: { turnIndex: number; role: string; latency: number }[]
+    }
   }
   evaluation_reasoning: string
   raw_llm_response: string
@@ -1519,17 +1528,24 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                           <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Turn Latency</span>
                         </div>
                         {(() => {
-                          const completedResults = results.filter(r => r.status === 'completed' && r.evaluation_score?.turn_latency)
-                          if (completedResults.length === 0) return <div className="text-sm text-slate-500">No data</div>
+                          // Group by call_id to get unique calls with turn latency
+                          const callLatencyMap = new Map<string, any>()
+                          results.filter(r => r.status === 'completed' && r.evaluation_score?.turn_latency && r.evaluation_score.turn_latency.totalAssistantTurns > 0)
+                            .forEach(r => {
+                              const callId = r.call_id || r.trace_id
+                              if (!callLatencyMap.has(callId)) {
+                                callLatencyMap.set(callId, r.evaluation_score?.turn_latency)
+                              }
+                            })
                           
-                          // Count passed/failed turn latency
-                          const passedLatency = completedResults.filter(r => {
-                            const tl = r.evaluation_score?.turn_latency
-                            return tl?.passed === true
-                          }).length
-                          const failedLatency = completedResults.length - passedLatency
-                          const passRate = completedResults.length > 0 
-                            ? Math.round((passedLatency / completedResults.length) * 100) 
+                          const uniqueLatencies = Array.from(callLatencyMap.values())
+                          if (uniqueLatencies.length === 0) return <div className="text-sm text-slate-500">No data</div>
+                          
+                          // Count passed/failed turn latency by unique calls
+                          const passedLatency = uniqueLatencies.filter(tl => tl?.passed === true).length
+                          const failedLatency = uniqueLatencies.length - passedLatency
+                          const passRate = uniqueLatencies.length > 0 
+                            ? Math.round((passedLatency / uniqueLatencies.length) * 100) 
                             : 0
                           
                           return (
@@ -1538,7 +1554,7 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                                 {passRate}%
                               </div>
                               <div className="text-xs text-slate-500 mt-1">
-                                {passedLatency}/{completedResults.length} calls pass
+                                {passedLatency}/{uniqueLatencies.length} calls pass
                               </div>
                             </>
                           )
@@ -1703,88 +1719,173 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                             <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Metric</th>
                             <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Score</th>
                             <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Status</th>
-                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Reasoning</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Details</th>
                             <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Date</th>
                             <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">View Transcript</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {results?.map((result: EvaluationResult) => {
-                            const resultPrompt = promptsMap.get(result.prompt_id) || { 
-                              name: result.evaluation_score?.evaluation_type || 'Unknown', 
-                              evaluation_type: result.evaluation_score?.evaluation_type || 'unknown',
-                              scoring_output_type: prompt?.scoring_output_type || 'float'
-                            }
+                          {(() => {
+                            // Group results by call_id and create rows for both LLM metrics and Turn Latency
+                            const rows: React.ReactNode[] = []
+                            const processedCalls = new Set<string>()
                             
-                            return (
-                              <tr key={result.id} className="hover:bg-slate-50 transition-colors">
-                                <td className="px-4 py-3">
-                                  <span className="font-mono text-xs text-slate-700">
-                                    {(result.call_id || result.trace_id || 'N/A').slice(0, 20)}...
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3">
-                                  <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
-                                    {resultPrompt.name}
-                                  </Badge>
-                                </td>
-                                <td className="px-4 py-3">
-                                  <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-sm font-medium ${getScoreColor(getScoreValue(result.evaluation_score?.overall_score, resultPrompt.scoring_output_type), resultPrompt.scoring_output_type)}`}>
-                                    {getScoreIcon(getScoreValue(result.evaluation_score?.overall_score, resultPrompt.scoring_output_type), resultPrompt.scoring_output_type)}
-                                    {formatScore(result.evaluation_score?.overall_score, resultPrompt.scoring_output_type)}
-                                  </div>
-                                </td>
-                                <td className="px-4 py-3">
-                                  <Badge variant={result.status === 'completed' ? 'default' : result.status === 'failed' ? 'destructive' : 'secondary'} className="text-xs">
-                                    {result.status}
-                                  </Badge>
-                                </td>
-                                <td className="px-4 py-3 max-w-xs">
-                                  <span className="text-xs text-slate-600 line-clamp-2">
-                                    {result.evaluation_reasoning ? parseReasoning(result.evaluation_reasoning).slice(0, 100) + '...' : '-'}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3">
-                                  <span className="text-xs text-slate-500">
-                                    {new Date(result.created_at).toLocaleDateString()}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3">
-                                  <div className="flex items-center gap-1">
-                                    <Button 
-                                      variant="ghost" 
-                                      size="sm"
-                                      className="h-7 w-7 p-0"
-                                      onClick={() => handleViewTranscript(result.call_id, result.trace_id)}
-                                    >
-                                      <Eye className="w-3.5 h-3.5" />
-                                    </Button>
-                                    <DropdownMenu>
-                                      <DropdownMenuTrigger asChild>
-                                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                                          <MoreHorizontal className="w-3.5 h-3.5" />
-                                        </Button>
-                                      </DropdownMenuTrigger>
-                                      <DropdownMenuContent align="end">
-                                        <DropdownMenuItem onClick={() => setSelectedDetails({ callId: result.call_id, result })}>
-                                          <Eye className="w-4 h-4 mr-2" />
-                                          More Details
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => handleViewRawResponse(result)}>
-                                          <FileText className="w-4 h-4 mr-2" />
-                                          Raw Response
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => handleExportSingleResult(result)}>
-                                          <FileSpreadsheet className="w-4 h-4 mr-2" />
-                                          Export to Excel
-                                        </DropdownMenuItem>
-                                      </DropdownMenuContent>
-                                    </DropdownMenu>
-                                  </div>
-                                </td>
-                              </tr>
-                            )
-                          })}
+                            results?.forEach((result: EvaluationResult) => {
+                              const callId = result.call_id || result.trace_id
+                              const resultPrompt = promptsMap.get(result.prompt_id) || { 
+                                name: result.evaluation_score?.evaluation_type || 'Unknown', 
+                                evaluation_type: result.evaluation_score?.evaluation_type || 'unknown',
+                                scoring_output_type: prompt?.scoring_output_type || 'float'
+                              }
+                              
+                              // Add Turn Latency row for this call (only once per call)
+                              if (!processedCalls.has(callId) && result.evaluation_score?.turn_latency && result.evaluation_score.turn_latency.totalAssistantTurns > 0) {
+                                processedCalls.add(callId)
+                                const turnLatency = result.evaluation_score.turn_latency
+                                rows.push(
+                                  <tr key={`${result.id}-turn-latency`} className="hover:bg-orange-50/50 transition-colors bg-orange-50/20">
+                                    <td className="px-4 py-3">
+                                      <span className="font-mono text-xs text-slate-700">
+                                        {(callId || 'N/A').slice(0, 20)}...
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <Badge className="bg-orange-100 text-orange-700 border-orange-200 text-xs">
+                                        Turn Latency (static)
+                                      </Badge>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-sm font-medium ${
+                                        turnLatency.passed 
+                                          ? 'bg-green-100 text-green-700' 
+                                          : 'bg-red-100 text-red-700'
+                                      }`}>
+                                        {turnLatency.passed ? (
+                                          <CheckCircle className="w-3.5 h-3.5" />
+                                        ) : (
+                                          <XCircle className="w-3.5 h-3.5" />
+                                        )}
+                                        {turnLatency.passed ? 'Pass' : 'Fail'}
+                                      </div>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <Badge variant="default" className="text-xs bg-slate-100 text-slate-700">
+                                        completed
+                                      </Badge>
+                                    </td>
+                                    <td className="px-4 py-3 max-w-xs">
+                                      <div className="text-xs text-slate-600">
+                                        {turnLatency.passed ? (
+                                          <span>All {turnLatency.totalAssistantTurns} assistant turns under {turnLatency.threshold}s threshold. Max: {turnLatency.maxLatency?.toFixed(2)}s</span>
+                                        ) : (
+                                          <div>
+                                            <div className="text-red-600 font-medium mb-1">
+                                              {turnLatency.violatingTurns?.length || 0} turn(s) exceeded {turnLatency.threshold}s threshold:
+                                            </div>
+                                            {turnLatency.violatingTurns?.slice(0, 3).map((turn, idx) => (
+                                              <div key={idx} className="text-red-600">
+                                                Turn #{turn.turnIndex + 1}: {turn.latency.toFixed(2)}s
+                                              </div>
+                                            ))}
+                                            {(turnLatency.violatingTurns?.length || 0) > 3 && (
+                                              <div className="text-red-500">+{(turnLatency.violatingTurns?.length || 0) - 3} more</div>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <span className="text-xs text-slate-500">
+                                        {new Date(result.created_at).toLocaleDateString()}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <Button 
+                                        variant="ghost" 
+                                        size="sm"
+                                        className="h-7 w-7 p-0"
+                                        onClick={() => handleViewTranscript(result.call_id, result.trace_id)}
+                                      >
+                                        <Eye className="w-3.5 h-3.5" />
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                )
+                              }
+                              
+                              // Add LLM metric row
+                              rows.push(
+                                <tr key={result.id} className="hover:bg-slate-50 transition-colors">
+                                  <td className="px-4 py-3">
+                                    <span className="font-mono text-xs text-slate-700">
+                                      {(result.call_id || result.trace_id || 'N/A').slice(0, 20)}...
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
+                                      {resultPrompt.name}
+                                    </Badge>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-sm font-medium ${getScoreColor(getScoreValue(result.evaluation_score?.overall_score, resultPrompt.scoring_output_type), resultPrompt.scoring_output_type)}`}>
+                                      {getScoreIcon(getScoreValue(result.evaluation_score?.overall_score, resultPrompt.scoring_output_type), resultPrompt.scoring_output_type)}
+                                      {formatScore(result.evaluation_score?.overall_score, resultPrompt.scoring_output_type)}
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <Badge variant={result.status === 'completed' ? 'default' : result.status === 'failed' ? 'destructive' : 'secondary'} className="text-xs">
+                                      {result.status}
+                                    </Badge>
+                                  </td>
+                                  <td className="px-4 py-3 max-w-xs">
+                                    <span className="text-xs text-slate-600 line-clamp-2">
+                                      {result.evaluation_reasoning ? parseReasoning(result.evaluation_reasoning).slice(0, 100) + '...' : '-'}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className="text-xs text-slate-500">
+                                      {new Date(result.created_at).toLocaleDateString()}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex items-center gap-1">
+                                      <Button 
+                                        variant="ghost" 
+                                        size="sm"
+                                        className="h-7 w-7 p-0"
+                                        onClick={() => handleViewTranscript(result.call_id, result.trace_id)}
+                                      >
+                                        <Eye className="w-3.5 h-3.5" />
+                                      </Button>
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                                            <MoreHorizontal className="w-3.5 h-3.5" />
+                                          </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                          <DropdownMenuItem onClick={() => setSelectedDetails({ callId: result.call_id, result })}>
+                                            <Eye className="w-4 h-4 mr-2" />
+                                            More Details
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={() => handleViewRawResponse(result)}>
+                                            <FileText className="w-4 h-4 mr-2" />
+                                            Raw Response
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={() => handleExportSingleResult(result)}>
+                                            <FileSpreadsheet className="w-4 h-4 mr-2" />
+                                            Export to Excel
+                                          </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )
+                            })
+                            
+                            return rows
+                          })()}
                         </tbody>
                       </table>
                     </div>
