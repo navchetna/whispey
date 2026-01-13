@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { Phone, Clock, CheckCircle, XCircle, Loader2, AlertCircle, RefreshCw, Play, Pause, User, Bot, ExternalLink, Languages } from "lucide-react"
+import { Phone, Clock, CheckCircle, XCircle, Loader2, AlertCircle, RefreshCw, Play, Pause, User, Bot, ExternalLink, Languages, Trash2 } from "lucide-react"
 import { useInfiniteScroll } from "../../hooks/useApi"
 import CallFilter, { FilterRule } from "../CallFilter"
 import ColumnSelector from "../shared/ColumnSelector"
@@ -1127,6 +1127,7 @@ interface CallDetailSlidePanelProps {
   project: any
   formatDuration: (seconds: number) => string
   formatToIndianDateTime: (timestamp: any) => string
+  onDelete?: (callId: string) => void
 }
 
 interface TranscriptTurn {
@@ -1147,14 +1148,50 @@ function CallDetailSlidePanel({
   selectedCall,
   project,
   formatDuration,
-  formatToIndianDateTime
+  formatToIndianDateTime,
+  onDelete
 }: CallDetailSlidePanelProps) {
   const router = useRouter()
   const [currentAudioTime, setCurrentAudioTime] = useState(0)
   const [isAudioPlaying, setIsAudioPlaying] = useState(false)
   const [activeTranscriptId, setActiveTranscriptId] = useState<string | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
   const transcriptRefs = useRef<{ [key: string]: HTMLDivElement | null }>({})
   const transcriptContainerRef = useRef<HTMLDivElement>(null)
+
+  // Handle delete call
+  const handleDeleteCall = async () => {
+    if (!selectedCall || !onDelete) return
+    
+    const isUploadedAudio = selectedCall.call_id?.startsWith('uploaded-')
+    const confirmMessage = isUploadedAudio
+      ? `Are you sure you want to delete this uploaded audio and its call log? This will also remove any associated evaluation results.`
+      : `Are you sure you want to delete this call log? This will also remove any associated metrics and evaluation results.`
+    
+    if (!confirm(confirmMessage)) return
+    
+    setIsDeleting(true)
+    try {
+      const response = await fetch(
+        `/api/call-logs?id=${selectedCall.id}&agent_id=${selectedCall.agent_id}`,
+        { method: 'DELETE' }
+      )
+      
+      const result = await response.json()
+      
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to delete call log')
+      }
+      
+      onDelete(selectedCall.id)
+      onClose()
+    } catch (error) {
+      console.error('Error deleting call log:', error)
+      alert(`Failed to delete: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setIsDeleting(false)
+    }
+  }
 
   // Parse transcript into structured turns
   const parsedTranscript = useMemo((): TranscriptTurn[] => {
@@ -1286,11 +1323,11 @@ function CallDetailSlidePanel({
       width="2xl"
     >
       <div className="space-y-4">
-        {/* View Full Observability Button - At Top */}
-        <div className="pb-2 border-b border-slate-200">
+        {/* Action Buttons - At Top */}
+        <div className="pb-2 border-b border-slate-200 flex gap-2">
           <Button
             variant="outline"
-            className="w-full"
+            className="flex-1"
             onClick={() => {
               router.push(`/${project?.id}/agents/${selectedCall.agent_id}/observability?session_id=${selectedCall.id}`)
             }}
@@ -1298,6 +1335,20 @@ function CallDetailSlidePanel({
             <ExternalLink className="w-4 h-4 mr-2" />
             View Full Observability Details
           </Button>
+          {onDelete && (
+            <Button
+              variant="outline"
+              className="text-red-500 hover:text-red-700 hover:bg-red-50 border-red-200 hover:border-red-300"
+              onClick={handleDeleteCall}
+              disabled={isDeleting}
+            >
+              {isDeleting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+            </Button>
+          )}
         </div>
 
         {/* Compact Call Info & Audio Section */}

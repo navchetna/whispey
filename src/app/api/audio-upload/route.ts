@@ -368,3 +368,97 @@ export async function GET(request: NextRequest) {
     )
   }
 }
+
+// DELETE endpoint to delete an uploaded audio file
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const audioFileId = searchParams.get('id')
+    const projectId = searchParams.get('project_id')
+    const agentId = searchParams.get('agent_id')
+
+    if (!audioFileId) {
+      return NextResponse.json(
+        { error: 'Audio file ID is required' },
+        { status: 400 }
+      )
+    }
+
+    // Get the audio file record to find the file path
+    const audioFileResult = await query(
+      'SELECT * FROM pype_voice_audio_files WHERE id = $1',
+      [audioFileId]
+    )
+
+    if (audioFileResult.rows.length === 0) {
+      return NextResponse.json(
+        { error: 'Audio file not found' },
+        { status: 404 }
+      )
+    }
+
+    const audioFile = audioFileResult.rows[0]
+
+    // Verify project/agent ownership if provided
+    if (projectId && audioFile.project_id !== projectId) {
+      return NextResponse.json(
+        { error: 'Audio file does not belong to this project' },
+        { status: 403 }
+      )
+    }
+
+    if (agentId && audioFile.agent_id !== agentId) {
+      return NextResponse.json(
+        { error: 'Audio file does not belong to this agent' },
+        { status: 403 }
+      )
+    }
+
+    // Delete associated call log first (foreign key constraint)
+    await query(
+      `DELETE FROM pype_voice_call_logs WHERE call_id = $1`,
+      [`uploaded-${audioFileId}`]
+    )
+
+    // Delete associated evaluation results if any
+    await query(
+      `DELETE FROM pype_voice_evaluation_results WHERE call_id = $1`,
+      [`uploaded-${audioFileId}`]
+    )
+
+    // Delete the audio file record from database
+    await query(
+      'DELETE FROM pype_voice_audio_files WHERE id = $1',
+      [audioFileId]
+    )
+
+    // Delete the actual file from disk if it exists
+    if (audioFile.file_path && fs.existsSync(audioFile.file_path)) {
+      try {
+        fs.unlinkSync(audioFile.file_path)
+        console.log(`Deleted file from disk: ${audioFile.file_path}`)
+      } catch (fileError) {
+        console.error(`Failed to delete file from disk: ${audioFile.file_path}`, fileError)
+        // Continue even if file deletion fails - DB record is already deleted
+      }
+    }
+
+    console.log(`Deleted audio file: ${audioFile.file_name} (ID: ${audioFileId})`)
+
+    return NextResponse.json({
+      success: true,
+      message: `Successfully deleted audio file: ${audioFile.file_name}`,
+      deleted_id: audioFileId
+    }, { status: 200 })
+
+  } catch (error) {
+    console.error('Error deleting audio file:', error)
+    return NextResponse.json(
+      { 
+        error: 'Failed to delete audio file',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
+      { status: 500 }
+    )
+  }
+}

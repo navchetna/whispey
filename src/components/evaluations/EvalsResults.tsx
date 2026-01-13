@@ -623,15 +623,17 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                 const role = (item.role === 'agent' || item.role === 'assistant') ? 'AGENT' : 'USER'
                 return `${role}: ${item.content}`
               }
+              // Order: AGENT first, then USER (assistant-user pattern as per call logs)
               const messages: string[] = []
-              if (item.user_transcript) messages.push(`USER: ${item.user_transcript}`)
               if (item.agent_response) messages.push(`AGENT: ${item.agent_response}`)
+              if (item.user_transcript) messages.push(`USER: ${item.user_transcript}`)
               return messages.join('\n')
             })
             .filter(Boolean)
             .join('\n\n')
           
           // Translated version for array format - use translated_text for BOTH user and agent
+          // Order: AGENT first, then USER (assistant-user pattern as per call logs)
           formattedTranslatedTranscript = transcriptData
             .map((item: any) => {
               if (item.role && item.content) {
@@ -640,15 +642,16 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
                 const content = item.translated_text || item.translation || item.content
                 return `${role}: ${content}`
               }
+              // Order: AGENT first, then USER (assistant-user pattern as per call logs)
               const messages: string[] = []
-              if (item.user_transcript) {
-                const userText = item.translated_text || item.translation || item.user_transcript
-                messages.push(`USER: ${userText}`)
-              }
               if (item.agent_response) {
                 // Agent response translation - check for agent_translated_text or fall back
                 const agentText = item.agent_translated_text || item.translated_agent_response || item.agent_response
                 messages.push(`AGENT: ${agentText}`)
+              }
+              if (item.user_transcript) {
+                const userText = item.translated_text || item.translation || item.user_transcript
+                messages.push(`USER: ${userText}`)
               }
               return messages.join('\n')
             })
@@ -684,11 +687,12 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
           .map((turn: any) => {
             const messages: string[] = []
             
-            if (turn.user_transcript && turn.user_transcript.trim()) {
-              messages.push(`USER: ${turn.user_transcript}`)
-            }
+            // Order: AGENT first, then USER (assistant-user pattern as per call logs)
             if (turn.agent_response && turn.agent_response.trim()) {
               messages.push(`AGENT: ${turn.agent_response}`)
+            }
+            if (turn.user_transcript && turn.user_transcript.trim()) {
+              messages.push(`USER: ${turn.user_transcript}`)
             }
             
             return messages.join('\n')
@@ -696,19 +700,21 @@ export default function EvalsResults({ params }: EvalsResultsProps) {
           .join('\n\n')
 
         // Format the translated transcript data
+        // Order: AGENT first, then USER (assistant-user pattern as per call logs)
         const formattedTranslatedTranscript = transcriptTurns
           .filter((turn: any) => turn.translated_text || turn.user_transcript || turn.agent_response)
           .map((turn: any) => {
             const messages: string[] = []
             
+            // Order: AGENT first, then USER (assistant-user pattern as per call logs)
+            if (turn.agent_response && turn.agent_response.trim()) {
+              // Agent responses typically don't need translation (they're already in the target language)
+              messages.push(`AGENT: ${turn.agent_response}`)
+            }
             // Use translated_text if available, otherwise fall back to original
             if (turn.user_transcript && turn.user_transcript.trim()) {
               const translatedUser = turn.translated_text && turn.user_transcript ? turn.translated_text : turn.user_transcript
               messages.push(`USER: ${translatedUser}`)
-            }
-            if (turn.agent_response && turn.agent_response.trim()) {
-              // Agent responses typically don't need translation (they're already in the target language)
-              messages.push(`AGENT: ${turn.agent_response}`)
             }
             
             return messages.join('\n')

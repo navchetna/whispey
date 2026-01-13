@@ -1000,14 +1000,15 @@ Return your response in JSON format with the following structure:
               return messages // Return early to avoid duplicates
             }
             
-            // Handle turn-based format (user_transcript + agent_response) - from real-time call logs
-            if (item.user_transcript && item.user_transcript.trim()) {
-              messages.push(`USER: ${item.user_transcript}`)
-              console.log(`📝 [TRANSCRIPT EXTRACT] Extracted user: ${item.user_transcript.substring(0, 50)}...`)
-            }
+            // Handle turn-based format (agent_response + user_transcript) - from real-time call logs
+            // Order: AGENT first, then USER (assistant-user pattern as per call logs)
             if (item.agent_response && item.agent_response.trim()) {
               messages.push(`AGENT: ${item.agent_response}`)
               console.log(`📝 [TRANSCRIPT EXTRACT] Extracted agent: ${item.agent_response.substring(0, 50)}...`)
+            }
+            if (item.user_transcript && item.user_transcript.trim()) {
+              messages.push(`USER: ${item.user_transcript}`)
+              console.log(`📝 [TRANSCRIPT EXTRACT] Extracted user: ${item.user_transcript.substring(0, 50)}...`)
             }
             
             return messages
