@@ -303,6 +303,11 @@ def format_diarized_transcript(transcript_data):
         if current_entry:
             merged_entries.append(current_entry)
         
+        # Determine which speaker_id should be 'agent' based on who speaks first
+        # The first speaker in the timeline is always the agent/assistant
+        first_speaker_id = merged_entries[0]['speaker_id'] if merged_entries else '0'
+        logger.info(f"First speaker ID: {first_speaker_id} - will be assigned as 'agent'")
+        
         # Translate all transcriptions for Indic languages to English
         if language_code not in ["en-IN", "en-US"]:
             for entry in merged_entries:
@@ -316,8 +321,9 @@ def format_diarized_transcript(transcript_data):
         turns = []
         for i, entry in enumerate(merged_entries):
             speaker_id = entry['speaker_id']
-            # Map speaker IDs: 0 = agent, 1 = user
-            role = 'agent' if speaker_id == '0' else 'user'
+            # Map speaker IDs: first speaker = agent, other speaker = user
+            # This ensures the assistant/agent always comes first in the transcript
+            role = 'agent' if speaker_id == first_speaker_id else 'user'
             
             # Calculate latency as the gap between this turn's start and previous turn's end
             # This excludes the speaking duration and only measures the response delay

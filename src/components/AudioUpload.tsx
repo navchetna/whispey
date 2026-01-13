@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Upload, File, RefreshCw, Link as LinkIcon, CheckCircle, Clock, XCircle, AlertCircle } from 'lucide-react'
+import { Upload, File, RefreshCw, Link as LinkIcon, CheckCircle, Clock, XCircle, AlertCircle, Trash2 } from 'lucide-react'
 
 interface AudioUploadProps {
   projectId: string
@@ -31,6 +31,7 @@ export default function AudioUpload({ projectId, agentId }: AudioUploadProps) {
   const [uploading, setUploading] = useState(false)
   const [audioFiles, setAudioFiles] = useState<AudioFile[]>([])
   const [loadingAudioFiles, setLoadingAudioFiles] = useState(false)
+  const [deletingFileId, setDeletingFileId] = useState<string | null>(null)
 
   useEffect(() => {
     fetchAudioFiles()
@@ -116,6 +117,35 @@ export default function AudioUpload({ projectId, agentId }: AudioUploadProps) {
   const getStatusBadge = (status: string) => {
     const baseClasses = "inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium"
     return <span className={`${baseClasses} bg-blue-100 text-blue-700`}>Uploaded</span>
+  }
+
+  const handleDeleteAudio = async (fileId: string, fileName: string) => {
+    if (!confirm(`Are you sure you want to delete "${fileName}"? This will also remove any associated call logs and evaluation results.`)) {
+      return
+    }
+
+    setDeletingFileId(fileId)
+    try {
+      const response = await fetch(
+        `/api/audio-upload?id=${fileId}&project_id=${projectId}&agent_id=${agentId}`,
+        { method: 'DELETE' }
+      )
+      
+      const result = await response.json()
+      
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to delete audio file')
+      }
+      
+      // Remove from local state
+      setAudioFiles(prev => prev.filter(f => f.id !== fileId))
+      console.log(`Deleted audio file: ${fileName}`)
+    } catch (error) {
+      console.error('Error deleting audio file:', error)
+      alert(`Failed to delete audio file: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setDeletingFileId(null)
+    }
   }
 
   return (
@@ -254,6 +284,19 @@ export default function AudioUpload({ projectId, agentId }: AudioUploadProps) {
                   </div>
                   <div className="flex items-center gap-3">
                     {getStatusBadge(file.status)}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDeleteAudio(file.id, file.file_name)}
+                      disabled={deletingFileId === file.id}
+                      className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                    >
+                      {deletingFileId === file.id ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
+                    </Button>
                   </div>
                 </div>
               ))}
