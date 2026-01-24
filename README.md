@@ -1,4 +1,6 @@
 # Whispey – Voice AI Observability Platform
+
+## NOTE - Refer to the [Documentation](./README_ONPREM.md) for on-premise installation instructions.
  
 <div align="center">
 

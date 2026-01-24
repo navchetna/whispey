@@ -1,6 +1,11 @@
-# Whispey On-Premise Deployment Guide
+# Voice Evals Harness On-Premise Deployment Guide
 
-Welcome to Whispey, the comprehensive voice agent analytics platform designed for on-premise deployment. This guide will walk you through setting up Whispey in your own infrastructure without any cloud service dependencies.
+Welcome to Voice Evals Harness, the comprehensive voice agent analytics platform designed for on-premise deployment. This guide will walk you through setting up Voice Evals Harness in your own infrastructure without any cloud service dependencies.
+
+---
+This branch deploys the OS models for speech processing instead of using cloud APIs. 
+Please use the main branch if you want to use cloud APIs for speech processing.
+---
 
 ## 🚀 Quick Start
 
