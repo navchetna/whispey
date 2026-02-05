@@ -136,7 +136,7 @@ async function callPythonBackend(file: File | Blob, backendUrl: string, maxRetri
         method: 'POST',
         body: formData, // browser/Node 18+ fetch handles content-type automatically
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json()
         const errorMessage = errorData?.detail || errorData?.error || ''
@@ -158,7 +158,7 @@ async function callPythonBackend(file: File | Blob, backendUrl: string, maxRetri
       }
       
       const result = await response.json()
-      console.log('✅ Python backend completed transcription')
+      console.log('✅ Python backend completed transcription');
       
       return result
       

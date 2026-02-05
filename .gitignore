@@ -79,3 +79,7 @@ Thumbs.db
 
 logs/
 *.pid
+samples
+*mp3
+
+python-backend/models/

@@ -368,25 +368,6 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
     setSelectedCall(null)
   }, [])
 
-  // Handle delete call log
-  const handleDeleteCallLog = useCallback(async (callId: string) => {
-    try {
-      const response = await fetch(`/api/call-logs?id=${encodeURIComponent(callId)}`, {
-        method: 'DELETE',
-      })
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to delete call log')
-      }
-      // Close panel and refresh the list
-      handleCloseSidePanel()
-      refresh()
-    } catch (error) {
-      console.error('Error deleting call log:', error)
-      throw error
-    }
-  }, [handleCloseSidePanel, refresh])
-
   const getFilteredBasicColumns = useMemo(() => {
     return basicColumns.filter(col => 
       !col.hidden && isColumnVisibleForRole(col.key, role)
@@ -625,6 +606,25 @@ const CallLogs: React.FC<CallLogsProps> = ({ project, agent, onBack, isLoading: 
     "pype_voice_call_logs", 
     queryOptions,
   )
+
+  // Handle delete call log
+  const handleDeleteCallLog = useCallback(async (callId: string) => {
+    try {
+      const response = await fetch(`/api/call-logs?id=${encodeURIComponent(callId)}`, {
+        method: 'DELETE',
+      })
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to delete call log')
+      }
+      // Close panel and refresh the list
+      handleCloseSidePanel()
+      refresh()
+    } catch (error) {
+      console.error('Error deleting call log:', error)
+      throw error
+    }
+  }, [handleCloseSidePanel, refresh])
 
   // Extract all unique keys from metadata and transcription_metrics across all calls
   const dynamicColumns = useMemo(() => {
