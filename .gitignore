@@ -83,3 +83,5 @@ samples
 *mp3
 
 python-backend/models/
+*.pt
+python-backend/services/asr/models/
