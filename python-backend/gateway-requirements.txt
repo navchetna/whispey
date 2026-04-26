@@ -3,3 +3,4 @@ uvicorn[standard]==0.32.0
 sarvamai==0.1.22
 python-dotenv==1.2.1
 python-multipart==0.0.20
+aiohttp==3.9.1

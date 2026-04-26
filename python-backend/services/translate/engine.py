@@ -1,5 +1,4 @@
 import torch
-import intel_extension_for_pytorch as ipex
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 from IndicTransToolkit.processor import IndicProcessor
 import time
@@ -32,7 +31,7 @@ class IndicTranslator:
         self.ip = IndicProcessor(inference=True)
         self.batch_size = batch_size
         self.max_length = max_length
-        self.model = ipex.llm.optimize(self.model, dtype=torch.bfloat16)
+
         self.model.eval()
         self.sample_src = sample_src
         self.sample_target = sample_target

@@ -1,0 +1,8 @@
+librosa
+soundfile
+litserve
+omegaconf
+transformers==4.55
+pyannote.audio
+uvloop
+python-multipart

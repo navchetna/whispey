@@ -1,20 +1,16 @@
-version: '3.8'
-
 services:
-  # PostgreSQL Database with automatic initialization
+  # PostgreSQL Database
   database:
     image: postgres:15-alpine
     container_name: voiceharness-database
     restart: unless-stopped
-    environment: 
+    environment:
       POSTGRES_USER: ${DB_USER:-admin}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-admin123}
       POSTGRES_DB: ${DB_NAME:-agent_evals}
       PGDATA: /var/lib/postgresql/data/pgdata
-    # ports: - Not exposing to host, only internal Docker network access
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # PostgreSQL automatically runs scripts in /docker-entrypoint-initdb.d/ on first startup
       - ./setup-db.sql:/docker-entrypoint-initdb.d/01-setup-db.sql:ro
       - ./migrations:/docker-entrypoint-initdb.d/migrations:ro
     healthcheck:
@@ -24,40 +20,33 @@ services:
       retries: 5
     networks:
       - agent-evals
-  
-  # Next.js Frontend Application
+
+  # Next.js Frontend
   frontend:
     build:
       context: .
       dockerfile: Dockerfile
       args:
         - NODE_ENV=production
-        - http_proxy=${http_proxy}
-        - https_proxy=${https_proxy}
-        - HTTP_PROXY=${HTTP_PROXY}
-        - HTTPS_PROXY=${HTTPS_PROXY}
     image: frontend:latest
     container_name: voiceharness-frontend
     restart: unless-stopped
     environment:
       - NODE_ENV=production
-      # Enable debug logging (set to false in production after debugging)
       - DEBUG=true
-      # PostgreSQL connection - use service name 'database' as hostname
       - POSTGRES_HOST=database
       - POSTGRES_PORT=5432
       - POSTGRES_DATABASE=${DB_NAME:-agent_evals}
       - POSTGRES_USER=${DB_USER:-admin}
       - POSTGRES_PASSWORD=${DB_PASSWORD:-admin123}
       - POSTGRES_SSL=false
-      # Other required env vars
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3000/api/}
       - JWT_SECRET=${JWT_SECRET:-2c2c2e1e5e1491abe5d7e11233a047edf017e509b7b7bca236288e127df85711}
       - WHISPEY_MASTER_KEY=${WHISPEY_MASTER_KEY:-change-this-master-key}
       - VAPI_MASTER_KEY=${VAPI_MASTER_KEY:-change-this-vapi-key}
       - PYTHON_BACKEND_URL=http://python-backend:8000
     ports:
-      - "${APP_PORT:-3003}:3000"
+      - "${APP_PORT:-3000}:3000"
     volumes:
       - audios:/app/audios
     depends_on:
@@ -72,49 +61,133 @@ services:
       retries: 3
       start_period: 40s
 
+  # Python Backend Gateway
   python-backend:
     build:
       context: ./python-backend
       dockerfile: Dockerfile
-      args:
-        - http_proxy=${http_proxy}
-        - https_proxy=${https_proxy}
-        - HTTP_PROXY=${HTTP_PROXY}
-        - HTTPS_PROXY=${HTTPS_PROXY}
     image: python-backend:latest
     container_name: voiceharness-python-backend
     restart: unless-stopped
     environment:
-      # NOT required currently
-      - POSTGRES_HOST=database
-      - POSTGRES_PORT=5432
-      - POSTGRES_DATABASE=${DB_NAME:-agent_evals}
-      - POSTGRES_USER=${DB_USER:-admin}
-      - POSTGRES_PASSWORD=${DB_PASSWORD:-admin123}
-      - POSTGRES_SSL=false
       - PYTHON_BACKEND_PORT=8000
-      - SARVAM_API_KEY=sk_rz49n15t_I4hD7T64pkylqwa05rPVTTS3
+      - MODEL_PROVIDER=${MODEL_PROVIDER:-local}
+      - SARVAM_API_KEY=${SARVAM_API_KEY}
+      - LOCAL_PREPROCESS_API_URL=http://preprocess:8002/v1/preprocess/
+      - LOCAL_TRANSCRIPTION_API_URL=http://transcribe:8001/v1/audio/
+      - LOCAL_TRANSLATION_API_URL=http://translate:8003/v1/translate/
     ports:
       - "${PYTHON_BACKEND_PORT:-8000}:8000"
-    depends_on:
-      database:
-        condition: service_healthy
     networks:
       - agent-evals
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health" ]
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Transcription Service
+  transcribe:
+    build:
+      context: ./python-backend/services/asr
+      dockerfile: Dockerfile
+    image: transcribe:latest
+    container_name: voiceharness-transcribe
+    restart: unless-stopped
+    profiles:
+      - local
+    environment:
+      - PORT=8001
+      - MODEL_PATH=/app/models
+      - LANGUAGE=${ASR_LANGUAGE:-hindi}
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./python-backend/models:/app/models
+    networks:
+      - agent-evals
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Preprocessing/Diarization Service
+  preprocess:
+    build:
+      context: ./python-backend/services/preprocess
+      dockerfile: Dockerfile
+    image: preprocess:latest
+    container_name: voiceharness-preprocess
+    restart: unless-stopped
+    profiles:
+      - local
+    environment:
+      - PORT=8002
+      - HF_TOKEN=${HF_TOKEN}
+    ports:
+      - "8002:8002"
+    networks:
+      - agent-evals
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8002/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Translation Service
+  translate:
+    build:
+      context: ./python-backend/services/translate
+      dockerfile: Dockerfile
+    image: translate:latest
+    container_name: voiceharness-translate
+    restart: unless-stopped
+    profiles:
+      - local
+    environment:
+      - PORT=8003
+      - HF_TOKEN=${HF_TOKEN}
+    ports:
+      - "8003:8003"
+    networks:
+      - agent-evals
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8003/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   postgres_data:
     driver: local
   audios:
     driver: local
-  
-  
+
 networks:
   agent-evals:
     driver: bridge

@@ -1,26 +1,29 @@
 import os
 import io
 import time
+import logging
 import torch
-import fairseq 
+import fairseq
 import librosa
 import numpy as np
 import soundfile as sf
-
-from loguru import logger
 import torch.nn.functional as F
 import torchaudio.sox_effects as ta_sox
 
-from .utilities import download_model
+from utilities import download_model
+
+logger = logging.getLogger(__name__)
 
 
-torch.serialization.add_safe_globals([fairseq.data.dictionary.Dictionary])
+# Add safe globals for torch serialization if method exists (PyTorch 2.3+)
+if hasattr(torch.serialization, 'add_safe_globals'):
+    torch.serialization.add_safe_globals([fairseq.data.dictionary.Dictionary])
 
 
 class AudioToText:
     def __init__(
         self,
-        model_path: str = "models",
+        model_path: str = "./models",
         language: str = "hindi",
         warmup_iterations: int = 3,
         batch_size: int = 1,
@@ -31,7 +34,7 @@ class AudioToText:
         self.sample_rate = sample_rate
         self.max_audio_length = max_audio_length        # In seconds
 
-        self.model_path = os.path.join(model_path, f"{language.lower()}.pt")
+        self.model_path = os.path.join(model_path, f"{language.title()}.pt")
         if not os.path.exists(self.model_path):
             logger.warning(f"ASR model not found at {self.model_path}. Downloading...")
             download_model(language=language, model_dir=model_path)
@@ -51,6 +54,7 @@ class AudioToText:
         logger.info("Warming up the model...")
         for _ in range(iterations):
             _ = self.generate_logits(dummy_audio)
+        logger.info("Model warmup completed.")
 
 
     def transcribe(self, audio: bytes) -> str:
@@ -153,9 +157,6 @@ if __name__ == "__main__":
 
     with open("../../samples/raya_voice.wav", "rb") as f:
         audio_bytes = f.read()
-
-    # transcription = asr.transcribe_(audio_bytes)
-    # print("Transcription:", transcription)
 
     diarized_results = [
         {"speaker":"SPEAKER_01","start":0.03096875,"end":15.336593750000002},

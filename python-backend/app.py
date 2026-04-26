@@ -4,27 +4,21 @@ import tempfile
 import logging
 import sys
 import subprocess
-from typing import Literal
 from registry import get_model_provider
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-
-# Configure logging properly
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 
-
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 # Load environment variables - handle being run from different directories
 script_dir = Path(__file__).parent
@@ -89,71 +83,63 @@ async def health():
 @app.post("/transcribe", response_model=TranscribeResponse)
 async def transcribe(request: Request, file: UploadFile = File(None)):
     temp_file_path = None
+    temp_file_path_mono_16k = None
     try:
-                
-        # If file is None, try to get it from form data manually
         if file is None:
             form = await request.form()
-            
-            # Try common field names
             for field_name in ['file', 'audio', 'audio_file', 'recording']:
                 if field_name in form:
                     file = form[field_name]
                     break
-        
+
         if file is None:
             logger.error("No file found in request")
-            raise HTTPException(status_code=400, detail="Audio file is required. Send as multipart/form-data with field name 'file'")
-        
+            raise HTTPException(status_code=400, detail="Audio file is required")
+
         logger.info(f"Received file: {file.filename}, content_type: {file.content_type}")
-        
-        # Save uploaded file to a temporary location
+
         suffix = Path(file.filename).suffix if file.filename else '.wav'
         if not suffix:
             suffix = '.wav'
-        
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
             temp_file_path = temp_file.name
             content = await file.read()
             logger.info(f"File size: {len(content)} bytes")
-            
+
             if len(content) == 0:
                 raise HTTPException(status_code=400, detail="Uploaded file is empty")
-            
+
             temp_file.write(content)
-        
-        logger.info(f"Starting transcription for uploaded file: {file.filename} (saved to {temp_file_path})")
+
+        logger.info(f"Starting transcription for: {file.filename}")
 
         temp_file_path_mono_16k = temp_file_path + "_converted.wav"
         convert_to_wav_16k_mono(temp_file_path, temp_file_path_mono_16k)
-        
-        # Run async transcription
+
         result = await transcribe_audio_fn(temp_file_path_mono_16k)
-        
+
         if result.get('success'):
-            logger.info(f"Transcription completed successfully")
+            logger.info("Transcription completed successfully")
             return result
         else:
             error_msg = result.get('error', 'Unknown error')
             logger.error(f"Transcription failed: {error_msg}")
-            
-            # Return 429 for rate limit errors so frontend can retry
-            if 'rate_limit' in error_msg.lower() or 'rate limit' in error_msg.lower():
+
+            if 'rate_limit' in error_msg.lower():
                 raise HTTPException(status_code=429, detail=error_msg)
-            
+
             raise HTTPException(status_code=500, detail=error_msg)
-            
+
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error in transcribe endpoint: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Error in transcribe endpoint: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        # Clean up temporary file
-        if temp_file_path and os.path.exists(temp_file_path):
-            os.unlink(temp_file_path)
+        for path in [temp_file_path, temp_file_path_mono_16k]:
+            if path and os.path.exists(path):
+                os.unlink(path)
     
 
 if __name__ == '__main__':

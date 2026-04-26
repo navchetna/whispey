@@ -1,0 +1,7 @@
+librosa
+soundfile
+uvicorn[standard]
+fastapi
+python-multipart
+uvloop
+litserve

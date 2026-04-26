@@ -15,7 +15,7 @@ class Preprocessor:
         ):
         self.pipeline = Pipeline.from_pretrained(
             diarization_model_name,
-            token=os.environ.get("HF_TOKEN")
+            token=os.getenv("HF_TOKEN", "")
         )
         self.target_sr = target_sr
         self.lid_processor = AutoFeatureExtractor.from_pretrained(lid_model_id)

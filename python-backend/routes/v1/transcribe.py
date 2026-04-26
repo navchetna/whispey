@@ -1,8 +1,10 @@
 import time
 import json
-from loguru import logger
+import logging
 import litserve as ls
 from services.asr.engine import AudioToText
+
+logger = logging.getLogger(__name__)
 
 
 class ASREngine(ls.LitAPI):

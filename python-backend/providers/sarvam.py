@@ -2,11 +2,11 @@ import os
 import shutil
 import json
 import time
-
+import logging
 import asyncio
-from typing import Literal
-from loguru import logger 
-from sarvamai import AsyncSarvamAI,  SarvamAI
+from sarvamai import AsyncSarvamAI, SarvamAI
+
+logger = logging.getLogger(__name__)
 
 
 async def transcribe_audio_sarvam(audio_file_path: str):
@@ -126,7 +126,7 @@ async def transcribe_audio_sarvam(audio_file_path: str):
                 elif 'message' in body:
                     error_message = body['message']
             
-            logger.info(f"Transcription failed: {error_message}")
+            logger.warning(f"Transcription attempt failed: {error_message}")
             await asyncio.sleep(60)
             
     return {
@@ -152,11 +152,11 @@ def translate_text_sarvam(text, target_language='en-IN'):
             return response.translated_text
 
         except Exception as e:
-            logger.info(f"Translation error: {str(e)}, Trying again...")
+            logger.warning(f"Translation error: {str(e)}, retrying...")
             time.sleep(60)
-        
-    logger.info("Translation failed after multiple attempts.")
-    return "" # Return empty string if translation fails
+
+    logger.error("Translation failed after multiple attempts")
+    return ""
 
 
 def format_diarized_transcript(transcript_data):
@@ -276,9 +276,7 @@ def format_diarized_transcript(transcript_data):
             }
         }
     except Exception as e:
-        logger.info(f"Error formatting transcript: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Error formatting transcript: {str(e)}", exc_info=True)
         return {
             'turns': [],
             'metadata': {},

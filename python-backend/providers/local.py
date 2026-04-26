@@ -1,16 +1,31 @@
 import os
-import asyncio
-from loguru import logger
-import aiohttp 
+import logging
+import aiohttp
 import json
 from pathlib import Path
-from typing import Literal
+from logging_utils import generate_request_id, log_request_step
+
+logger = logging.getLogger(__name__)
 
 
 async def transcribe_audio_local(audio_file_path: str):
+    """
+    Transcribe audio using local inference server.
+    Requires local-inference service to be running on port 8005.
+
+    To start local-inference:
+    - Docker: docker-compose --profile local up -d local-inference
+    - Or set MODEL_PROVIDER=sarvam to use cloud API instead
+    """
+    request_id = generate_request_id()
+    log_request_step(logger, request_id, "REQUEST_START", f"Audio file: {audio_file_path}")
+
     try:
-        URL = os.getenv("LOCAL_INFERENCE_API_URL", "http://localhost:8005/v1/preprocess/")
-        TRANSCRIPTION_URL = os.getenv("LOCAL_TRANSCRIPTION_API_URL", "http://localhost:8005/v1/audio/")
+        URL = os.getenv("LOCAL_PREPROCESS_API_URL", "http://asr-preprocess:8002/v1/preprocess/")
+        TRANSCRIPTION_URL = os.getenv("LOCAL_TRANSCRIPTION_API_URL", "http://asr-service:8001/v1/audio/")
+
+        logger.info(f"Using local inference server: {URL}")
+
         async with aiohttp.ClientSession() as session:
             with open(audio_file_path, 'rb') as f:
                 audio_data = f.read()
@@ -20,52 +35,82 @@ async def transcribe_audio_local(audio_file_path: str):
                     audio_data,
                     filename=Path(audio_file_path).name,
                     content_type='audio/wav'
-                )    
+                )
+                form.add_field('request_id', request_id)
 
+                log_request_step(logger, request_id, "PREPROCESS_SEND", f"Sending to {URL}")
                 async with session.post(URL, data=form) as resp:
                     if resp.status == 200:
                         result = await resp.json()
                         diarized_output = result.get("diarization", [])
                         language = result.get("language", "unknown")
-                        logger.info(f"Preprocessing completed. Detected language: {language}, Diarization segments: {len(diarized_output)}")
+                        log_request_step(
+                            logger, request_id, "PREPROCESS_DONE",
+                            f"Language: {language}, Segments: {len(diarized_output)}"
+                        )
                     else:
                         return {
                             "success": False,
                             "error": f"Request failed with status {resp.status}"
                         }
-                    
-                form.add_field(
-                    "diarized_input", 
+
+                # Create new form data for transcription request
+                transcription_form = aiohttp.FormData()
+                transcription_form.add_field(
+                    'file',
+                    audio_data,
+                    filename=Path(audio_file_path).name,
+                    content_type='audio/wav'
+                )
+                transcription_form.add_field(
+                    "diarized_input",
                     json.dumps(diarized_output),
                     content_type="application/json"
                 )
-                    
-                async with session.post(TRANSCRIPTION_URL, data=form) as resp:
+                transcription_form.add_field('request_id', request_id)
+
+                log_request_step(logger, request_id, "TRANSCRIBE_SEND", f"Sending to {TRANSCRIPTION_URL}")
+                async with session.post(TRANSCRIPTION_URL, data=transcription_form) as resp:
                     if resp.status == 200:
                         result = await resp.json()
                         diarized_transcription = result.get("transcriptions", "")
-                        logger.info(f"Transcription generation completed.")
+                        log_request_step(logger, request_id, "TRANSCRIBE_DONE", f"Segments: {len(diarized_transcription)}")
                     else:
                         return {
                             "success": False,
                             "error": f"Request failed with status {resp.status}"
                         }
-                
-                formatted_result = await format_diarization_results(diarized_transcription, language)
+
+                log_request_step(logger, request_id, "FORMAT_START", "Formatting and translating results")
+                formatted_result = await format_diarization_results(diarized_transcription, language, request_id)
+                log_request_step(logger, request_id, "REQUEST_COMPLETE", "All processing finished")
 
                 return {
                     "success": True,
                     "transcript": formatted_result
                 }
-    except Exception as e:
+    except aiohttp.ClientConnectorError as e:
+        error_msg = (
+            f"Cannot connect to local inference server. "
+            f"Please ensure local-inference service is running. "
+            f"Start with: docker-compose --profile local up -d local-inference "
+            f"Or switch to Sarvam API: MODEL_PROVIDER=sarvam {e}"
+        )
+        logger.error(error_msg)
         return {
             "success": False,
-            "error": str(e)
+            "error": error_msg
+        }
+    except Exception as e:
+        logger.error(f"Local transcription error: {str(e)}", exc_info=True)
+        return {
+            "success": False,
+            "error": f"Local inference error: {str(e)}"
         }
 
             
-async def translate_text_local(text: str,   source_language: str, target_language: str = "en-IN"):
-    URL = os.getenv("LOCAL_TRANSLATION_API_URL", "http://localhost:8005/v1/translate/")
+async def translate_text_local(text: str, source_language: str, target_language: str = "en-IN", request_id: str = None):
+    URL = os.getenv("LOCAL_TRANSLATION_API_URL", "http://asr-translate:8003/v1/translate/")
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -74,6 +119,9 @@ async def translate_text_local(text: str,   source_language: str, target_languag
                 "source_language": source_language,
                 "target_language": target_language,
             }
+            if request_id:
+                payload["request_id"] = request_id
+
             async with session.post(
                 URL,
                 json=payload
@@ -96,12 +144,16 @@ async def translate_text_local(text: str,   source_language: str, target_languag
         }
                 
 
-async def format_diarization_results(diarization_output: list, language: str):
+async def format_diarization_results(diarization_output: list, language: str, request_id: str = None):
     """
     Formatting the diarization results into a structured format.
     """
     turns = []
     agent_speaker = diarization_output[0]['speaker'] if diarization_output else "SPEAKER_00"
+
+    if request_id:
+        log_request_step(logger, request_id, "TRANSLATE_BATCH_START", f"Translating {len(diarization_output)} segments")
+
     for i, entry in enumerate(diarization_output):
         speaker_id = entry['speaker']
         start_time = entry['start']
@@ -119,12 +171,19 @@ async def format_diarization_results(diarization_output: list, language: str):
                 latency = 0
 
         # Get the translated text
+        if request_id and i == 0:
+            log_request_step(logger, request_id, "TRANSLATE_SEND", f"Sending segment {i+1} to translation service")
+
         translated_response = await translate_text_local(
                 transcript,
                 target_language="en-IN",
-                source_language=language
+                source_language=language,
+                request_id=request_id
             )
         translated_transcript = translated_response.get("translated_text", "") if translated_response.get("success") else ""
+
+        if request_id and i == 0:
+            log_request_step(logger, request_id, "TRANSLATE_DONE", f"Received translation for segment {i+1}")
 
         turns.append({
             'role': 'agent' if speaker_id == agent_speaker else 'user',

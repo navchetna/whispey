@@ -3,18 +3,24 @@
 Welcome to Voice Evals Harness, the comprehensive voice agent analytics platform designed for on-premise deployment. This guide will walk you through setting up Voice Evals Harness in your own infrastructure without any cloud service dependencies.
 
 ---
-This branch deploys the OS models for speech processing instead of using cloud APIs. 
-Please use the main branch if you want to use cloud APIs for speech processing.
+This branch supports both **local open-source models** and **cloud APIs** for speech processing. 
+You can choose between:
+- **Local Inference**: Run speech recognition models on your own infrastructure (requires more compute resources)
+- **Sarvam API**: Use cloud-based speech recognition (requires API key)
+
+Switch between providers by setting `MODEL_PROVIDER` in your environment configuration.
 ---
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
-- **Node.js** 18.x or higher
-- **PostgreSQL** 12.x or higher
-- **npm** or **yarn** package manager
+- **Docker & Docker Compose** (Recommended)
+- **Node.js** 18.x or higher (for local development)
+- **PostgreSQL** 12.x or higher (managed via Docker)
+- **Python** 3.11 or higher (for python-backend)
 - **Git** for version control
+- **GPU** (Optional but recommended for local inference - CPU-only deployment supported)
 
 ### 1. Clone and Setup
 
@@ -22,73 +28,130 @@ Please use the main branch if you want to use cloud APIs for speech processing.
 # Clone the repository
 git clone <repository-url>
 cd whispey
-
-# Install dependencies
-npm install
-
-# Copy environment configuration
-cp .env.example .env.local
 ```
 
-### 2. Database Setup
+### 2. Choose Your Provider and Deploy
 
-The application uses PostgreSQL as its database. Follow these steps to set up the database:
-
-### 1. Install PostgreSQL
+**Option A: Quick Deploy with Helper Script (Recommended)**
 
 ```bash
-# Ubuntu/Debian
-sudo apt update
-sudo apt install postgresql postgresql-contrib
+# Run the deployment script
+./deploy.sh
 
-# macOS
-brew install postgresql@15
-
-# Start PostgreSQL service
-sudo systemctl start postgresql  # Linux
-brew services start postgresql@15  # macOS
+# The script will:
+# 1. Create .env.local if it doesn't exist
+# 2. Detect MODEL_PROVIDER setting
+# 3. Deploy appropriate services
+# 4. Show access URLs
 ```
 
-### 2. Run the Database Setup Script
+**Option B: Manual Configuration**
 
 ```bash
-# Switch to postgres user and run the setup script
+# Create environment configuration
+cat > .env.local << 'EOF'
+# Speech Processing Provider (local or sarvam)
+MODEL_PROVIDER=local
+
+# Sarvam API Key (only required if MODEL_PROVIDER=sarvam)
+SARVAM_API_KEY=your-sarvam-api-key-here
+
+# Frontend and Backend Ports
+APP_PORT=3003
+PYTHON_BACKEND_PORT=8000
+
+# Database credentials
+DB_USER=admin
+DB_PASSWORD=admin123
+DB_NAME=agent_evals
+
+# Security keys (CHANGE IN PRODUCTION!)
+JWT_SECRET=2c2c2e1e5e1491abe5d7e11233a047edf017e509b7b7bca236288e127df85711
+WHISPEY_MASTER_KEY=change-this-master-key
+VAPI_MASTER_KEY=change-this-vapi-key
+
+# Hugging Face Token (only required for local inference model downloads)
+HUGGING_FACE_TOKEN=your-huggingface-token-here
+EOF
+
+# Deploy based on provider
+# For local inference:
+docker compose --profile local up -d
+
+# For Sarvam API:
+docker compose up -d
+```
+
+### 2. Choose Your Deployment Method
+
+#### Option A: Docker Compose (Recommended)
+
+**Start all services:**
+```bash
+# Build and start all services
+docker-compose up -d
+
+# Check service status
+docker-compose ps
+
+# View logs
+docker-compose logs -f
+```
+
+**Services running:**
+- Frontend: http://localhost:3003
+- Python Backend: http://localhost:8000
+- Local Inference (if MODEL_PROVIDER=local): http://localhost:8005
+- PostgreSQL Database: localhost:5432
+
+**To use Sarvam API instead of local inference:**
+1. Edit `.env.local` and set `MODEL_PROVIDER=sarvam`
+2. Add your `SARVAM_API_KEY`
+3. Restart services: `docker-compose restart python-backend`
+
+#### Option B: Manual Setup (For Development)
+
+**Database Setup:**
+```bash
+# Install PostgreSQL
+sudo apt update && sudo apt install postgresql postgresql-contrib
+
+# Run database setup script
 sudo -u postgres psql -f setup-db.sql
 
-# Or run directly with postgres user
-psql -U postgres -f setup-db.sql
+# Verify connection
+psql -U admin -d agent_evals -h localhost -c "\dt"
 ```
 
-The script will:
-- Create database: `agent_evals`
-- Create user: `admin` with password: `admin123`
-- Set up all required tables, indexes, and functions
-- Create a default admin user for the application
-
-### 3. Update Environment Variables
-
-Update your `.env.local` file with the database credentials:
-
-```env
-# Database Configuration
-POSTGRES_USER=admin
-POSTGRES_PASSWORD=admin123
-POSTGRES_DB=agent_evals
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-
-# Connection String
-DATABASE_URL=postgresql://admin:admin123@localhost:5432/agent_evals
-```
-
-### 4. Verify Database Connection
-
+**Python Backend Setup:**
 ```bash
-# Test connection
-psql -U admin -d agent_evals -h localhost
+cd python-backend
 
-# List tables
-psql -U admin -d agent_evals -c "\dt"
+# Create virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Set environment variables
+export MODEL_PROVIDER=local
+export PYTHON_BACKEND_PORT=8000
+
+# Run the backend
+python3 app.py
+```
+
+**Frontend Setup:**
+```bash
+# Install Node.js dependencies
+npm install
+
+# Build the application
+npm run build
+
+# Start the frontend
+npm start
 ```
 
 ### Default Credentials
@@ -104,48 +167,67 @@ psql -U admin -d agent_evals -c "\dt"
 
 ⚠️ **Important:** Change these default passwords after first login in production!
 
-...existing code...
+### 3. Speech Processing Configuration
 
-### 3. Environment Configuration
+The application supports two speech processing providers:
 
-Edit `.env.local` file with your configuration:
+#### Local Inference (Open Source Models)
 
+**Advantages:**
+- Complete data privacy - no external API calls
+- No per-request costs
+- Customizable models
+
+**Requirements:**
+- Higher compute resources (GPU recommended)
+- Larger Docker image (~5GB with models)
+- Models downloaded on first run
+
+**Setup:**
 ```bash
-# Database Configuration
-POSTGRES_USER=admin
-POSTGRES_PASSWORD=admin123
-POSTGRES_DB=agent_evals
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-
-# JWT Secret (IMPORTANT: Change this in production!)
-JWT_SECRET=your-super-secure-jwt-secret-key-minimum-32-characters
-
-# API Keys
-WHISPEY_MASTER_KEY=your-unique-master-key
-VOICE_EVALS_MASTER_KEY=your-unique-voice-evals-key
-
-# OpenAI (Optional - for AI evaluations)
-OPENAI_API_KEY=your_openai_api_key_here
+# In .env.local
+MODEL_PROVIDER=local
+HUGGING_FACE_TOKEN=your-hf-token  # Optional: for downloading models
 ```
 
-### 4. Build and Start
+**Models Used:**
+- ASR: Fairseq-based models (Hindi, English, etc.)
+- Diarization: Custom speaker segmentation
+- Translation: Local translation models
 
+#### Sarvam API (Cloud-based)
+
+**Advantages:**
+- Lower resource requirements
+- Faster startup time
+- Always up-to-date models
+
+**Requirements:**
+- Internet connectivity
+- Sarvam API key
+- Per-request API costs
+
+**Setup:**
 ```bash
-## Install the packages
-npm install
+# In .env.local
+MODEL_PROVIDER=sarvam
+SARVAM_API_KEY=your-sarvam-api-key
 
-# Build the application
-npm run build
-
-# Start in production mode
-npm start
-
-# Or start in development mode
-npm run dev
+# Restart python-backend to apply
+docker-compose restart python-backend
 ```
 
-The application will be available at `http://localhost:3000`
+### 4. Access the Application
+
+Once all services are running:
+
+- **Frontend UI:** http://localhost:3003
+- **Backend API:** http://localhost:3000/api
+- **Python Backend:** http://localhost:8000
+- **Health Checks:**
+  - Frontend: http://localhost:3003/api/health
+  - Python Backend: http://localhost:8000/health
+  - Local Inference: http://localhost:8005/health (if using local mode)
 
 ## 🔐 Initial Login
 
@@ -155,25 +237,157 @@ The application will be available at `http://localhost:3000`
 
 **⚠️ IMPORTANT:** Change the default password immediately after first login!
 
-## 🏗️ Production Deployment
+## 🎯 Deployment Scenarios
 
-### Using Docker (Recommended)
+The system uses a **registry pattern** for clean provider switching. The `python-backend` service acts as a single gateway that routes to either local or cloud processing based on `MODEL_PROVIDER`.
 
-Create a docker image
-```
-docker build --build-arg http_proxy=$http_proxy --build-arg https_proxy=$https_proxy --build-arg HTTP_PROXY=$HTTP_PROXY --build-arg HTTP_PROXY=$HTTPS_PROXY -t voice_evals:latest .
-```
-
-Run the container 
-```
-docker run -d -p 3001:3000 -e http_proxy=$http_proxy -e https_proxy=$https_proxy -e HTTP_PROXY=$HTTP_PROXY -e HTTPS_PROXY=$HTTPS_PROXY --name voice-evals-ui voice_evals:latest
-```
-
-
-Deploy with Docker Compose:
+### Scenario 1: Deploy with Local Inference (Open Source Models)
 
 ```bash
+# Set provider in .env.local
+echo "MODEL_PROVIDER=local" >> .env.local
+
+# Start all services including local-inference
+docker-compose --profile local up -d
+
+# Verify services
+docker-compose ps
+
+# Services running:
+# - frontend (port 3003)
+# - python-backend (port 8000) 
+# - local-inference (port 8005)
+# - database (internal)
+```
+
+**Resource requirements:**
+- CPU: 4+ cores recommended
+- RAM: 8GB+ (16GB with GPU)
+- Disk: 10GB for models
+- GPU: Optional but 10-20x faster
+
+### Scenario 2: Deploy with Sarvam API (Cloud)
+
+```bash
+# Set provider and API key in .env.local
+cat >> .env.local << EOF
+MODEL_PROVIDER=sarvam
+SARVAM_API_KEY=your-actual-api-key-here
+EOF
+
+# Start services (no local-inference needed)
 docker-compose up -d
+
+# Verify services
+docker-compose ps
+
+# Services running:
+# - frontend (port 3003)
+# - python-backend (port 8000)
+# - database (internal)
+# Note: local-inference is NOT started (saves resources)
+```
+
+**Resource requirements:**
+- CPU: 2+ cores
+- RAM: 2GB+
+- Disk: 2GB
+- Internet: Required for API calls
+
+### Switching Between Providers
+
+The architecture supports hot-switching:
+
+```bash
+# Switch to local
+echo "MODEL_PROVIDER=local" > .env.local
+docker-compose --profile local up -d local-inference
+docker-compose restart python-backend
+
+# Switch to Sarvam
+echo "MODEL_PROVIDER=sarvam" > .env.local
+echo "SARVAM_API_KEY=your-key" >> .env.local
+docker-compose restart python-backend
+docker-compose stop local-inference  # Optional: save resources
+```
+
+No code changes needed—the registry handles provider selection at runtime.
+
+## 🏗️ Production Deployment
+
+### Using Docker Compose (Recommended)
+
+**Full deployment with all services:**
+
+```bash
+# Build all images
+docker-compose build
+
+# Start all services
+docker-compose up -d
+
+# View service status
+docker-compose ps
+
+# View logs
+docker-compose logs -f
+
+# Stop all services
+docker-compose down
+```
+
+**Services Architecture:**
+- `frontend` - Next.js UI (port 3003)
+- `python-backend` - FastAPI transcription gateway (port 8000)
+- `local-inference` - ML inference server (port 8005, optional)
+- `database` - PostgreSQL (port 5432, internal only)
+
+**Switching Between Local and Cloud Processing:**
+
+```bash
+# Switch to local inference
+# Edit .env.local: MODEL_PROVIDER=local
+docker-compose restart python-backend
+
+# Switch to Sarvam API
+# Edit .env.local: MODEL_PROVIDER=sarvam, add SARVAM_API_KEY
+docker-compose restart python-backend
+
+# Stop local-inference to save resources when using Sarvam
+docker-compose stop local-inference
+```
+
+### GPU Support for Local Inference
+
+To enable GPU acceleration for the local inference service:
+
+1. Install NVIDIA Docker runtime:
+```bash
+# Install nvidia-docker2
+distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
+curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | \
+  sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+sudo apt-get update && sudo apt-get install -y nvidia-docker2
+sudo systemctl restart docker
+```
+
+2. Uncomment GPU settings in `docker-compose.yaml`:
+```yaml
+local-inference:
+  # ...
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [gpu]
+```
+
+3. Restart the service:
+```bash
+docker-compose up -d local-inference
 ```
 
 ### Manual Production Setup
@@ -302,16 +516,19 @@ SELECT cleanup_expired_sessions();
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `POSTGRES_HOST` | PostgreSQL server host | localhost | Yes |
+| `MODEL_PROVIDER` | Speech provider (local/sarvam) | local | Yes |
+| `SARVAM_API_KEY` | Sarvam API key | - | If using sarvam |
+| `HUGGING_FACE_TOKEN` | HF token for model downloads | - | If using local |
+| `APP_PORT` | Frontend port | 3003 | No |
+| `PYTHON_BACKEND_PORT` | Backend API port | 8000 | No |
+| `POSTGRES_HOST` | PostgreSQL server host | database | Yes |
 | `POSTGRES_PORT` | PostgreSQL server port | 5432 | Yes |
-| `POSTGRES_DATABASE` | Database name | whispey | Yes |
-| `POSTGRES_USER` | Database username | postgres | Yes |
-| `POSTGRES_PASSWORD` | Database password | - | Yes |
+| `POSTGRES_DATABASE` | Database name | agent_evals | Yes |
+| `POSTGRES_USER` | Database username | admin | Yes |
+| `POSTGRES_PASSWORD` | Database password | admin123 | Yes |
 | `JWT_SECRET` | JWT signing secret | - | Yes |
 | `WHISPEY_MASTER_KEY` | Master API key | - | Yes |
-| `OPENAI_API_KEY` | OpenAI API key | - | No |
-| `SESSION_TIMEOUT_HOURS` | Session timeout | 24 | No |
-| `LOG_LEVEL` | Logging level | info | No |
+| `VAPI_MASTER_KEY` | VAPI Master key | - | Yes |
 
 ### Security Configuration
 
@@ -378,21 +595,105 @@ curl http://localhost:3000/api/health
 ### Common Issues
 
 1. **Database Connection Failed**
-   - Check PostgreSQL is running: `sudo systemctl status postgresql`
-   - Verify credentials in `.env.local`
-   - Check network connectivity
+   ```bash
+   # Check database container
+   docker-compose logs database
+   
+   # Verify database is healthy
+   docker-compose ps database
+   
+   # Test connection
+   docker-compose exec database psql -U admin -d agent_evals -c "\dt"
+   ```
 
-2. **JWT Token Errors**
-   - Verify JWT_SECRET is set and consistent
-   - Check token expiration settings
+2. **Python Backend Errors**
+   ```bash
+   # Check backend logs
+   docker-compose logs python-backend
+   
+   # Common issue: No module 'registry' found
+   # Solution: Ensure app.py uses absolute import (from registry import ...)
+   
+   # Restart backend
+   docker-compose restart python-backend
+   ```
 
-3. **Permission Denied**
-   - Check file permissions: `chmod +x start.sh`
-   - Verify user has access to required directories
+3. **Local Inference Connection Errors**
+   ```bash
+   # Check if local-inference service is running
+   docker-compose ps local-inference
+   
+   # View inference logs
+   docker-compose logs -f local-inference
+   
+   # If using MODEL_PROVIDER=local but service isn't running:
+   docker-compose up -d local-inference
+   
+   # Wait for models to download (first run only)
+   # This can take 5-10 minutes
+   ```
 
-4. **Port Already in Use**
-   - Check running processes: `lsof -i :3000`
-   - Change port in configuration if needed
+4. **Frontend Not Accessible**
+   ```bash
+   # Check frontend logs
+   docker-compose logs frontend
+   
+   # Verify port mapping (should be 3003:3000)
+   docker-compose ps frontend
+   
+   # Access at http://localhost:3003 (not 3000!)
+   curl http://localhost:3003/api/health
+   ```
+
+5. **Import/Module Errors in Python Backend**
+   ```bash
+   # Rebuild python-backend image
+   docker-compose build python-backend
+   docker-compose up -d python-backend
+   
+   # Check for relative import issues
+   # Fix: Change "from .registry" to "from registry" in app.py
+   ```
+
+6. **Model Download Failures (Local Inference)**
+   ```bash
+   # Check if HuggingFace token is set (if required)
+   docker-compose exec local-inference env | grep HUGGING_FACE_TOKEN
+   
+   # Check disk space for model downloads
+   df -h
+   
+   # View download progress
+   docker-compose logs -f local-inference
+   ```
+
+7. **Port Already in Use**
+   ```bash
+   # Check running processes
+   lsof -i :3003  # Frontend
+   lsof -i :8000  # Python backend
+   lsof -i :8005  # Local inference
+   
+   # Change ports in .env.local if needed
+   APP_PORT=3004
+   PYTHON_BACKEND_PORT=8001
+   ```
+
+8. **Transcription Errors**
+   ```bash
+   # Verify MODEL_PROVIDER setting
+   docker-compose exec python-backend env | grep MODEL_PROVIDER
+   
+   # If using sarvam, check API key
+   docker-compose exec python-backend env | grep SARVAM_API_KEY
+   
+   # Test backend health
+   curl http://localhost:8000/health
+   
+   # Test transcription endpoint
+   curl -X POST http://localhost:8000/transcribe \
+     -F "file=@/path/to/audio.wav"
+   ```
 
 ### Performance Optimization
 
@@ -410,6 +711,196 @@ curl http://localhost:3000/api/health
    - Increase Node.js memory limit: `--max-old-space-size=4096`
    - Enable gzip compression in Nginx
    - Use Redis for session storage (optional)
+
+3. **Local Inference Optimization**
+   - Use GPU for 10-20x faster inference
+   - Adjust batch size in model configurations
+   - Pre-download models before production deployment
+   - Consider model quantization for faster inference
+
+## 🧪 Testing Your Setup
+
+### Test Python Backend
+
+```bash
+# Install test dependencies
+cd python-backend
+pip install -r test_requirements.txt
+
+# Run tests
+python3 test_services.py
+
+# Or test inside Docker
+docker-compose exec python-backend python3 test_services.py
+```
+
+### Test Transcription Pipeline
+
+```bash
+# Test with a sample audio file
+curl -X POST http://localhost:8000/transcribe \
+  -F "file=@/path/to/sample.wav" \
+  | jq '.'
+
+# Expected response:
+# {
+#   "success": true,
+#   "transcript": {
+#     "turns": [...],
+#     "metadata": {...}
+#   }
+# }
+```
+
+### Test Local Inference Endpoints
+
+```bash
+# Health check
+curl http://localhost:8005/health
+
+# Test preprocessing endpoint
+curl -X POST http://localhost:8005/v1/preprocess/ \
+  -F "file=@sample.wav"
+
+# Test transcription endpoint
+curl -X POST http://localhost:8005/v1/audio/ \
+  -F "file=@sample.wav" \
+  -F "diarized_input=[]"
+
+# Test translation endpoint
+curl -X POST http://localhost:8005/v1/translate/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sentences": ["नमस्ते"],
+    "source_language": "hi-IN",
+    "target_language": "en-IN"
+  }'
+```
+
+## 🏛️ Architecture Overview
+
+### System Components
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         User Browser                         │
+└────────────────────────┬────────────────────────────────────┘
+                         │ HTTP :3003
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    Next.js Frontend                          │
+│                  (voiceharness-frontend)                     │
+└────────────┬───────────────────────────────┬────────────────┘
+             │                               │
+             │ API Calls                     │ DB Queries
+             ▼                               ▼
+┌────────────────────────┐      ┌────────────────────────────┐
+│   Python Backend       │      │    PostgreSQL Database     │
+│ (voiceharness-python-  │      │  (voiceharness-database)   │
+│       backend)         │      │                            │
+│   Port: 8000           │      │    Port: 5432 (internal)   │
+└──────────┬─────────────┘      └────────────────────────────┘
+           │
+           │ /transcribe requests
+           │ (routes to provider)
+           │
+    ┌──────┴───────┐
+    │              │
+    ▼              ▼
+┌─────────┐  ┌──────────────────┐
+│ Sarvam  │  │ Local Inference  │
+│   API   │  │     Server       │
+│(Cloud)  │  │  Port: 8005      │
+└─────────┘  └──────────────────┘
+             (voiceharness-local-inference)
+```
+
+### Data Flow
+
+1. **User uploads audio** → Frontend (Next.js)
+2. **Frontend sends audio** → Python Backend `/transcribe`
+3. **Python Backend** (Single Gateway):
+   - Converts audio to WAV 16kHz mono (ffmpeg)
+   - Uses **Registry Pattern** to load provider function at startup
+   - Routes to appropriate provider based on `MODEL_PROVIDER`
+4. **Speech Processing** (Provider-specific):
+   - **Local**: Calls local-inference service endpoints
+     - `/v1/preprocess/` - Diarization & language detection
+     - `/v1/audio/` - Transcription generation
+     - `/v1/translate/` - Translation (if needed)
+   - **Sarvam**: Calls Sarvam cloud API
+5. **Results returned** → Frontend displays transcription
+
+### Design Benefits
+
+**Registry Pattern Implementation:**
+
+```python
+# registry.py - Clean provider abstraction
+MODEL_REGISTRY = {
+    "local": {
+        "transcribe_audio": transcribe_audio_local,
+        "translate_text": translate_text_local
+    },
+    "sarvam": {
+        "transcribe_audio": transcribe_audio_sarvam,
+        "translate_text": translate_text_sarvam
+    }
+}
+
+# app.py - Single entry point
+transcribe_audio_fn = get_model_provider(os.getenv('MODEL_PROVIDER'))
+```
+
+**Benefits:**
+- ✅ **Single Deployment**: One `python-backend` service handles both providers
+- ✅ **Runtime Switching**: Change provider via env var, no code changes
+- ✅ **Clean Abstraction**: Providers implement same interface
+- ✅ **Easy Extension**: Add new providers by implementing the interface
+- ✅ **Resource Efficiency**: Only run services you need
+- ✅ **Consistent API**: Frontend code unchanged regardless of provider
+
+### File Structure
+
+```
+whispey/
+├── docker-compose.yaml          # Multi-service orchestration
+├── Dockerfile                   # Frontend container
+├── .env.local                   # Environment configuration
+├── README_ONPREM.md            # This file
+├── setup-db.sql                # Database initialization
+│
+├── python-backend/
+│   ├── app.py                  # Main FastAPI app (port 8000)
+│   ├── registry.py             # Provider registry
+│   ├── Dockerfile              # Multi-stage: gateway + inference
+│   │                           # (Builds both services from one file!)
+│   ├── requirements.txt        # Python dependencies
+│   │
+│   ├── providers/              # Speech provider implementations
+│   │   ├── local.py           # Local inference client
+│   │   └── sarvam.py          # Sarvam API client
+│   │
+│   ├── routes/v1/             # Local inference API routes
+│   │   ├── main.py            # Inference server entry (port 8005)
+│   │   ├── preprocess.py      # Diarization endpoint
+│   │   ├── transcribe.py      # ASR endpoint
+│   │   └── translate.py       # Translation endpoint
+│   │
+│   └── services/              # ML model services
+│       ├── asr/               # Automatic Speech Recognition
+│       │   ├── engine.py      # ASR model (Fairseq)
+│       │   └── utilities.py   # Model download helpers
+│       ├── preprocess/        # Audio preprocessing & diarization
+│       │   └── core.py
+│       └── translate/         # Translation models
+│           ├── engine.py
+│           └── languages.py
+│
+└── src/                       # Next.js frontend source
+    └── app/
+        └── api/               # API routes
+```
 
 ## 📈 Scaling
 
