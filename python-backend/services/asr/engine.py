@@ -29,7 +29,7 @@ class AudioToText:
         batch_size: int = 1,
         dtype="bfloat16",
         sample_rate: int = 16000,
-        max_audio_length: int = 30, 
+        max_audio_length: int = 60, 
     ):
         self.sample_rate = sample_rate
         self.max_audio_length = max_audio_length        # In seconds
@@ -79,6 +79,7 @@ class AudioToText:
         for turn in diarization_results:
             start_stamp = int(float(turn['start']) * self.sample_rate)
             end_stamp = int(float(turn['end']) * self.sample_rate)
+            logger.info(f"Processing turn: {turn['speaker']} [{turn['start']:.2f} - {turn['end']:.2f}] with audio segment length: {(end_stamp - start_stamp) / self.sample_rate:.2f} seconds")
             turn_audio = audio_processed[:, start_stamp:end_stamp]
             padded_turn_audio = self._pad_audio(turn_audio.squeeze())
             audio_segments.append(torch.tensor(padded_turn_audio, dtype=torch.float32))

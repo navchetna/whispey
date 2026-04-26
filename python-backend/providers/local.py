@@ -147,8 +147,11 @@ async def translate_text_local(text: str, source_language: str, target_language:
 async def format_diarization_results(diarization_output: list, language: str, request_id: str = None):
     """
     Formatting the diarization results into a structured format.
+    Applies fallback for turns longer than 60 seconds.
     """
+    MAX_TURN_DURATION_SECONDS = 60
     turns = []
+    skipped_turns = 0
     agent_speaker = diarization_output[0]['speaker'] if diarization_output else "SPEAKER_00"
 
     if request_id:
@@ -158,6 +161,7 @@ async def format_diarization_results(diarization_output: list, language: str, re
         speaker_id = entry['speaker']
         start_time = entry['start']
         end_time = entry['end']
+        turn_duration = round(end_time - start_time, 2)
 
         transcript = entry.get('transcript', '')
 
@@ -170,7 +174,33 @@ async def format_diarization_results(diarization_output: list, language: str, re
             if latency < 0:
                 latency = 0
 
-        # Get the translated text
+        # Check turn duration - apply fallback if > 60 seconds
+        if turn_duration > MAX_TURN_DURATION_SECONDS:
+            skipped_turns += 1
+            fallback_reason = f"Failed to generate transcription: Turn duration ({turn_duration}s) exceeds maximum allowed ({MAX_TURN_DURATION_SECONDS}s)"
+
+            if request_id:
+                log_request_step(
+                    logger, request_id, "TURN_SKIPPED",
+                    f"Segment {i+1}: {fallback_reason}"
+                )
+            else:
+                logger.warning(f"⚠️ SKIPPED Turn {i+1}: {fallback_reason}")
+
+            # Add turn with fallback - same schema for DB
+            turns.append({
+                'role': 'agent' if speaker_id == agent_speaker else 'user',
+                'start_time': start_time,
+                'end_time': end_time,
+                'content': transcript if transcript else f"[{fallback_reason}]",
+                'translated_text': f"[{fallback_reason}]",
+                'duration': turn_duration,
+                'cost': None,
+                'latency': latency
+            })
+            continue
+
+        # Process valid turns normally
         if request_id and i == 0:
             log_request_step(logger, request_id, "TRANSLATE_SEND", f"Sending segment {i+1} to translation service")
 
@@ -191,13 +221,19 @@ async def format_diarization_results(diarization_output: list, language: str, re
             'end_time': end_time,
             'content': transcript,
             'translated_text': translated_transcript,
-            'duration': round(end_time - start_time),
+            'duration': turn_duration,
             'cost': None,
             'latency': latency
         })
 
     total_duration = max([t['end_time'] for t in turns]) if turns else 0
     speakers = list(set([t['role'] for t in turns]))
+
+    if request_id and skipped_turns > 0:
+        log_request_step(
+            logger, request_id, "TURNS_SKIPPED_SUMMARY",
+            f"{skipped_turns}/{len(diarization_output)} turns skipped (duration > 60s)"
+        )
 
     return {
         "turns": turns,
@@ -206,7 +242,8 @@ async def format_diarization_results(diarization_output: list, language: str, re
             "total_duration": round(total_duration, 2),
             "speakers": speakers,
             "language": language,
-            "model": "local"
+            "model": "local",
+            "skipped_turns": skipped_turns
         }
     }
 
