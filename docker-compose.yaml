@@ -113,7 +113,7 @@ services:
     networks:
       - agent-evals
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -142,7 +142,7 @@ services:
     networks:
       - agent-evals
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8002/health || exit 1"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -171,7 +171,7 @@ services:
     networks:
       - agent-evals
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8003/health || exit 1"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
       interval: 30s
       timeout: 10s
       retries: 5
