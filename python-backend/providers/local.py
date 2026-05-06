@@ -19,6 +19,7 @@ async def transcribe_audio_local(audio_file_path: str):
     """
     request_id = generate_request_id()
     log_request_step(logger, request_id, "REQUEST_START", f"Audio file: {audio_file_path}")
+    timeout = aiohttp.ClientTimeout(total=600)
 
     try:
         URL = os.getenv("LOCAL_PREPROCESS_API_URL", "http://asr-preprocess:8002/v1/preprocess/")
@@ -26,7 +27,7 @@ async def transcribe_audio_local(audio_file_path: str):
 
         logger.info(f"Using local inference server: {URL}")
 
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             with open(audio_file_path, 'rb') as f:
                 audio_data = f.read()
                 form = aiohttp.FormData()
@@ -111,9 +112,10 @@ async def transcribe_audio_local(audio_file_path: str):
             
 async def translate_text_local(text: str, source_language: str, target_language: str = "en-IN", request_id: str = None):
     URL = os.getenv("LOCAL_TRANSLATION_API_URL", "http://asr-translate:8003/v1/translate/")
+    timeout = aiohttp.ClientTimeout(total=120)
 
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             payload = {
                 "sentences": [text],
                 "source_language": source_language,
