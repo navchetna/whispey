@@ -137,10 +137,14 @@ services:
     environment:
       - PORT=8002
       - HF_TOKEN=${HF_TOKEN}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
     ports:
       - "8002:8002"
     networks:
       - agent-evals
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
       interval: 30s
@@ -166,10 +170,14 @@ services:
     environment:
       - PORT=8003
       - HF_TOKEN=${HF_TOKEN}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
     ports:
       - "8003:8003"
     networks:
       - agent-evals
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
       interval: 30s
