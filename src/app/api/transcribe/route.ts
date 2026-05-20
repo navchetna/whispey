@@ -130,7 +130,7 @@ async function callPythonBackend(file: File | Blob, backendUrl: string, maxRetri
 
       // Build multipart form-data
       const formData = new FormData();
-      formData.append('audio_file', file);  // name must match your Python endpoint
+      formData.append('file', file);  // name must match Python endpoint parameter
 
       const response = await fetch(`${backendUrl}/transcribe`, {
         method: 'POST',

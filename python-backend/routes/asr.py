@@ -1,9 +1,10 @@
 """
 ASR Route
 
-Calls vLLM server directly with language context
+Calls vLLM server using chat completions endpoint with base64-encoded audio
 """
 import os
+import base64
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel
 from openai import AsyncOpenAI
@@ -17,6 +18,7 @@ router = APIRouter(tags=["asr"])
 # vLLM client configuration
 VLLM_ASR_BASE_URL = os.getenv("VLLM_ASR_BASE_URL", "http://asr-vllm:8002/v1")
 VLLM_ASR_API_KEY = os.getenv("VLLM_ASR_API_KEY", "token-abc123")
+TRANSCRIPTION_PROMPT = os.getenv("TRANSCRIPTION_PROMPT", "Transcribe the speech into written text:")
 
 # Initialize OpenAI client for vLLM
 vllm_client = AsyncOpenAI(
@@ -28,6 +30,11 @@ vllm_client = AsyncOpenAI(
 class ASRResponse(BaseModel):
     text: str
     request_id: str | None = None
+
+
+def encode_audio_base64(audio_bytes: bytes) -> str:
+    """Encode audio bytes to base64 format."""
+    return base64.b64encode(audio_bytes).decode("utf-8")
 
 
 @router.post("/transcribe", response_model=ASRResponse)
@@ -60,19 +67,46 @@ async def transcribe_audio(
 
         log_request(request_id, "asr", "processing", size=len(audio_bytes), language=language or "auto")
 
-        # Build language context for better accuracy
-        language_code = None
-        if language:
-            language_code = language.lower()[:2]  # ISO code (e.g., "hi", "en")
+        # Encode audio to base64
+        audio_base64 = encode_audio_base64(audio_bytes)
 
-        # Call vLLM server
-        response = await vllm_client.audio.transcriptions.create(
-            model="whisper-1",  # vLLM compatible model name
-            file=(file.filename or "audio.wav", audio_bytes, "audio/wav"),
-            language=language_code
+        # Determine audio format from filename
+        audio_format = "wav"
+        if file.filename:
+            ext = file.filename.lower().split('.')[-1]
+            if ext in ['mp3', 'ogg', 'flac', 'wav', 'm4a']:
+                audio_format = ext
+
+        # Build transcription prompt with language context
+        # Use custom prompt from environment variable, optionally with language context
+        if language and "{language}" in TRANSCRIPTION_PROMPT:
+            prompt = TRANSCRIPTION_PROMPT.replace("{language}", language)
+        else:
+            prompt = TRANSCRIPTION_PROMPT
+
+        # Call vLLM server using chat completions endpoint
+        response = await vllm_client.chat.completions.create(
+            model="ibm-granite/granite-speech-4.1-2b",
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": prompt
+                    },
+                    {
+                        "type": "audio_url",
+                        "audio_url": {
+                            "url": f"data:audio/{audio_format};base64,{audio_base64}"
+                        },
+                    },
+                ],
+            }],
+            temperature=0.0,
+            max_tokens=512,
         )
 
-        text = response.text.strip()
+        text = response.choices[0].message.content.strip()
 
         log_request(request_id, "asr", "complete", chars=len(text))
 

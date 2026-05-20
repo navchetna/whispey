@@ -5,6 +5,7 @@ Main pipeline orchestration with centralized logging
 """
 import os
 import io
+import base64
 import asyncio
 import tempfile
 import soundfile as sf
@@ -91,6 +92,10 @@ async def _execute_pipeline(request_id: str, audio_file_path: str) -> dict:
     Returns:
         dict: Pipeline result
     """
+    # Get transcription prompt from environment
+    TRANSCRIPTION_PROMPT = os.getenv("TRANSCRIPTION_PROMPT", "Transcribe the speech into written text:")
+    VLLM_TRANSLATE_MODEL = os.getenv("VLLM_TRANSLATE_MODEL", "google/gemma-3-4b-it")
+
     try:
         # Import services
         from routes.diarization import diarizer as global_diarizer
@@ -154,13 +159,39 @@ async def _execute_pipeline(request_id: str, audio_file_path: str) -> dict:
                 log_request(request_id, "asr", "segment_start", segment=i,
                            start=segment['start'], end=segment['end'])
 
-                # Call vLLM ASR
-                response = await asr_client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=("segment.wav", segment_bytes.read(), "audio/wav"),
-                    language=language_iso
+                # Encode audio to base64
+                audio_data = segment_bytes.read()
+                audio_base64 = base64.b64encode(audio_data).decode("utf-8")
+
+                # Build transcription prompt with language context
+                # Use custom prompt from environment variable, optionally with language context
+                if language_name and language_name != "Unknown" and "{language}" in TRANSCRIPTION_PROMPT:
+                    prompt = TRANSCRIPTION_PROMPT.replace("{language}", language_name)
+                else:
+                    prompt = TRANSCRIPTION_PROMPT
+
+                # Call vLLM ASR using chat completions
+                response = await asr_client.chat.completions.create(
+                    model="ibm-granite/granite-speech-4.1-2b",
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": prompt
+                            },
+                            {
+                                "type": "audio_url",
+                                "audio_url": {
+                                    "url": f"data:audio/wav;base64,{audio_base64}"
+                                },
+                            },
+                        ],
+                    }],
+                    temperature=0.0,
+                    max_tokens=512,
                 )
-                transcript = response.text.strip()
+                transcript = response.choices[0].message.content.strip()
 
                 log_request(request_id, "asr", "segment_complete", segment=i,
                            chars=len(transcript))
@@ -207,7 +238,7 @@ Translation:"""
 
                     # Call vLLM translation
                     response = await translate_client.chat.completions.create(
-                        model="gpt-3.5-turbo",
+                        model=VLLM_TRANSLATE_MODEL,
                         messages=[
                             {
                                 "role": "system",

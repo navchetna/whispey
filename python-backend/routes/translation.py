@@ -17,6 +17,7 @@ router = APIRouter(tags=["translation"])
 # vLLM client configuration
 VLLM_TRANSLATE_BASE_URL = os.getenv("VLLM_TRANSLATE_BASE_URL", "http://translate-vllm:8005/v1")
 VLLM_TRANSLATE_API_KEY = os.getenv("VLLM_TRANSLATE_API_KEY", "token-abc123")
+VLLM_TRANSLATE_MODEL = os.getenv("VLLM_TRANSLATE_MODEL", "google/gemma-3-4b-it")
 
 # Initialize OpenAI client for vLLM
 vllm_client = AsyncOpenAI(
@@ -75,7 +76,7 @@ Translation:"""
 
         # Call vLLM server
         response = await vllm_client.chat.completions.create(
-            model="gpt-3.5-turbo",  # vLLM compatible model name
+            model=VLLM_TRANSLATE_MODEL,
             messages=[
                 {
                     "role": "system",

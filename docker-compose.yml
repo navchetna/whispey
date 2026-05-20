@@ -40,17 +40,19 @@ services:
       - POSTGRES_USER=${DB_USER:-admin}
       - POSTGRES_PASSWORD=${DB_PASSWORD:-admin123}
       - POSTGRES_SSL=false
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3000/api/}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3005/api/}
       - JWT_SECRET=${JWT_SECRET:-2c2c2e1e5e1491abe5d7e11233a047edf017e509b7b7bca236288e127df85711}
       - WHISPEY_MASTER_KEY=${WHISPEY_MASTER_KEY:-change-this-master-key}
       - VAPI_MASTER_KEY=${VAPI_MASTER_KEY:-change-this-vapi-key}
       - PYTHON_BACKEND_URL=http://gateway:8010
     ports:
-      - "${APP_PORT:-3000}:3000"
+      - "${APP_PORT:-3005}:3000"
     volumes:
       - audios:/app/audios
     depends_on:
       database:
+        condition: service_healthy
+      gateway:
         condition: service_healthy
     networks:
       - whispey
@@ -59,7 +61,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 60s
 
   # Gateway - FastAPI with Diarization & Language ID
   gateway:
@@ -75,7 +77,9 @@ services:
       - VLLM_ASR_API_KEY=token-abc123
       - VLLM_TRANSLATE_BASE_URL=http://translate-vllm:8005/v1
       - VLLM_TRANSLATE_API_KEY=token-abc123
+      - VLLM_TRANSLATE_MODEL=google/gemma-3-4b-it
       - TARGET_LANGUAGE=${TARGET_LANGUAGE:-English}
+      - TRANSCRIPTION_PROMPT=${TRANSCRIPTION_PROMPT:-can you transcribe the speech into a written format?}
       - HF_TOKEN=${HF_TOKEN}
     ports:
       - "${PYTHON_BACKEND_PORT:-8010}:8010"
@@ -101,7 +105,10 @@ services:
 
   # ASR vLLM Server
   asr-vllm:
-    image: vllm/vllm-openai-cpu:v0.19.0
+    build:
+      context: ./python-backend
+      dockerfile: Dockerfile.ASR
+    image: whispey-asr-vllm:latest
     container_name: whispey-asr-vllm
     restart: unless-stopped
     command: >
@@ -115,7 +122,7 @@ services:
     environment:
       - VLLM_CPU_OMP_THREADS_BIND=128-159
       - OMP_NUM_THREADS=32
-      - VLLM_CPU_SGL_KERNEL=1
+      - VLLM_CPU_SGL_KERNEL=0
       - HF_TOKEN=${HF_TOKEN}
     volumes:
       - ~/.cache/huggingface:/root/.cache/huggingface
@@ -139,7 +146,7 @@ services:
     container_name: whispey-translate-vllm
     restart: unless-stopped
     command: >
-      --model google/gemma-2-2b-it
+      --model google/gemma-3-4b-it
       --port 8005
       --max-model-len 2048
       --max-num-seqs 128
