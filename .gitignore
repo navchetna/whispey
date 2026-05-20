@@ -57,6 +57,7 @@ audios/
 transcription_outputs/
 __pycache__/
 *.pyc
+.pytest_cache/
 
 # Environment
 venv/

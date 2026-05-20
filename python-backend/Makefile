@@ -1,181 +1,175 @@
-.PHONY: help setup build run stop clean test local docker-setup non-docker-setup
+.PHONY: help setup build run stop clean test health-check logs
 
 # Default target
 help:
 	@echo "Whispey Python Backend - Available Commands:"
 	@echo ""
 	@echo "Docker Mode:"
-	@echo "  make docker-setup      - Setup and run all services with Docker"
+	@echo "  make setup            - Setup and run all services with Docker"
 	@echo "  make build            - Build all Docker images"
 	@echo "  make build-gateway    - Build gateway service only"
-	@echo "  make build-asr        - Build ASR service only"
-	@echo "  make build-preprocess - Build preprocessing service only"
-	@echo "  make build-translate  - Build translation service only"
-	@echo "  make run              - Start all services with Docker"
-	@echo "  make run-local        - Start with local inference services"
+	@echo "  make run              - Start all services"
 	@echo "  make stop             - Stop all services"
 	@echo "  make logs             - View logs from all services"
+	@echo "  make logs-gateway     - View gateway logs"
+	@echo "  make logs-asr-vllm    - View ASR vLLM logs"
+	@echo "  make logs-translate   - View Translation vLLM logs"
 	@echo "  make clean            - Remove containers and volumes"
 	@echo ""
-	@echo "Non-Docker Mode:"
-	@echo "  make non-docker-setup - Install dependencies locally"
-	@echo "  make run-gateway-local     - Run gateway locally (requires services running)"
-	@echo "  make run-asr-local         - Run ASR service locally"
-	@echo "  make run-preprocess-local  - Run preprocessing service locally"
-	@echo "  make run-translate-local   - Run translation service locally"
-	@echo ""
 	@echo "Testing:"
-	@echo "  make test             - Run all tests"
+	@echo "  make test             - Run all service tests"
 	@echo "  make health-check     - Check health of all services"
+	@echo "  make test-pipeline    - Test full transcription pipeline"
+	@echo ""
+	@echo "Development:"
+	@echo "  make ps               - Show running services"
+	@echo "  make restart          - Restart all services"
+	@echo "  make restart-gateway  - Restart gateway only"
 
 # =============================================================================
 # Docker Mode
 # =============================================================================
 
-docker-setup: build run-local
+setup: build run
 	@echo "✓ Docker setup complete! Services are starting..."
-	@echo "  Gateway:      http://localhost:8000"
-	@echo "  ASR:          http://localhost:8001"
-	@echo "  Preprocessing: http://localhost:8002"
-	@echo "  Translation:  http://localhost:8003"
+	@echo "  Gateway:              http://localhost:8000"
+	@echo "  ASR vLLM:             http://localhost:8002"
+	@echo "  Translation vLLM:     http://localhost:8005"
 
 build:
 	@echo "Building all Docker images..."
-	docker compose --profile local build
+	docker compose build
 
 build-gateway:
 	@echo "Building gateway service..."
-	docker compose build python-backend
-
-build-transcribe:
-	@echo "Building transcription service..."
-	docker compose build transcribe
-
-build-preprocess:
-	@echo "Building preprocessing service..."
-	docker compose build preprocess
-
-build-translate:
-	@echo "Building translation service..."
-	docker compose build translate
+	docker compose build gateway
 
 run:
-	@echo "Starting services (gateway only, Sarvam API)..."
-	docker compose up -d python-backend
-
-run-local:
-	@echo "Starting all services (local inference)..."
-	docker compose --profile local up -d
+	@echo "Starting all services..."
+	docker compose up -d
+	@echo "Waiting for services to start..."
+	@sleep 5
+	@echo "Services started. Check logs with 'make logs'"
 
 stop:
 	@echo "Stopping all services..."
-	docker compose --profile local down
+	docker compose down
 
 logs:
 	@echo "Showing logs (Ctrl+C to exit)..."
-	docker compose --profile local logs -f
+	docker compose logs -f
 
 logs-gateway:
-	docker compose logs -f python-backend
+	@echo "Showing gateway logs..."
+	docker compose logs -f gateway
 
-logs-transcribe:
-	docker compose logs -f transcribe
-
-logs-preprocess:
-	docker compose logs -f preprocess
+logs-asr-vllm:
+	@echo "Showing ASR vLLM logs..."
+	docker compose logs -f asr-vllm
 
 logs-translate:
-	docker compose logs -f translate
+	@echo "Showing Translation vLLM logs..."
+	docker compose logs -f translate-vllm
 
 clean:
 	@echo "Removing containers and volumes..."
-	docker compose --profile local down -v
+	docker compose down -v
 	@echo "Removing images..."
-	docker rmi -f python-backend:latest transcribe:latest preprocess:latest translate:latest 2>/dev/null || true
-
-health-check:
-	@echo "Checking service health..."
-	@echo -n "Gateway:        "; curl -sf http://localhost:8000/health && echo "✓ OK" || echo "✗ FAILED"
-	@echo -n "Transcribe:     "; curl -sf http://localhost:8001/health && echo "✓ OK" || echo "✗ FAILED"
-	@echo -n "Preprocess:     "; curl -sf http://localhost:8002/health && echo "✓ OK" || echo "✗ FAILED"
-	@echo -n "Translate:      "; curl -sf http://localhost:8003/health && echo "✓ OK" || echo "✗ FAILED"
-
-# =============================================================================
-# Non-Docker Mode
-# =============================================================================
-
-non-docker-setup:
-	@echo "Setting up local development environment..."
-	@echo "Installing gateway dependencies..."
-	pip install -r gateway-requirements.txt
-	@echo "Installing ASR dependencies..."
-	pip install -r services/asr/requirements.txt
-	@echo "Installing preprocessing dependencies..."
-	pip install -r services/preprocess/requirements.txt
-	@echo "Installing translation dependencies..."
-	pip install -r services/translate/requirements.txt
-	@echo "✓ Setup complete! Create models directory if needed:"
-	@echo "  mkdir -p models"
-
-run-gateway-local:
-	@echo "Starting gateway on port 8000..."
-	PYTHON_BACKEND_PORT=8000 MODEL_PROVIDER=local \
-	LOCAL_PREPROCESS_API_URL=http://localhost:8002/v1/preprocess/ \
-	LOCAL_TRANSCRIPTION_API_URL=http://localhost:8001/v1/audio/ \
-	LOCAL_TRANSLATION_API_URL=http://localhost:8003/v1/translate/ \
-	python3 app.py
-
-run-asr-local:
-	@echo "Starting ASR service on port 8001..."
-	cd services/asr && \
-	PORT=8001 MODEL_PATH=../../models LANGUAGE=hindi \
-	python3 server.py
-
-run-preprocess-local:
-	@echo "Starting preprocessing service on port 8002..."
-	cd services/preprocess && \
-	PORT=8002 python3 server.py
-
-run-translate-local:
-	@echo "Starting translation service on port 8003..."
-	cd services/translate && \
-	PORT=8003 python3 server.py
+	docker rmi -f whispey-gateway:latest 2>/dev/null || true
 
 # =============================================================================
 # Testing
 # =============================================================================
 
-test:
-	@echo "Running tests..."
-	python3 test_services.py
+health-check:
+	@echo "Checking service health..."
+	@echo -n "Gateway:            "; curl -sf http://localhost:8000/health && echo "✓ OK" || echo "✗ FAILED"
+	@echo -n "ASR vLLM:           "; curl -sf http://localhost:8002/health && echo "✓ OK" || echo "✗ FAILED"
+	@echo -n "Translation vLLM:   "; curl -sf http://localhost:8005/health && echo "✓ OK" || echo "✗ FAILED"
 
-test-gateway:
-	@echo "Testing gateway..."
-	curl -X GET http://localhost:8000/health
+# Install test dependencies
+install-test-deps:
+	@echo "Installing test dependencies..."
+	pip install -r tests/requirements.txt
+	@echo "✓ Test dependencies installed"
+
+# Run pytest test suite
+test: install-test-deps
+	@echo "Running pytest test suite..."
+	pytest tests/ -v
+
+# Run tests with coverage
+test-coverage:
+	@echo "Running tests with coverage..."
+	pytest tests/ -v --cov=. --cov-report=html --cov-report=term
+	@echo "Coverage report generated in htmlcov/"
+
+# Run specific test files
+test-diarization:
+	@echo "Testing diarization service..."
+	pytest tests/test_diarization.py -v
+
+test-language-id:
+	@echo "Testing language ID service..."
+	pytest tests/test_language_id.py -v
 
 test-asr:
 	@echo "Testing ASR service..."
-	curl -X GET http://localhost:8001/health
+	pytest tests/test_asr.py -v
+
+test-translation:
+	@echo "Testing translation service..."
+	pytest tests/test_translation.py -v
+
+test-pipeline:
+	@echo "Testing complete pipeline..."
+	pytest tests/test_pipeline.py -v
+
+test-health:
+	@echo "Testing health endpoints..."
+	pytest tests/test_health.py -v
+
+# Quick smoke test
+smoke-test: health-check
+	@echo ""
+	@echo "Running smoke tests..."
+	@echo "Testing root endpoint..."
+	@curl -sf http://localhost:8000/ > /dev/null && echo "✓ Root endpoint OK" || echo "✗ Root endpoint failed"
+	@echo "Testing health endpoint..."
+	@curl -sf http://localhost:8000/health > /dev/null && echo "✓ Health endpoint OK" || echo "✗ Health endpoint failed"
 
 # =============================================================================
 # Development Helpers
 # =============================================================================
 
 ps:
-	docker compose --profile local ps
+	@docker compose ps
 
 restart:
 	@echo "Restarting all services..."
-	docker compose --profile local restart
+	docker compose restart
 
 restart-gateway:
-	docker compose restart python-backend
+	@echo "Restarting gateway..."
+	docker compose restart gateway
 
-restart-transcribe:
-	docker compose restart transcribe
-
-restart-preprocess:
-	docker compose restart preprocess
+restart-asr:
+	@echo "Restarting ASR vLLM..."
+	docker compose restart asr-vllm
 
 restart-translate:
-	docker compose restart translate
+	@echo "Restarting Translation vLLM..."
+	docker compose restart translate-vllm
+
+# Local development (without Docker)
+local-install:
+	@echo "Installing dependencies locally..."
+	pip install -r requirements.txt
+	@echo "✓ Local installation complete"
+
+local-run:
+	@echo "Starting gateway locally on port 8000..."
+	@echo "Note: Make sure vLLM servers are running (via Docker or separately)"
+	VLLM_ASR_BASE_URL=http://localhost:8002/v1 \
+	VLLM_TRANSLATE_BASE_URL=http://localhost:8005/v1 \
+	python app.py

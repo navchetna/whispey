@@ -281,11 +281,121 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Setup
 
-1. Setup the repository
-2. Setup the database
-    - ```psql -h aws-1-us-east-2.pooler.supabase.com -p 6543 -d postgres -U postgres.owbyyfcrjxdekcvwgkbf -f evaluation-schema.sql```
-    - ```psql -h aws-1-us-east-2.pooler.supabase.com -p 6543 -d postgres -U postgres.owbyyfcrjxdekcvwgkbf -f setup-supabase.sql```
-    
-3. Configure the environment
-4. Run the development server
-  - ```npm run dev```
+### Prerequisites
+
+- Docker and Docker Compose
+- NVIDIA GPU with CUDA support (for local inference)
+- nvidia-docker runtime installed
+- 16GB+ RAM recommended
+- 50GB+ free disk space (for models)
+
+### Quick Start
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/PYPE-AI-MAIN/whispey
+   cd whispey
+   ```
+
+2. **Setup environment variables**
+   ```bash
+   cp .env.example .env.local
+   ```
+   
+   Edit `.env.local` and configure:
+   ```env
+   # Database (Supabase)
+   POSTGRES_HOST=your-supabase-host
+   POSTGRES_USER=your-user
+   POSTGRES_PASSWORD=your-password
+   POSTGRES_DATABASE=your-database
+   
+   # HuggingFace (required for diarization models)
+   HF_TOKEN=your-hf-token
+   
+   # Python Backend
+   MODEL_PROVIDER=local
+   ```
+
+3. **Setup the database**
+   ```bash
+   psql -h your-supabase-host -p 5432 -U your-user -d your-database -f evaluation-schema.sql
+   psql -h your-supabase-host -p 5432 -U your-user -d your-database -f setup-supabase.sql
+   ```
+
+4. **Start all services**
+   
+   ```bash
+   # Start all services including ML inference
+   docker compose up -d
+   
+   # View logs
+   docker compose logs -f
+   ```
+
+5. **Access the application**
+   - Frontend: http://localhost:3000
+   - Python Backend API: http://localhost:8000
+   - Backend Health: http://localhost:8000/health
+
+### Service Architecture
+
+The local ML setup includes:
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| Frontend | 3000 | Next.js web application |
+| Python Backend | 8000 | API gateway |
+| Database | 5432 | PostgreSQL (Supabase) |
+| Diarization | 8004 | Speaker separation & language detection |
+| ASR vLLM | 8002 | Granite speech-to-text server (vLLM) |
+| ASR Client | 8001 | ASR client wrapper |
+| Translation vLLM | 8005 | Gemma3 translation server (vLLM) |
+| Translation Client | 8003 | Translation client wrapper |
+
+### Development Setup
+
+For frontend development:
+```bash
+npm install
+npm run dev
+```
+
+For backend development:
+```bash
+cd python-backend
+pip install -r requirements.txt
+python app.py
+```
+
+### GPU Requirements
+
+The vLLM services require NVIDIA GPU:
+- CUDA-compatible GPU (tested with CUDA 12.0+)
+- Minimum 8GB VRAM (16GB recommended for both models)
+- nvidia-docker runtime
+
+To verify GPU is available:
+```bash
+docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi
+```
+
+### Troubleshooting
+
+**Models not downloading:**
+- Ensure HF_TOKEN is set in `.env.local`
+- Accept pyannote license: https://huggingface.co/pyannote/speaker-diarization-3.1
+- Check disk space: `df -h`
+
+**GPU not detected:**
+- Install nvidia-docker: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+- Restart Docker daemon: `sudo systemctl restart docker`
+
+**Services not connecting:**
+- Check all services are running: `docker compose ps`
+- View service logs: `docker compose logs [service-name]`
+- Restart services: `docker compose restart`
+
+For detailed python-backend setup and troubleshooting, see [python-backend/README.md](python-backend/README.md).
+
+For production vLLM deployment with optimized inference, see [python-backend/VLLM_DEPLOYMENT.md](python-backend/VLLM_DEPLOYMENT.md).

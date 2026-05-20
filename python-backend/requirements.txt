@@ -1,0 +1,19 @@
+# Diarization
+pyannote.audio
+
+# Language identification
+speechbrain
+
+# Core FastAPI dependencies
+fastapi
+uvicorn[standard]
+python-multipart
+python-dotenv
+
+# Audio processing
+soundfile
+numpy
+
+# OpenAI client for vLLM
+openai
+
