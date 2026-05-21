@@ -194,7 +194,7 @@ async def _execute_pipeline(request_id: str, audio_file_path: str) -> dict:
                 transcript = response.choices[0].message.content.strip()
 
                 log_request(request_id, "asr", "segment_complete", segment=i,
-                           chars=len(transcript))
+                           chars=len(transcript), text=transcript[:100] if transcript else "[EMPTY]")
             except Exception as e:
                 log_request(request_id, "asr", "segment_error", segment=i, error=str(e))
                 transcript = f"[Transcription failed]"
@@ -223,7 +223,8 @@ async def _execute_pipeline(request_id: str, audio_file_path: str) -> dict:
             if not segment["transcript"] or segment["transcript"].startswith("["):
                 translated_text = segment["transcript"]
                 log_request(request_id, "translation", "segment_skip", segment=i,
-                           reason="empty_or_error")
+                           reason="empty_or_error",
+                           text=segment["transcript"][:100] if segment["transcript"] else "[EMPTY]")
             else:
                 try:
                     log_request(request_id, "translation", "segment_start", segment=i,
@@ -258,7 +259,9 @@ Translation:"""
                     translated_text = _clean_translation(translated_text)
 
                     log_request(request_id, "translation", "segment_complete", segment=i,
-                               chars=len(translated_text))
+                               chars=len(translated_text),
+                               original=segment["transcript"][:100] if segment["transcript"] else "[EMPTY]",
+                               translated=translated_text[:100] if translated_text else "[EMPTY]")
                 except Exception as e:
                     log_request(request_id, "translation", "segment_error", segment=i,
                                error=str(e))
@@ -311,6 +314,26 @@ Translation:"""
                 }
             }
         }
+
+        # Log summary of transcript content
+        non_empty_turns = sum(1 for s in final_segments if s.get("content") and s["content"].strip())
+        empty_turns = len(final_segments) - non_empty_turns
+        log_request(request_id, "pipeline", "result_summary",
+                   total_turns=len(final_segments),
+                   non_empty_turns=non_empty_turns,
+                   empty_turns=empty_turns,
+                   sample_content=final_segments[0]["content"][:50] if final_segments and final_segments[0].get("content") else "[NO CONTENT]")
+
+        # Validate that transcript has meaningful content
+        if non_empty_turns == 0:
+            log_request(request_id, "pipeline", "validation_failed",
+                       reason="no_meaningful_content",
+                       total_turns=len(final_segments))
+            return {
+                "success": False,
+                "error": "No meaningful content found in transcript. All segments are empty.",
+                "transcript": None
+            }
 
         return result
 

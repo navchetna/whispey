@@ -81,11 +81,13 @@ services:
       - TARGET_LANGUAGE=${TARGET_LANGUAGE:-English}
       - TRANSCRIPTION_PROMPT=${TRANSCRIPTION_PROMPT:-can you transcribe the speech into a written format?}
       - HF_TOKEN=${HF_TOKEN}
+      - OMP_NUM_THREADS=32
+      - KMP_AFFINITY=granularity=fine,explicit,proclist=[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
     ports:
       - "${PYTHON_BACKEND_PORT:-8010}:8010"
     volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface
-      - ~/.cache/speechbrain:/app/tmp
+      - /user-adi/.cache/huggingface:/root/.cache/huggingface
+      - /user-adi/.cache/speechbrain:/app/tmp
     depends_on:
       - asr-vllm
       - translate-vllm
@@ -125,7 +127,7 @@ services:
       - VLLM_CPU_SGL_KERNEL=0
       - HF_TOKEN=${HF_TOKEN}
     volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface
+      - /user-adi/.cache/huggingface:/root/.cache/huggingface
     networks:
       - whispey
     healthcheck:
@@ -159,7 +161,7 @@ services:
       - VLLM_CPU_SGL_KERNEL=1
       - HF_TOKEN=${HF_TOKEN}
     volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface
+      - /user-adi/.cache/huggingface:/root/.cache/huggingface
     networks:
       - whispey
     healthcheck:

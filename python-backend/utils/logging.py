@@ -1,12 +1,20 @@
 """
 Centralized Logging Utility
 
-Provides request ID tracking across all components
+Provides request ID tracking across all components with color-coded output
 """
 import logging
 import sys
 from contextvars import ContextVar
 from typing import Optional
+
+# ANSI color codes
+class Colors:
+    RED = '\033[31m'
+    GREEN = '\033[32m'
+    YELLOW = '\033[33m'
+    CYAN = '\033[36m'
+    RESET = '\033[0m'
 
 # Context variable for request ID (thread-safe)
 request_id_context: ContextVar[Optional[str]] = ContextVar('request_id', default=None)
@@ -20,15 +28,34 @@ class RequestIdFilter(logging.Filter):
         return True
 
 
+class ColoredFormatter(logging.Formatter):
+    """Custom formatter with color-coded log levels"""
+
+    LEVEL_COLORS = {
+        'DEBUG': Colors.CYAN,
+        'INFO': Colors.GREEN,
+        'WARNING': Colors.YELLOW,
+        'ERROR': Colors.RED,
+        'CRITICAL': Colors.RED,
+    }
+
+    def format(self, record):
+        # Add color to level name
+        levelname = record.levelname
+        if levelname in self.LEVEL_COLORS:
+            record.levelname = f"{self.LEVEL_COLORS[levelname]}[{levelname}]{Colors.RESET}"
+        return super().format(record)
+
+
 def setup_logging(level: str = "INFO") -> None:
     """
-    Setup centralized logging with request ID tracking
+    Setup centralized logging with request ID tracking and color-coded output
 
     Args:
         level: Logging level (DEBUG, INFO, WARNING, ERROR)
     """
-    # Create formatter with request ID
-    formatter = logging.Formatter(
+    # Create colored formatter with request ID
+    formatter = ColoredFormatter(
         '%(asctime)s - [%(request_id)s] - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )

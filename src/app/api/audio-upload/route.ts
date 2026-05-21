@@ -1,14 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/postgres'
-import { 
-  createAudioDirectory, 
-  extractZipFile, 
-  downloadFileFromUrl, 
+import {
+  createAudioDirectory,
+  extractZipFile,
+  downloadFileFromUrl,
   getFileSize,
   isAudioFile
 } from '@/utils/fileUtils'
 import path from 'path'
 import fs from "fs"
+
+// ANSI color codes for terminal output
+const colors = {
+  reset: '\x1b[0m',
+  red: '\x1b[31m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  cyan: '\x1b[36m',
+}
+
+const log = {
+  error: (msg: string, data?: any) => {
+    console.error(`${colors.red}[ERROR]${colors.reset} ${msg}`, data || '')
+  },
+  success: (msg: string, data?: any) => {
+    console.log(`${colors.green}[SUCCESS]${colors.reset} ${msg}`, data || '')
+  },
+  warning: (msg: string, data?: any) => {
+    console.warn(`${colors.yellow}[WARNING]${colors.reset} ${msg}`, data || '')
+  },
+  info: (msg: string, data?: any) => {
+    console.log(`${colors.cyan}[INFO]${colors.reset} ${msg}`, data || '')
+  }
+}
 
 interface AudioFileRecord {
   file_name: string
@@ -60,7 +84,7 @@ export async function POST(request: NextRequest) {
 
     // Create directory structure: audio_files/{projectId}/{agentId}/
     const audioDirectory = await createAudioDirectory(projectId, agentId)
-    console.log(`Created audio directory: ${audioDirectory}`)
+    log.success(`[UPLOAD] Created audio directory: ${audioDirectory}`)
 
     const audioFiles: AudioFileRecord[] = []
     let uploadedCount = 0
@@ -76,14 +100,14 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      console.log(`Processing ZIP file: ${zipFile.name} (${zipFile.size} bytes)`)
+      log.info(`[UPLOAD] Processing ZIP file: ${zipFile.name} (${zipFile.size} bytes)`)
 
       // Read the ZIP file as buffer
       const zipBuffer = Buffer.from(await zipFile.arrayBuffer())
-      
+
       // Extract audio files from ZIP
       const extractedFiles = await extractZipFile(zipBuffer, audioDirectory)
-      console.log(`Extracted ${extractedFiles.length} audio files from ZIP`)
+      log.success(`[UPLOAD] Extracted ${extractedFiles.length} audio files from ZIP`)
 
       // Process each extracted file
       for (const fileName of extractedFiles) {
@@ -118,18 +142,18 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      console.log(`Processing audio file: ${audioFile.name} (${audioFile.size} bytes)`)
+      log.info(`[UPLOAD] Processing audio file: ${audioFile.name} (${audioFile.size} bytes)`)
 
       try {
         // Read the file as buffer and save to disk
         const fileBuffer = Buffer.from(await audioFile.arrayBuffer())
         const fileName = audioFile.name
         const filePath = path.join(audioDirectory, fileName)
-        
+
         // Write file to disk
         await fs.promises.writeFile(filePath, fileBuffer)
         const fileSize = await getFileSize(filePath)
-        
+
         audioFiles.push({
           file_name: fileName,
           file_path: filePath,
@@ -138,7 +162,7 @@ export async function POST(request: NextRequest) {
 
         uploadedCount = 1
       } catch (error) {
-        console.error('Failed to save audio file:', error)
+        log.error('[UPLOAD] Failed to save audio file:', error)
         return NextResponse.json(
           { error: `Failed to save audio file: ${error instanceof Error ? error.message : 'Unknown error'}` },
           { status: 500 }
@@ -156,13 +180,13 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      console.log(`Downloading audio file from URL: ${fileUrl}`)
+      log.info(`[UPLOAD] Downloading audio file from URL: ${fileUrl}`)
 
       try {
         const fileName = await downloadFileFromUrl(fileUrl, audioDirectory)
         const filePath = path.join(audioDirectory, fileName)
         const fileSize = await getFileSize(filePath)
-        
+
         audioFiles.push({
           file_name: fileName,
           file_path: filePath,
@@ -171,7 +195,7 @@ export async function POST(request: NextRequest) {
 
         uploadedCount = 1
       } catch (error) {
-        console.error('Failed to download file from URL:', error)
+        log.error('[UPLOAD] Failed to download file from URL:', error)
         return NextResponse.json(
           { error: `Failed to download file from URL: ${error instanceof Error ? error.message : 'Unknown error'}` },
           { status: 500 }
@@ -207,19 +231,27 @@ export async function POST(request: NextRequest) {
         )
         
         const audioFileRecord = audioFileResult.rows[0]
-        
+
+        log.success('[UPLOAD] Audio file inserted:', {
+          id: audioFileRecord.id,
+          file_name: audioFile.file_name,
+          status: audioFileRecord.status
+        })
+
         // Create a call log entry for this audio file
         // Use local file path as recording URL
         const localFileUrl = `/audios/${projectId}/${agentId}/${audioFile.file_name}`
-        
+
+        log.info(`[UPLOAD] Creating call log for audio file: ${audioFileRecord.id}`)
+
         // Create call log immediately with 'pending' status
         // Status will be updated to 'completed' after transcription completes
         // call_started_at is set to NOW() - the upload date/time
         const callLogResult = await query(
-          `INSERT INTO pype_voice_call_logs 
-          (call_id, agent_id, recording_url, voice_recording_url, customer_number, 
-           call_ended_reason, transcript_type, environment, created_at, call_started_at, metadata) 
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW(), $9) 
+          `INSERT INTO pype_voice_call_logs
+          (call_id, agent_id, recording_url, voice_recording_url, customer_number,
+           call_ended_reason, transcript_type, environment, created_at, call_started_at, metadata)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW(), $9)
           RETURNING *`,
           [
             `uploaded-${audioFileRecord.id}`,
@@ -230,7 +262,7 @@ export async function POST(request: NextRequest) {
             'pending', // Will be updated to 'completed' after transcription
             'uploaded',
             'production',
-            JSON.stringify({ 
+            JSON.stringify({
               audio_file_id: audioFileRecord.id,
               original_filename: audioFile.file_name,
               upload_source: uploadType,
@@ -238,24 +270,44 @@ export async function POST(request: NextRequest) {
             })
           ]
         )
-        
+
+        const callLog = callLogResult.rows[0]
+
+        log.success('[UPLOAD] Call log created:', {
+          id: callLog.id,
+          call_id: callLog.call_id,
+          call_ended_reason: callLog.call_ended_reason,
+          audio_file_id: audioFileRecord.id
+        })
+
         insertedRecords.push({
           audio_file: audioFileRecord,
-          call_log: callLogResult.rows[0]
+          call_log: callLog
         })
-        
-        console.log(`Created call log for: ${audioFile.file_name}`)
+
+        log.success(`[UPLOAD] Record created for: ${audioFile.file_name}`)
       } catch (error) {
-        console.error(`Failed to process ${audioFile.file_name}:`, error)
+        log.error(`[UPLOAD] Failed to process ${audioFile.file_name}:`, {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined,
+          file_name: audioFile.file_name,
+          file_path: audioFile.file_path
+        })
       }
     }
 
-    console.log(`Successfully uploaded ${uploadedCount} audio files to local storage`)
+    log.success(`[UPLOAD] Successfully uploaded ${uploadedCount} audio files to local storage`)
+    log.info('[UPLOAD] Summary:', {
+      uploaded_count: uploadedCount,
+      inserted_records: insertedRecords.length,
+      project_id: projectId,
+      agent_id: agentId
+    })
 
     // Trigger transcription for all uploaded audio files asynchronously
     if (insertedRecords.length > 0) {
-      console.log(`Starting transcription for ${insertedRecords.length} audio file(s)...`)
-      
+      log.info(`[UPLOAD] Starting transcription for ${insertedRecords.length} audio file(s)...`)
+
       // Trigger transcription in background - don't await
       insertedRecords.forEach((record) => {
         // Call transcription API internally using the request context
@@ -267,20 +319,35 @@ export async function POST(request: NextRequest) {
 
         formData.append('audio_file_id', String(record.audio_file.id));
 
+        log.info(`[UPLOAD] Triggering transcription for: ${record.audio_file.file_name} (ID: ${record.audio_file.id})`)
+
         fetch(`http://localhost:${process.env.PORT || 3000}/api/transcribe`, {
           method: 'POST',
           body: formData, // No headers – fetch sets them automatically
         }).then(async (response) => {
+          log.info(`[UPLOAD] Transcription response for ${record.audio_file.file_name}: Status ${response.status}`)
+
           if (response.ok) {
             const result = await response.json()
-            console.log(`Transcription completed for: ${record.audio_file.file_name}`)
+            log.success(`[UPLOAD] Transcription completed for: ${record.audio_file.file_name}`, {
+              success: result.success,
+              message: result.message,
+              audio_file_id: record.audio_file.id
+            })
           } else {
             const errorText = await response.text()
-            console.error(`Failed transcription for: ${record.audio_file.file_name}`)
-            console.error(`Status: ${response.status}, Response: ${errorText}`)
+            log.error(`[UPLOAD] Failed transcription for: ${record.audio_file.file_name}`, {
+              status: response.status,
+              error: errorText,
+              audio_file_id: record.audio_file.id
+            })
           }
         }).catch((error) => {
-          console.error(`❌ Error in transcription for ${record.audio_file.file_name}:`, error)
+          log.error(`[UPLOAD] Network error in transcription for ${record.audio_file.file_name}:`, {
+            error: error.message,
+            audio_file_id: record.audio_file.id,
+            call_log_id: record.call_log.id
+          })
         })
       })
     }
